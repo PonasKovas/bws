@@ -12,3 +12,4 @@ serde = { version = "1.0", features = ["derive"] }
 base64 = "0.13"
 futures = "0.1"
 slab = "0.4.2"
+hematite-nbt = "0.5.1"

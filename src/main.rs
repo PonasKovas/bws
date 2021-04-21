@@ -16,8 +16,8 @@ use structopt::StructOpt;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 
-const SUPPOERTED_PROTOCOL_VERSIONS: &[u32] = &[753];
-const VERSION_NAME: &str = "1.16.3 BWS";
+const SUPPORTED_PROTOCOL_VERSIONS: &[i64] = &[735, 736, 751, 753, 754]; // all 1.16 versions
+const VERSION_NAME: &str = "1.16 BWS";
 
 #[derive(Debug, StructOpt, Clone)]
 #[structopt(name = "bws", about = "Hello this is the description!")]
@@ -29,6 +29,18 @@ pub struct Opt {
     /// The favicon of the server to display in the server list
     #[structopt(short, long, default_value = "assets/favicon.png", env = "FAVICON")]
     pub favicon: PathBuf,
+
+    /// The server description shown in the server list
+    #[structopt(short, long, default_value = "§aA BWS server", env = "DESCRIPTION")]
+    pub description: String,
+
+    /// The player sample shown in the server list
+    #[structopt(short, long, default_value = "§c1.16\n§aBWS", env = "PLAYER_SAMPLE")]
+    pub player_sample: String,
+
+    /// The maximum number of players allowed on the server, if zero or negative, no limit is enforced
+    #[structopt(short, long, default_value = "0", env = "MAX_PLAYERS")]
+    pub max_players: i32,
 }
 
 #[tokio::main]
@@ -37,58 +49,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let favicon = std::fs::read(&opt.favicon)?;
 
-    // TODO: read the initial description and player sample from a config or as an argument/env var
+    let mut player_sample = json!([]);
+    for line in opt.player_sample.lines() {
+        player_sample.as_array_mut().unwrap().push(json!({
+            "name": line.to_string(),
+            "id": "00000000-0000-0000-0000-000000000000",
+        }));
+    }
 
     let global_state = GlobalState {
-        description: Arc::new(Mutex::new(chat_parse(
-            "§l                   §4✕ §cNO JAVA §4✕\n                  §2✓ §a100% Rust §2✓"
-                .to_string(),
-        ))),
+        description: Arc::new(Mutex::new(chat_parse(opt.description))),
         favicon: Arc::new(Mutex::new(format!(
             "data:image/png;base64,{}",
             base64::encode(favicon)
         ))),
-        player_sample: Arc::new(Mutex::new(json!([
-            {
-                "name": "§2§lMade from scratch with §a§l100% Rust",
-                "id": "00000000-0000-0000-0000-000000000000",
-            },
-            {
-                "name": "",
-                "id": "00000000-0000-0000-0000-000000000000",
-            },
-            {
-                "name": "By §6§lPonas §b© §d2021",
-                "id": "00000000-0000-0000-0000-000000000000",
-            },
-            {
-                "name": "",
-                "id": "00000000-0000-0000-0000-000000000000",
-            },
-        ]))),
+        player_sample: Arc::new(Mutex::new(player_sample)),
         max_players: Arc::new(Mutex::new(0)),
         players: Arc::new(Mutex::new(Slab::new())),
     };
-
-    // // a broadcast channel for sending instructions to network tasks
-    // // the format is (client_id, instruction)
-    // // where client id is assigned on connect
-    // let (n_sender, n_receiver) =
-    //     broadcast::channel::<(ClientId, stream_handler::Instruction)>(4096);
-
-    // // a broadcast channel for sending instructions to worlds
-    // // the format is (world_id, instruction)
-    // // where world id is assigned on world creation (0 is lobby)
-    // let (w_sender, w_receiver) = broadcast::channel::<(WorldId, world::Instruction)>(1024);
 
     let listener = TcpListener::bind(("0.0.0.0", opt.port)).await.unwrap();
 
     loop {
         let (socket, _) = listener.accept().await.unwrap();
-
-        // // we can just assign incremental IDs, and we shouldnt ever run out
-        // let id = next_id;
-        // next_id = next_id.wrapping_add(1);
 
         tokio::spawn(stream_handler::handle_stream(socket, global_state.clone()));
     }

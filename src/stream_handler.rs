@@ -10,6 +10,7 @@ use tokio::io::BufReader;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc::channel, Mutex};
+use tokio::time::{Duration, Instant};
 
 pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
     // get the address of the client
@@ -29,11 +30,15 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
     let mut socket = BufReader::new(socket);
     let mut buffer = Vec::new();
 
-    let mut client_protocol = 0;
+    let mut client_protocol = 0; // will be set when the client sends the handshake packet
+
+    let mut next_keepalive = Instant::now() + Duration::from_secs(5);
+    let mut last_keepalive_received = Instant::now();
 
     let mut state = 0; // 0 - handshake, 1 - status, 2 - login, 3 - play
     loop {
         // tokio::select - whichever arrives first: SHBound messages from other threads or input from the client
+        // also the timer to send the keepalive packets
         //
         // There is a problem with the current implementation, that is, if the length of the packet is started
         // being read but not finished, since it's done in multiple read calls and is interrupted by the
@@ -82,6 +87,11 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
                         }
                     }
                     ServerBound::StatusRequest => {
+                        let supported = global_state.description.lock().await;
+                        let unsupported = crate::chat_parse(
+                            format!("§4Your Minecraft version is §lnot supported§r§4.\n§c§lThe server §r§cis running §b§l{}§r§c.", crate::VERSION_NAME)
+                        );
+
                         let packet = ClientBound::StatusResponse(MString(
                             to_string(&json!({
                                 "version": {
@@ -93,7 +103,11 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
                                     "online": -1095,
                                     "sample": &*global_state.player_sample.lock().await,
                                 },
-                                "description": &*global_state.description.lock().await,
+                                "description": if crate::SUPPORTED_PROTOCOL_VERSIONS.iter().any(|&i| i==client_protocol) {
+                                        &*supported
+                                    } else {
+                                        &unsupported
+                                    },
                                 "favicon": &*global_state.favicon.lock().await,
                             }))
                             .unwrap(),
@@ -103,18 +117,55 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
                             return;
                         }
                     }
-                    _ => {
-                        if state == 2 {
+                    ServerBound::LoginStart(username) => {
+                        // TODO: check if anyone is already playing with this username
+                        if false {
                             let packet = ClientBound::LoginDisconnect(MString(
-                                to_string(&chat_parse("§l§4Not implemented yet! :(".to_string())).unwrap(),
+                                to_string(&chat_parse("§c§lSomeone is already playing with this username!".to_string())).unwrap(),
                             ));
-                            if let Err(_) = write_packet(&mut socket, &mut buffer, packet).await {
-                                // nooo...
-                                return;
-                            }
-                            // lol
+                            let _ = write_packet(&mut socket, &mut buffer, packet).await;
+                        }
+
+                        // everything's alright, come in
+                        let packet = ClientBound::LoginSuccess(0, username);
+                        if let Err(_) = write_packet(&mut socket, &mut buffer, packet).await {
                             return;
                         }
+
+                        let mut dimension = nbt::Blob::new();
+                        dimension.insert("piglin_safe".to_string(), nbt::Value::Byte(0)).unwrap();
+                        dimension.insert("natural".to_string(), nbt::Value::Byte(1)).unwrap();
+                        dimension.insert("ambient_light".to_string(), nbt::Value::Float(1.0)).unwrap();
+                        dimension.insert("fixed_time".to_string(), nbt::Value::Long(0)).unwrap();
+                        dimension.insert("infiniburn".to_string(), nbt::Value::String("".to_string())).unwrap();
+                        dimension.insert("respawn_anchor_works".to_string(), nbt::Value::Byte(0)).unwrap();
+                        dimension.insert("has_skylight".to_string(), nbt::Value::Byte(1)).unwrap();
+                        dimension.insert("bed_works".to_string(), nbt::Value::Byte(0)).unwrap();
+                        dimension.insert("effects".to_string(), nbt::Value::String("minecraft:overworld".to_string())).unwrap();
+                        dimension.insert("has_raids".to_string(), nbt::Value::Byte(0)).unwrap();
+                        dimension.insert("logical_height".to_string(), nbt::Value::Int(256)).unwrap();
+                        dimension.insert("coordinate_scale".to_string(), nbt::Value::Float(1.0)).unwrap();
+                        dimension.insert("ultrawarm".to_string(), nbt::Value::Byte(0)).unwrap();
+                        dimension.insert("has_ceiling".to_string(), nbt::Value::Byte(0)).unwrap();
+
+                        let packet = ClientBound::JoinGame(0, false, 0, -1, vec![MString("lobby".to_string()), MString("game".to_string())], dimension, MString("lobby".to_string()), 0, VarInt(20), VarInt(8), false, false, false, true);
+                        if let Err(_) = write_packet(&mut socket, &mut buffer, packet).await {
+                            return;
+                        }
+
+                        if let Err(_) = write_packet(&mut socket, &mut buffer, ClientBound::PlayerPositionAndLook(0.0, 0.0, 0.0, 0.0, 0.0, 0, VarInt(0))).await {
+                            return;
+                        }
+
+                        // since the keepalives are going to start being sent, reset the timeout timer
+                        last_keepalive_received = Instant::now();
+                        state = 3;
+                    }
+                    ServerBound::KeepAlive(_) => {
+                        // Reset the timeout timer
+                        last_keepalive_received = Instant::now();
+                    }
+                    _ => {
                     }
                 }
             },
@@ -131,7 +182,21 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
                     Some(m) => m,
                 };
                 println!("Received SHBound message");
-            }
+            },
+            _ = tokio::time::sleep_until(next_keepalive) => {
+                if state == 3 {
+                    // first check if the connection hasn't already timed out
+                    if Instant::now().duration_since(last_keepalive_received).as_secs_f32() > 30.0 {
+                        return;
+                    }
+                    // send the keep alive packet
+                    let packet = ClientBound::KeepAlive(0);
+                    if let Err(_) = write_packet(&mut socket, &mut buffer, packet).await {
+                        return;
+                    }
+                }
+                next_keepalive += Duration::from_secs(5);
+            },
         );
     }
 }
