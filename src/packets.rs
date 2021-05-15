@@ -46,7 +46,7 @@ pub enum ClientBound {
         bool,
         bool,
         bool,
-    ), // entity id, is_hardcore, gamemode, previous gamemode, worlds [name], nbt, identifier, hashed seed, max_players, view_distance, reduced_debug_info, enable_respawn_screen, is_debug, is_flat
+    ), // entity id, is_hardcore, gamemode, previous gamemode, worlds [name], dimension, identifier, hashed seed, max_players, view_distance, reduced_debug_info, enable_respawn_screen, is_debug, is_flat
     PlayerPositionAndLook(f64, f64, f64, f32, f32, u8, VarInt), // x, y, z, yaw, pitch, flags, tp id
                                                                 // SetCompression(VarInt),      // treshold
                                                                 // PlayDisconnect(MString),
