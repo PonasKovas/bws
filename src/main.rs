@@ -16,7 +16,7 @@ use structopt::StructOpt;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 
-const SUPPORTED_PROTOCOL_VERSIONS: &[i64] = &[735, 736, 751, 753, 754]; // all 1.16 versions
+const SUPPORTED_PROTOCOL_VERSIONS: &[i64] = &[753, 754]; // 1.16.3+
 const VERSION_NAME: &str = "1.16 BWS";
 
 #[derive(Debug, StructOpt, Clone)]
