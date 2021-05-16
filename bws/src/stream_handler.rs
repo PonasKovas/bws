@@ -132,31 +132,6 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
                             return;
                         }
 
-                        let mut dimension = nbt::Blob::new();
-                        dimension.insert("piglin_safe".to_string(), nbt::Value::Byte(0)).unwrap();
-                        dimension.insert("natural".to_string(), nbt::Value::Byte(1)).unwrap();
-                        dimension.insert("ambient_light".to_string(), nbt::Value::Float(1.0)).unwrap();
-                        dimension.insert("fixed_time".to_string(), nbt::Value::Long(0)).unwrap();
-                        dimension.insert("infiniburn".to_string(), nbt::Value::String("".to_string())).unwrap();
-                        dimension.insert("respawn_anchor_works".to_string(), nbt::Value::Byte(0)).unwrap();
-                        dimension.insert("has_skylight".to_string(), nbt::Value::Byte(1)).unwrap();
-                        dimension.insert("bed_works".to_string(), nbt::Value::Byte(0)).unwrap();
-                        dimension.insert("effects".to_string(), nbt::Value::String("minecraft:overworld".to_string())).unwrap();
-                        dimension.insert("has_raids".to_string(), nbt::Value::Byte(0)).unwrap();
-                        dimension.insert("logical_height".to_string(), nbt::Value::Int(256)).unwrap();
-                        dimension.insert("coordinate_scale".to_string(), nbt::Value::Float(1.0)).unwrap();
-                        dimension.insert("ultrawarm".to_string(), nbt::Value::Byte(0)).unwrap();
-                        dimension.insert("has_ceiling".to_string(), nbt::Value::Byte(0)).unwrap();
-
-                        let packet = ClientBound::JoinGame(0, false, 0, -1, vec![MString("lobby".to_string()), MString("game".to_string())], dimension, MString("lobby".to_string()), 0, VarInt(20), VarInt(8), false, false, false, true);
-                        if let Err(_) = write_packet(&mut socket, &mut buffer, packet).await {
-                            return;
-                        }
-
-                        if let Err(_) = write_packet(&mut socket, &mut buffer, ClientBound::PlayerPositionAndLook(0.0, 0.0, 0.0, 0.0, 0.0, 0, VarInt(0))).await {
-                            return;
-                        }
-
                         // since the keepalives are going to start being sent, reset the timeout timer
                         last_keepalive_received = Instant::now();
                         state = 3;
