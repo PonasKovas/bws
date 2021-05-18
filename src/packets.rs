@@ -187,7 +187,7 @@ impl ClientBound {
                 for world in worlds {
                     world.serialize(output);
                 }
-                output.extend_from_slice(include_bytes!("dimension_codec.nbt"));
+                output.extend_from_slice(incl!("assets/nbt/dimension_codec.nbt"));
                 dimension.to_writer(output).unwrap();
                 world_name.serialize(output);
                 hashed_seed.serialize(output);

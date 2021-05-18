@@ -1,3 +1,7 @@
+#![feature(array_map)]
+
+#[macro_use]
+mod incl_macro;
 mod chat_parse;
 mod clone_all;
 mod datatypes;
@@ -5,6 +9,7 @@ mod global_state;
 mod internal_communication;
 mod packets;
 mod stream_handler;
+mod world;
 
 pub use chat_parse::parse as chat_parse;
 use global_state::GlobalState;
@@ -15,6 +20,8 @@ use std::sync::Arc;
 use structopt::StructOpt;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
+
+use crate::world::Blocks;
 
 const SUPPORTED_PROTOCOL_VERSIONS: &[i64] = &[753, 754]; // 1.16.3+
 const VERSION_NAME: &str = "1.16 BWS";
@@ -35,7 +42,7 @@ pub struct Opt {
     pub description: String,
 
     /// The player sample shown in the server list
-    #[structopt(short, long, default_value = "§c1.16\n§aBWS", env = "PLAYER_SAMPLE")]
+    #[structopt(long, default_value = "§c1.16\n§aBWS", env = "PLAYER_SAMPLE")]
     pub player_sample: String,
 
     /// The maximum number of players allowed on the server, if zero or negative, no limit is enforced
@@ -66,6 +73,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         player_sample: Arc::new(Mutex::new(player_sample)),
         max_players: Arc::new(Mutex::new(0)),
         players: Arc::new(Mutex::new(Slab::new())),
+        w_login: Arc::new(Mutex::new(world::login::new())),
     };
 
     let listener = TcpListener::bind(("0.0.0.0", opt.port)).await.unwrap();
