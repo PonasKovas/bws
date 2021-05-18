@@ -5,7 +5,7 @@ authors = ["Ponas <mykolas.peteraitis@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-tokio = { version = "1.4", features = ["full"] }
+tokio = { version = "1.6", features = ["full"] }
 structopt = "0.3"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }

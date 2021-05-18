@@ -2,11 +2,11 @@ use crate::internal_communication as ic;
 use slab::Slab;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::sync::mpsc;
+use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::Mutex;
 
 pub struct Player {
-    sh_sender: mpsc::Sender<ic::SHBound>,
+    sh_sender: UnboundedSender<ic::SHBound>,
     address: SocketAddr,
 }
 
@@ -19,4 +19,5 @@ pub struct GlobalState {
     pub player_sample: Arc<Mutex<serde_json::Value>>,
     pub max_players: Arc<Mutex<i32>>,
     pub players: Arc<Mutex<Slab<Player>>>,
+    pub w_login: Arc<Mutex<UnboundedSender<ic::WBound>>>,
 }

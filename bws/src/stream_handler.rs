@@ -9,7 +9,7 @@ use std::sync::Arc;
 use tokio::io::BufReader;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio::sync::{mpsc::channel, Mutex};
+use tokio::sync::{mpsc::unbounded_channel, Mutex};
 use tokio::time::{Duration, Instant};
 
 pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
@@ -23,8 +23,8 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
     };
 
     // create the internal communication channels
-    let (sh_sender, mut sh_receiver) = channel::<ic::SHBound>(10);
-    let (mut w_sender, w_receiver) = channel::<ic::WBound>(10);
+    let (sh_sender, mut sh_receiver) = unbounded_channel::<ic::SHBound>();
+    let (mut w_sender, w_receiver) = unbounded_channel::<ic::WBound>();
 
     // Using a Buffered Reader may increase the performance significantly
     let mut socket = BufReader::new(socket);
@@ -135,6 +135,9 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
                         // since the keepalives are going to start being sent, reset the timeout timer
                         last_keepalive_received = Instant::now();
                         state = 3;
+
+                        // add the player to the login world
+                        // todo
                     }
                     ServerBound::KeepAlive(_) => {
                         // Reset the timeout timer
