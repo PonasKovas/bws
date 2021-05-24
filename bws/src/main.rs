@@ -21,8 +21,6 @@ use structopt::StructOpt;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 
-use crate::world::Blocks;
-
 const SUPPORTED_PROTOCOL_VERSIONS: &[i64] = &[753, 754]; // 1.16.3+
 const VERSION_NAME: &str = "1.16 BWS";
 
@@ -56,6 +54,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let favicon = std::fs::read(&opt.favicon)?;
 
+    // parse the player sample to the format minecraft requires
     let mut player_sample = json!([]);
     for line in opt.player_sample.lines() {
         player_sample.as_array_mut().unwrap().push(json!({

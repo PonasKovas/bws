@@ -3,37 +3,29 @@ use std::{
     time::Duration,
 };
 
-use crate::internal_communication::{SHBound, WBound};
-use crate::world::{Blocks, Player, World, WorldData};
+use crate::internal_communication::{SHBound, WBound, WSender};
+use crate::world::World;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 
-pub fn new() -> UnboundedSender<WBound> {
+pub struct LoginWorld {}
+
+impl World for LoginWorld {
+    fn get_world_name(&self) -> &str {
+        "Authorization"
+    }
+}
+
+pub fn new() -> WSender {
     let (w_sender, mut w_receiver) = unbounded_channel::<WBound>();
-    let w_sender_clone = w_sender.clone();
 
     Builder::new()
         .name("Login World Thread".to_string())
-        .stack_size(6 * 1024 * 1024)
         .spawn(move || {
-            let mut world = World {
-                data: WorldData {
-                    name: "Login".to_string(),
-                    blocks: Blocks::default(),
-                    players: Vec::new(),
-                },
-                c_player_join: Box::new(|world| {
-                    println!("Player joined");
-                    true
-                }),
-            };
+            let mut world = LoginWorld {};
 
-            loop {
-                sleep(Duration::from_secs(1));
-                (world.c_player_join)(&mut world.data);
-                println!("Login world is live!");
-            }
+            world.run(w_receiver);
         })
         .unwrap();
 
-    w_sender_clone
+    w_sender
 }
