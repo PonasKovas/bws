@@ -70,9 +70,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             base64::encode(favicon)
         ))),
         player_sample: Arc::new(Mutex::new(player_sample)),
-        max_players: Arc::new(Mutex::new(0)),
+        max_players: Arc::new(Mutex::new(opt.max_players)),
         players: Arc::new(Mutex::new(Slab::new())),
-        w_login: Arc::new(Mutex::new(world::login::new())),
+        w_login: Arc::new(Mutex::new(world::start(world::login::new()))),
     };
 
     let listener = TcpListener::bind(("0.0.0.0", opt.port)).await.unwrap();
