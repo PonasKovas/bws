@@ -1,6 +1,7 @@
 #!/bin/sh
 
-DESCRIPTION="§ahello and welcome to §b§lBWS!" \
+DESCRIPTION="                    §f§l§k.§r§b§l BWS §f§l§k.§r
+                   §f§l<=====>" \
 PLAYER_SAMPLE="§dHELLO
 §cAND WELCOME!" \
-./target/release/bws
+cargo run --release

@@ -39,22 +39,39 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
     loop {
         // tokio::select - whichever arrives first: SHBound messages from other threads or input from the client
         // also the timer to send the keepalive packets
-        //
-        // There is a problem with the current implementation, that is, if the length of the packet is started
-        // being read but not finished, since it's done in multiple read calls and is interrupted by the
-        // sh_receiver, the stream will be left in a corrupted state.
-        // However, this should be very unlikely and probably won't be a real issue.
         tokio::select!(
-            length = VarInt::read(&mut socket) => {
-                // read the rest of the packet
-                let length = match length {
+            byte = socket.read_u8() => {
+                // read the rest of the VarInt
+                let mut number = match byte {
                     Err(_) => {
-                        // bruh.. :(
+                        // sad
                         return;
-                    }
-                    Ok(l) => l,
+                    },
+                    Ok(b) => b,
                 };
-                let packet = match read_packet(&mut socket, &mut buffer, state, length.0 as usize).await {
+                let mut i = 0;
+                let mut length: i64 = 0;
+                loop {
+                    let value = (number & 0b01111111) as i64;
+                    length = length | (value << (7 * i));
+
+                    if (number & 0b10000000) == 0 {
+                        break;
+                    }
+
+                    number = match socket.read_u8().await {
+                        Err(_) => {
+                            // oh no!
+                            return;
+                        },
+                        Ok(b) => b,
+                    };
+                    i += 1;
+                }
+
+
+                // read the rest of the packet
+                let packet = match read_packet(&mut socket, &mut buffer, state, length as usize).await {
                     Err(_) => {
                         // another one lost ;(
                         return;
