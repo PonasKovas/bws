@@ -52,7 +52,13 @@ pub struct Opt {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let opt = Opt::from_args();
 
-    let favicon = std::fs::read(&opt.favicon)?;
+    let favicon = match std::fs::read(&opt.favicon) {
+        Ok(f) => f,
+        Err(e) => {
+            println!("Couldn't load the favicon ({:?})! {}", opt.favicon, e);
+            return Ok(());
+        }
+    };
 
     // parse the player sample to the format minecraft requires
     let mut player_sample = json!([]);
@@ -72,7 +78,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         player_sample: Arc::new(Mutex::new(player_sample)),
         max_players: Arc::new(Mutex::new(opt.max_players)),
         players: Arc::new(Mutex::new(Slab::new())),
-        w_login: Arc::new(Mutex::new(world::start(world::login::new()))),
+        w_login: world::start(world::login::new()),
     };
 
     let listener = TcpListener::bind(("0.0.0.0", opt.port)).await.unwrap();

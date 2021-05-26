@@ -1,6 +1,9 @@
 use crate::datatypes::*;
 use nbt::Blob as Nbt;
-use std::io::{self, Cursor};
+use std::{
+    env::Vars,
+    io::{self, Cursor},
+};
 
 // Sent from the client to the server
 #[derive(Debug, Clone)]
@@ -47,7 +50,19 @@ pub enum ClientBound {
         bool,
         bool,
     ), // entity id, is_hardcore, gamemode, previous gamemode, worlds [name], dimension, identifier, hashed seed, max_players, view_distance, reduced_debug_info, enable_respawn_screen, is_debug, is_flat
+    TimeUpdate(i64, i64), // world age and region time.
+    Title(TitleAction),
     PlayerPositionAndLook(f64, f64, f64, f32, f32, u8, VarInt), // x, y, z, yaw, pitch, flags, tp id
+    SetBrand(MString),                                          // name
+    ChunkData(
+        i32,
+        i32,
+        VarInt,
+        Nbt,
+        Vec<VarInt>,
+        Vec<ChunkSection>,
+        Vec<Nbt>,
+    ), // chunk X, chunk Z, primary bit mask, heightmaps, biomes, data, block entities
                                                                 // SetCompression(VarInt),      // treshold
                                                                 // PlayDisconnect(MString),
                                                                 // UpdateHealth(f32, VarInt, f32), // health, food, saturation
@@ -73,6 +88,16 @@ pub enum ClientBound {
                                                                 // SetSlot(i8, i16, Slot), // window id, slot id, slot data
                                                                 // Statistics(Vec<(VarInt, VarInt, VarInt)>), // Category, id, value
                                                                 //
+}
+
+#[derive(Debug, Clone)]
+pub enum TitleAction {
+    SetTitle(MString),
+    SetSubtitle(MString),
+    SetActionBar(MString),
+    SetDisplayTime(i32, i32, i32), // fade in, dislay, fade out - all in ticks
+    Hide,
+    Reset,
 }
 
 impl ServerBound {
@@ -150,6 +175,42 @@ impl ClientBound {
                 uuid.serialize(output);
                 username.serialize(output);
             }
+            Self::TimeUpdate(world_age, region_time) => {
+                VarInt(0x4E).serialize(output);
+
+                world_age.serialize(output);
+                region_time.serialize(output);
+            }
+            Self::Title(action) => {
+                VarInt(0x4F).serialize(output);
+
+                match action {
+                    TitleAction::SetTitle(text) => {
+                        VarInt(0).serialize(output);
+                        text.serialize(output);
+                    }
+                    TitleAction::SetSubtitle(text) => {
+                        VarInt(1).serialize(output);
+                        text.serialize(output);
+                    }
+                    TitleAction::SetActionBar(text) => {
+                        VarInt(2).serialize(output);
+                        text.serialize(output);
+                    }
+                    TitleAction::SetDisplayTime(fade_in, display, fade_out) => {
+                        VarInt(3).serialize(output);
+                        fade_in.serialize(output);
+                        display.serialize(output);
+                        fade_out.serialize(output);
+                    }
+                    TitleAction::Hide => {
+                        VarInt(4).serialize(output);
+                    }
+                    TitleAction::Reset => {
+                        VarInt(5).serialize(output);
+                    }
+                }
+            }
             Self::PlayerPositionAndLook(x, y, z, yaw, pitch, flags, tp_id) => {
                 VarInt(0x34).serialize(output);
 
@@ -160,6 +221,39 @@ impl ClientBound {
                 pitch.serialize(output);
                 flags.serialize(output);
                 tp_id.serialize(output);
+            }
+            Self::SetBrand(brand) => {
+                // this is actually a plugin message
+                // but since it's probably the only one we're gonna use
+                // it's much easier to make implementation just for this one
+                // instead of the generic plugin message
+                VarInt(0x17).serialize(output);
+
+                MString("minecraft:brand".to_string()).serialize(output);
+                brand.serialize(output);
+            }
+            Self::ChunkData(
+                chunk_x,
+                chunk_z,
+                primary_bit_mask,
+                heightmaps,
+                biomes,
+                data,
+                block_entities,
+            ) => {
+                VarInt(0x20).serialize(output);
+
+                chunk_x.serialize(output);
+                chunk_z.serialize(output);
+                true.serialize(output); // always full chunk on this server
+                primary_bit_mask.serialize(output);
+                heightmaps.to_writer(output).unwrap();
+                biomes.serialize(output);
+                data.serialize(output);
+                VarInt(block_entities.len() as i64).serialize(output);
+                for entity in &block_entities {
+                    entity.to_writer(output).unwrap();
+                }
             }
             Self::JoinGame(
                 entity_id,
