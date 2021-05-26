@@ -8,14 +8,15 @@ pub type WReceiver = UnboundedReceiver<WBound>;
 
 // StreamHandlerBound - all messages that are sent from GlobalState or Worlds to individual
 // players' stream handler threads
+#[derive(Debug)]
 pub enum SHBound {
-    Disconnect,
-    SendPacket(ClientBound),
+    Packet(ClientBound),
 }
 
 // WorldBound - all messages that are sent from individual players' stream handlers to
 // their respective worlds.
+#[derive(Debug)]
 pub enum WBound {
-    Disconnect,
+    AddPlayer(String, SHSender), // The player username and sender to the connection task
     Packet(ServerBound),
 }

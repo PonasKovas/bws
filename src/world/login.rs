@@ -11,7 +11,7 @@ pub struct LoginWorld {}
 
 impl World for LoginWorld {
     fn get_world_name(&self) -> &str {
-        "Authentication"
+        "authentication"
     }
 }
 

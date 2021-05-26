@@ -17,14 +17,13 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
     let address = match socket.peer_addr() {
         Ok(addr) => addr,
         Err(_) => {
-            // not even worth reporting
+            // bye
             return;
         }
     };
 
     // create the internal communication channels
     let (sh_sender, mut sh_receiver) = unbounded_channel::<ic::SHBound>();
-    let (mut w_sender, w_receiver) = unbounded_channel::<ic::WBound>();
 
     // Using a Buffered Reader may increase the performance significantly
     let mut socket = BufReader::new(socket);
@@ -141,10 +140,11 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
                                 to_string(&chat_parse("§c§lSomeone is already playing with this username!".to_string())).unwrap(),
                             ));
                             let _ = write_packet(&mut socket, &mut buffer, packet).await;
+                            return;
                         }
 
                         // everything's alright, come in
-                        let packet = ClientBound::LoginSuccess(0, username);
+                        let packet = ClientBound::LoginSuccess(0, username.clone());
                         if let Err(_) = write_packet(&mut socket, &mut buffer, packet).await {
                             return;
                         }
@@ -154,14 +154,13 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
                         state = 3;
 
                         // add the player to the login world
-                        // todo
+                        global_state.w_login.send(ic::WBound::AddPlayer(username.0, sh_sender.clone())).unwrap();
                     }
                     ServerBound::KeepAlive(_) => {
                         // Reset the timeout timer
                         last_keepalive_received = Instant::now();
                     }
-                    _ => {
-                    }
+                    _ => {}
                 }
             },
             message = sh_receiver.recv() => {
@@ -176,7 +175,14 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
                     }
                     Some(m) => m,
                 };
-                println!("Received SHBound message");
+
+                match message {
+                    ic::SHBound::Packet(packet) => {
+                        if let Err(_) = write_packet(&mut socket, &mut buffer, packet).await {
+                            return;
+                        }
+                    }
+                }
             },
             _ = tokio::time::sleep_until(next_keepalive) => {
                 if state == 3 {

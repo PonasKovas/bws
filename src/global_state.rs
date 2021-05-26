@@ -19,5 +19,5 @@ pub struct GlobalState {
     pub player_sample: Arc<Mutex<serde_json::Value>>,
     pub max_players: Arc<Mutex<i32>>,
     pub players: Arc<Mutex<Slab<Player>>>,
-    pub w_login: Arc<Mutex<ic::WSender>>,
+    pub w_login: ic::WSender,
 }

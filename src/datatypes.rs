@@ -22,6 +22,21 @@ pub enum Slot {
     NotPresent,
 }
 
+#[derive(Debug, Clone)]
+pub struct ChunkSection {
+    // number of non-air blocks in the chuck section, for lighting purposes.
+    block_count: i16,
+    palette: Palette,
+    data: Vec<i64>,
+}
+
+#[derive(Debug, Clone)]
+pub enum Palette {
+    FourBytes(Vec<VarInt>),
+    EightBytes(Vec<VarInt>),
+    Full,
+}
+
 impl VarInt {
     pub fn size(&self) -> u8 {
         let mut bytes = 0;
@@ -138,6 +153,50 @@ impl DataType for MString {
         let string = String::from_utf8_lossy(&string).into_owned();
 
         Ok(MString(string))
+    }
+}
+
+impl DataType for Palette {
+    fn serialize(self, output: &mut Vec<u8>) {
+        match self {
+            Palette::FourBytes(palette) => {
+                palette.serialize(output);
+            }
+            Palette::EightBytes(palette) => {
+                palette.serialize(output);
+            }
+            Palette::Full => {}
+        }
+    }
+    fn deserialize(input: &mut Cursor<&Vec<u8>>) -> io::Result<Self> {
+        // not sure if the client ever sends palettes :/
+        unimplemented!();
+    }
+}
+
+impl DataType for ChunkSection {
+    fn serialize(self, output: &mut Vec<u8>) {
+        self.block_count.serialize(output);
+
+        match self.palette {
+            Palette::FourBytes(_) => {
+                4u8.serialize(output);
+            }
+            Palette::EightBytes(_) => {
+                8u8.serialize(output);
+            }
+            Palette::Full => {
+                14u8.serialize(output);
+            }
+        }
+
+        self.palette.serialize(output);
+
+        self.data.serialize(output);
+    }
+    fn deserialize(input: &mut Cursor<&Vec<u8>>) -> io::Result<Self> {
+        // not sure if the client ever sends chunk sections either
+        unimplemented!();
     }
 }
 
