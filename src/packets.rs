@@ -2,18 +2,18 @@ use crate::datatypes::*;
 use nbt::Blob as Nbt;
 use std::{
     env::Vars,
-    io::{self, Cursor},
+    io::{self, Cursor, Write},
 };
 
 // Sent from the client to the server
 #[derive(Debug, Clone)]
 pub enum ServerBound {
-    Handshake(VarInt, MString, u16, VarInt), // protocol, address, port, next state
+    Handshake(VarInt, String, u16, VarInt), // protocol, address, port, next state
     StatusRequest,
-    StatusPing(i64),     // random number
-    LoginStart(MString), // username
+    StatusPing(i64),    // random number
+    LoginStart(String), // username
     KeepAlive(i64),
-    // ChatMessage(MString), // the raw message, up to 256 characters
+    // ChatMessage(String), // the raw message, up to 256 characters
     // ClientStatus(VarInt), // 0 - respawn, 1 - request statistics
     // InteractEntity(VarInt, VarInt, bool), // entity id, [0 - interact, 1 - attack, 2 - interact at (not supported)], whether sneaking
     // PlayerPositionAndRotation(f64, f64, f64, f32, f32, bool), // x, y, z, yaw, pitch, whether on ground
@@ -29,19 +29,20 @@ pub enum ServerBound {
 // Sent from the server to the client
 #[derive(Debug, Clone)]
 pub enum ClientBound {
-    StatusResponse(MString),
+    StatusResponse(String),
     StatusPong(i64), // the same random number
-    LoginDisconnect(MString),
+    LoginDisconnect(String),
     KeepAlive(i64),
-    LoginSuccess(u128, MString), // UUID and Username
+    SetCompression(VarInt),     // treshold
+    LoginSuccess(u128, String), // UUID and Username
     JoinGame(
         i32,
         bool,
         u8,
         i8,
-        Vec<MString>,
+        Vec<String>,
         Nbt,
-        MString,
+        String,
         i64,
         VarInt,
         VarInt,
@@ -53,7 +54,7 @@ pub enum ClientBound {
     TimeUpdate(i64, i64), // world age and region time.
     Title(TitleAction),
     PlayerPositionAndLook(f64, f64, f64, f32, f32, u8, VarInt), // x, y, z, yaw, pitch, flags, tp id
-    SetBrand(MString),                                          // name
+    SetBrand(String),                                           // name
     ChunkData(
         i32,
         i32,
@@ -63,8 +64,7 @@ pub enum ClientBound {
         Vec<ChunkSection>,
         Vec<Nbt>,
     ), // chunk X, chunk Z, primary bit mask, heightmaps, biomes, data, block entities
-                                                                // SetCompression(VarInt),      // treshold
-                                                                // PlayDisconnect(MString),
+                                                                // PlayDisconnect(String),
                                                                 // UpdateHealth(f32, VarInt, f32), // health, food, saturation
                                                                 //
                                                                 // SpawnLivingEntity(
@@ -92,25 +92,25 @@ pub enum ClientBound {
 
 #[derive(Debug, Clone)]
 pub enum TitleAction {
-    SetTitle(MString),
-    SetSubtitle(MString),
-    SetActionBar(MString),
+    SetTitle(String),
+    SetSubtitle(String),
+    SetActionBar(String),
     SetDisplayTime(i32, i32, i32), // fade in, dislay, fade out - all in ticks
     Hide,
     Reset,
 }
 
 impl ServerBound {
-    pub fn deserialize(input: &mut Cursor<&Vec<u8>>, status: i64) -> io::Result<Self> {
+    pub fn deserialize(input: &mut Cursor<&Vec<u8>>, state: i32) -> io::Result<Self> {
         let packet_id = VarInt::deserialize(input)?.0;
 
-        let result = match status {
+        let result = match state {
             0 => {
                 // Handshake
                 match packet_id {
                     0x00 => Ok(Self::Handshake(
                         VarInt::deserialize(input)?,
-                        MString::deserialize(input)?,
+                        String::deserialize(input)?,
                         u16::deserialize(input)?,
                         VarInt::deserialize(input)?,
                     )),
@@ -128,7 +128,7 @@ impl ServerBound {
             2 => {
                 // Login
                 match packet_id {
-                    0x00 => Ok(Self::LoginStart(MString::deserialize(input)?)),
+                    0x00 => Ok(Self::LoginStart(String::deserialize(input)?)),
                     _ => Ok(Self::Unknown(VarInt(packet_id))),
                 }
             }
@@ -147,7 +147,7 @@ impl ServerBound {
 }
 
 impl ClientBound {
-    pub fn serialize(self, output: &mut Vec<u8>) {
+    pub fn serialize<W: Write>(self, output: &mut W) {
         match self {
             Self::StatusResponse(json) => {
                 VarInt(0x00).serialize(output);
@@ -163,6 +163,11 @@ impl ClientBound {
                 VarInt(0x00).serialize(output);
 
                 reason.serialize(output);
+            }
+            Self::SetCompression(treshold) => {
+                VarInt(0x03).serialize(output);
+
+                treshold.serialize(output);
             }
             Self::KeepAlive(number) => {
                 VarInt(0x1F).serialize(output);
@@ -229,7 +234,7 @@ impl ClientBound {
                 // instead of the generic plugin message
                 VarInt(0x17).serialize(output);
 
-                MString("minecraft:brand".to_string()).serialize(output);
+                "minecraft:brand".to_string().serialize(output);
                 brand.serialize(output);
             }
             Self::ChunkData(
@@ -250,7 +255,7 @@ impl ClientBound {
                 heightmaps.to_writer(output).unwrap();
                 biomes.serialize(output);
                 data.serialize(output);
-                VarInt(block_entities.len() as i64).serialize(output);
+                VarInt(block_entities.len() as i32).serialize(output);
                 for entity in &block_entities {
                     entity.to_writer(output).unwrap();
                 }
@@ -277,11 +282,13 @@ impl ClientBound {
                 is_hardcore.serialize(output);
                 gamemode.serialize(output);
                 previous_gamemode.serialize(output);
-                VarInt(worlds.len() as i64).serialize(output);
+                VarInt(worlds.len() as i32).serialize(output);
                 for world in worlds {
                     world.serialize(output);
                 }
-                output.extend_from_slice(incl!("assets/nbt/dimension_codec.nbt"));
+                output
+                    .write_all(incl!("assets/nbt/dimension_codec.nbt"))
+                    .unwrap();
                 dimension.to_writer(output).unwrap();
                 world_name.serialize(output);
                 hashed_seed.serialize(output);

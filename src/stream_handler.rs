@@ -3,8 +3,12 @@ use crate::datatypes::*;
 use crate::internal_communication as ic;
 use crate::packets::{ClientBound, ServerBound};
 use crate::GlobalState;
+use flate2::write::ZlibDecoder;
+use flate2::write::ZlibEncoder;
+use flate2::Compression;
 use serde_json::{json, to_string};
 use std::io::Cursor;
+use std::io::Write;
 use std::sync::Arc;
 use tokio::io::BufReader;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -49,9 +53,9 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
                     Ok(b) => b,
                 };
                 let mut i = 0;
-                let mut length: i64 = 0;
+                let mut length: i32 = 0;
                 loop {
-                    let value = (number & 0b01111111) as i64;
+                    let value = (number & 0b01111111) as i32;
                     length = length | (value << (7 * i));
 
                     if (number & 0b10000000) == 0 {
@@ -70,7 +74,7 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
 
 
                 // read the rest of the packet
-                let packet = match read_packet(&mut socket, &mut buffer, state, length as usize).await {
+                let packet = match read_packet(&mut socket, &mut buffer, state, length as usize, global_state.compression_treshold).await {
                     Err(_) => {
                         // another one lost ;(
                         return;
@@ -97,7 +101,7 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
                     }
                     ServerBound::StatusPing(number) => {
                         let packet = ClientBound::StatusPong(number);
-                        if let Err(_) = write_packet(&mut socket, &mut buffer, packet).await {
+                        if let Err(_) = write_packet(&mut socket, &mut buffer, packet, -1).await {
                             // bro... :((
                             return;
                         }
@@ -108,7 +112,7 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
                             format!("§4Your Minecraft version is §lnot supported§r§4.\n§c§lThe server §r§cis running §b§l{}§r§c.", crate::VERSION_NAME)
                         );
 
-                        let packet = ClientBound::StatusResponse(MString(
+                        let packet = ClientBound::StatusResponse(
                             to_string(&json!({
                                 "version": {
                                     "name": crate::VERSION_NAME,
@@ -127,8 +131,8 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
                                 "favicon": &*global_state.favicon.lock().await,
                             }))
                             .unwrap(),
-                        ));
-                        if let Err(_) = write_packet(&mut socket, &mut buffer, packet).await {
+                        );
+                        if let Err(_) = write_packet(&mut socket, &mut buffer, packet, -1).await {
                             // dude no!!
                             return;
                         }
@@ -136,16 +140,24 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
                     ServerBound::LoginStart(username) => {
                         // TODO: check if anyone is already playing with this username
                         if false {
-                            let packet = ClientBound::LoginDisconnect(MString(
+                            let packet = ClientBound::LoginDisconnect(
                                 to_string(&chat_parse("§c§lSomeone is already playing with this username!".to_string())).unwrap(),
-                            ));
-                            let _ = write_packet(&mut socket, &mut buffer, packet).await;
+                            );
+                            let _ = write_packet(&mut socket, &mut buffer, packet, -1).await;
                             return;
+                        }
+
+                        // set compression if non-negative
+                        if global_state.compression_treshold >= 0 {
+                            let packet = ClientBound::SetCompression(VarInt(global_state.compression_treshold as i32));
+                            if let Err(_) = write_packet(&mut socket, &mut buffer, packet, -1).await {
+                                return;
+                            }
                         }
 
                         // everything's alright, come in
                         let packet = ClientBound::LoginSuccess(0, username.clone());
-                        if let Err(_) = write_packet(&mut socket, &mut buffer, packet).await {
+                        if let Err(_) = write_packet(&mut socket, &mut buffer, packet, global_state.compression_treshold).await {
                             return;
                         }
 
@@ -154,7 +166,7 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
                         state = 3;
 
                         // add the player to the login world
-                        global_state.w_login.send(ic::WBound::AddPlayer(username.0, sh_sender.clone())).unwrap();
+                        global_state.w_login.send(ic::WBound::AddPlayer(username, sh_sender.clone())).unwrap();
                     }
                     ServerBound::KeepAlive(_) => {
                         // Reset the timeout timer
@@ -178,7 +190,7 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
 
                 match message {
                     ic::SHBound::Packet(packet) => {
-                        if let Err(_) = write_packet(&mut socket, &mut buffer, packet).await {
+                        if let Err(_) = write_packet(&mut socket, &mut buffer, packet, global_state.compression_treshold).await {
                             return;
                         }
                     }
@@ -192,7 +204,7 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
                     }
                     // send the keep alive packet
                     let packet = ClientBound::KeepAlive(0);
-                    if let Err(_) = write_packet(&mut socket, &mut buffer, packet).await {
+                    if let Err(_) = write_packet(&mut socket, &mut buffer, packet, global_state.compression_treshold).await {
                         return;
                     }
                 }
@@ -205,12 +217,38 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
 async fn read_packet(
     socket: &mut BufReader<TcpStream>,
     buffer: &mut Vec<u8>,
-    state: i64,
+    state: i32,
     length: usize,
+    compression_treshold: i32,
 ) -> tokio::io::Result<ServerBound> {
-    buffer.resize(length, 0);
+    if compression_treshold >= 0 && state == 3 {
+        // compressed packet format
+        let uncompressed_size = VarInt::read(socket).await?;
 
-    socket.read_exact(&mut buffer[..]).await?;
+        if uncompressed_size.0 == 0 {
+            // that means the data isnt actually compressed so we can just read it normally
+            buffer.resize(length - 1, 0); // - 1 since we already read the uncompressed_size, which was 1 byte since it was 0
+
+            socket.read_exact(&mut buffer[..]).await?;
+        } else {
+            // time to decompress
+            buffer.clear();
+            let mut decoder = ZlibDecoder::new(&mut *buffer);
+            for _ in 0..(length - uncompressed_size.size() as usize) {
+                // this probably isn't really good but since the ZlibDecoder can't read from an async stream directly
+                // I will just feed it bytes one by one
+                let mut byte = [0];
+                socket.read_exact(&mut byte).await?;
+                decoder.write_all(&byte).unwrap();
+            }
+            decoder.finish().unwrap();
+        }
+    } else {
+        // uncompressed packet format
+        buffer.resize(length, 0);
+
+        socket.read_exact(&mut buffer[..]).await?;
+    }
 
     let mut cursor = Cursor::new(&*buffer);
 
@@ -221,12 +259,44 @@ async fn write_packet(
     socket: &mut BufReader<TcpStream>,
     buffer: &mut Vec<u8>,
     packet: ClientBound,
+    compression_treshold: i32,
 ) -> tokio::io::Result<()> {
     buffer.clear();
-    packet.serialize(buffer);
-    let length = VarInt(buffer.len() as i64);
-    length.write(socket).await?;
-    socket.write_all(&buffer[..]).await?;
+    if compression_treshold >= 0 {
+        // use the compressed packet format
+
+        // first check if the packet is long enough to actually be compressed
+        packet.clone().serialize(buffer);
+        let uncompressed_length = buffer.len();
+
+        // if the packet is long enough be compressed
+        if uncompressed_length as i32 >= compression_treshold {
+            buffer.clear();
+            let mut encoder = ZlibEncoder::new(&mut *buffer, Compression::fast());
+            packet.serialize(&mut encoder);
+            encoder.finish();
+            let compressed_length = buffer.len();
+
+            let uncompressed_length = VarInt(uncompressed_length as i32);
+            VarInt(compressed_length as i32 + uncompressed_length.size() as i32)
+                .write(socket)
+                .await?;
+            uncompressed_length.write(socket).await?;
+            socket.write_all(&buffer[..]).await?;
+        } else {
+            // the packet is not actually compressed
+            // ok just send it then
+            VarInt(uncompressed_length as i32 + 1).write(socket).await?; // + 1 because the following VarInt is counter too and it's always 1 byte since it's 0
+            VarInt(0).write(socket).await?;
+            socket.write_all(&buffer[..]).await?;
+        }
+    } else {
+        // the uncompressed packet format
+        packet.serialize(buffer);
+        let length = VarInt(buffer.len() as i32);
+        length.write(socket).await?;
+        socket.write_all(&buffer[..]).await?;
+    }
 
     Ok(())
 }

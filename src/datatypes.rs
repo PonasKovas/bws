@@ -4,17 +4,14 @@ use tokio::{io::BufReader, net::TcpStream};
 // A data type that is used in the minecraft protocol
 // all info available on https://wiki.vg/index.php?title=Protocol
 pub trait DataType {
-    fn serialize(self, output: &mut Vec<u8>);
+    fn serialize<W: Write>(self, output: &mut W);
     fn deserialize(input: &mut Cursor<&Vec<u8>>) -> io::Result<Self>
     where
         Self: Sized;
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct VarInt(pub i64);
-
-#[derive(Clone, Debug)]
-pub struct MString(pub String);
+pub struct VarInt(pub i32);
 
 #[derive(Clone, Debug, Copy)]
 pub enum Slot {
@@ -39,28 +36,18 @@ pub enum Palette {
 
 impl VarInt {
     pub fn size(&self) -> u8 {
-        let mut bytes = 0;
-        let mut temp = self.0;
-        loop {
-            bytes += 1;
-            temp = temp >> 7;
-            if temp == 0 {
-                break;
-            }
-        }
-
-        bytes
+        std::cmp::max((32 - (self.0 as u32).leading_zeros() + 6) / 7, 1) as u8
     }
     pub async fn read(input: &mut BufReader<TcpStream>) -> io::Result<Self> {
         use tokio::io::AsyncReadExt;
 
         let mut i = 0;
-        let mut result: i64 = 0;
+        let mut result: i32 = 0;
 
         loop {
             let number = input.read_u8().await?;
 
-            let value = (number & 0b01111111) as i64;
+            let value = (number & 0b01111111) as i32;
             result = result | (value << (7 * i));
 
             if (number & 0b10000000) == 0 {
@@ -74,7 +61,7 @@ impl VarInt {
     pub async fn write(self, output: &mut BufReader<TcpStream>) -> io::Result<()> {
         use tokio::io::AsyncWriteExt;
 
-        let mut number = (self.0 as u64) as i64;
+        let mut number = self.0 as u32;
 
         loop {
             let mut byte: u8 = number as u8 & 0b01111111;
@@ -99,8 +86,8 @@ impl VarInt {
 //////////////////////////////
 
 impl DataType for VarInt {
-    fn serialize(self, output: &mut Vec<u8>) {
-        let mut number = (self.0 as u64) as i64;
+    fn serialize<W: Write>(self, output: &mut W) {
+        let mut number = self.0 as u32;
 
         loop {
             let mut byte: u8 = number as u8 & 0b01111111;
@@ -110,7 +97,7 @@ impl DataType for VarInt {
                 byte = byte | 0b10000000;
             }
 
-            output.push(byte);
+            output.write_all(&[byte]);
 
             if number == 0 {
                 break;
@@ -119,13 +106,13 @@ impl DataType for VarInt {
     }
     fn deserialize(input: &mut Cursor<&Vec<u8>>) -> io::Result<Self> {
         let mut i = 0;
-        let mut result: i64 = 0;
+        let mut result: i32 = 0;
 
         let mut number = [0];
         loop {
             input.read_exact(&mut number)?;
 
-            let value = (number[0] & 0b01111111) as i64;
+            let value = (number[0] & 0b01111111) as i32;
             result = result | (value << (7 * i));
 
             if (number[0] & 0b10000000) == 0 {
@@ -138,12 +125,12 @@ impl DataType for VarInt {
     }
 }
 
-impl DataType for MString {
-    fn serialize(self, output: &mut Vec<u8>) {
+impl DataType for String {
+    fn serialize<W: Write>(self, output: &mut W) {
         // string length as VarInt
-        VarInt(self.0.len() as i64).serialize(output);
+        VarInt(self.len() as i32).serialize(output);
         // the actual string bytes
-        output.write_all(self.0.as_bytes()).unwrap();
+        output.write_all(self.as_bytes()).unwrap();
     }
     fn deserialize(input: &mut Cursor<&Vec<u8>>) -> io::Result<Self> {
         let string_length = VarInt::deserialize(input)?;
@@ -152,12 +139,12 @@ impl DataType for MString {
         input.read_exact(&mut string[..])?;
         let string = String::from_utf8_lossy(&string).into_owned();
 
-        Ok(MString(string))
+        Ok(string)
     }
 }
 
 impl DataType for Palette {
-    fn serialize(self, output: &mut Vec<u8>) {
+    fn serialize<W: Write>(self, output: &mut W) {
         match self {
             Palette::FourBytes(palette) => {
                 palette.serialize(output);
@@ -175,7 +162,7 @@ impl DataType for Palette {
 }
 
 impl DataType for ChunkSection {
-    fn serialize(self, output: &mut Vec<u8>) {
+    fn serialize<W: Write>(self, output: &mut W) {
         self.block_count.serialize(output);
 
         match self.palette {
@@ -201,7 +188,7 @@ impl DataType for ChunkSection {
 }
 
 impl DataType for Slot {
-    fn serialize(self, output: &mut Vec<u8>) {
+    fn serialize<W: Write>(self, output: &mut W) {
         match self {
             Slot::Present(id, number) => {
                 true.serialize(output);
@@ -227,10 +214,10 @@ impl DataType for Slot {
 }
 
 impl<T: DataType> DataType for Vec<T> {
-    fn serialize(self, output: &mut Vec<u8>) {
+    fn serialize<W: Write>(self, output: &mut W) {
         // vec length as VarInt
         let size = self.len();
-        VarInt(size as i64).serialize(output);
+        VarInt(size as i32).serialize(output);
 
         // the actual data
         for item in self {
@@ -250,7 +237,7 @@ impl<T: DataType> DataType for Vec<T> {
 }
 
 impl DataType for u16 {
-    fn serialize(self, output: &mut Vec<u8>) {
+    fn serialize<W: Write>(self, output: &mut W) {
         output.write_all(&mut self.to_be_bytes()).unwrap();
     }
     fn deserialize(input: &mut Cursor<&Vec<u8>>) -> io::Result<Self> {
@@ -263,7 +250,7 @@ impl DataType for u16 {
 }
 
 impl DataType for i32 {
-    fn serialize(self, output: &mut Vec<u8>) {
+    fn serialize<W: Write>(self, output: &mut W) {
         output.write_all(&mut self.to_be_bytes()).unwrap();
     }
     fn deserialize(input: &mut Cursor<&Vec<u8>>) -> io::Result<Self> {
@@ -276,7 +263,7 @@ impl DataType for i32 {
 }
 
 impl DataType for i16 {
-    fn serialize(self, output: &mut Vec<u8>) {
+    fn serialize<W: Write>(self, output: &mut W) {
         output.write_all(&mut self.to_be_bytes()).unwrap();
     }
     fn deserialize(input: &mut Cursor<&Vec<u8>>) -> io::Result<Self> {
@@ -289,7 +276,7 @@ impl DataType for i16 {
 }
 
 impl DataType for i8 {
-    fn serialize(self, output: &mut Vec<u8>) {
+    fn serialize<W: Write>(self, output: &mut W) {
         output.write_all(&mut self.to_be_bytes()).unwrap();
     }
     fn deserialize(input: &mut Cursor<&Vec<u8>>) -> io::Result<Self> {
@@ -302,7 +289,7 @@ impl DataType for i8 {
 }
 
 impl DataType for i64 {
-    fn serialize(self, output: &mut Vec<u8>) {
+    fn serialize<W: Write>(self, output: &mut W) {
         output.write_all(&mut self.to_be_bytes()).unwrap();
     }
     fn deserialize(input: &mut Cursor<&Vec<u8>>) -> io::Result<Self> {
@@ -315,7 +302,7 @@ impl DataType for i64 {
 }
 
 impl DataType for f32 {
-    fn serialize(self, output: &mut Vec<u8>) {
+    fn serialize<W: Write>(self, output: &mut W) {
         output.write_all(&mut self.to_be_bytes()).unwrap();
     }
     fn deserialize(input: &mut Cursor<&Vec<u8>>) -> io::Result<Self> {
@@ -328,7 +315,7 @@ impl DataType for f32 {
 }
 
 impl DataType for f64 {
-    fn serialize(self, output: &mut Vec<u8>) {
+    fn serialize<W: Write>(self, output: &mut W) {
         output.write_all(&mut self.to_be_bytes()).unwrap();
     }
     fn deserialize(input: &mut Cursor<&Vec<u8>>) -> io::Result<Self> {
@@ -341,7 +328,7 @@ impl DataType for f64 {
 }
 
 impl DataType for u8 {
-    fn serialize(self, output: &mut Vec<u8>) {
+    fn serialize<W: Write>(self, output: &mut W) {
         output.write_all(&mut self.to_be_bytes()).unwrap();
     }
     fn deserialize(input: &mut Cursor<&Vec<u8>>) -> io::Result<Self> {
@@ -354,7 +341,7 @@ impl DataType for u8 {
 }
 
 impl DataType for bool {
-    fn serialize(self, output: &mut Vec<u8>) {
+    fn serialize<W: Write>(self, output: &mut W) {
         output.write_all(&[self as u8]).unwrap();
     }
     fn deserialize(input: &mut Cursor<&Vec<u8>>) -> io::Result<Self> {
@@ -366,7 +353,7 @@ impl DataType for bool {
 }
 
 impl DataType for u128 {
-    fn serialize(self, output: &mut Vec<u8>) {
+    fn serialize<W: Write>(self, output: &mut W) {
         // nice format, mojang
         output
             .write_all(&mut ((self >> 64) as u64).to_be_bytes())
