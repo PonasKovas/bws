@@ -34,6 +34,19 @@ pub enum Palette {
     Full,
 }
 
+// Used in DeclareCommands packet
+#[derive(Debug, Clone)]
+pub enum CommandNode {
+    Root(Vec<VarInt>),                                  // child nodes indices
+    Literal(bool, Vec<VarInt>, Option<VarInt>, String), // executable, child nodes indices, redirect, name
+    Argument(bool, Vec<VarInt>, Option<VarInt>, String, Parser, bool), // executable, child nodes indices, redirect, name, parser, whether has suggestions
+}
+
+#[derive(Debug, Clone)]
+pub enum Parser {
+    String(VarInt), // type, 0 - SINGLE_WORD, 1 - QUOTABLE_PHRASE, 2 - GREEDY_PHRASE
+}
+
 impl VarInt {
     pub fn size(&self) -> u8 {
         std::cmp::max((32 - (self.0 as u32).leading_zeros() + 6) / 7, 1) as u8
@@ -157,6 +170,73 @@ impl DataType for Palette {
     }
     fn deserialize(input: &mut Cursor<&Vec<u8>>) -> io::Result<Self> {
         // not sure if the client ever sends palettes :/
+        unimplemented!();
+    }
+}
+
+impl DataType for CommandNode {
+    fn serialize<W: Write>(self, output: &mut W) {
+        let mut flags = 0u8;
+        match self {
+            Self::Root(children) => {
+                flags.serialize(output);
+                children.serialize(output);
+            }
+            Self::Literal(executable, children, redirect, name) => {
+                flags = flags | 0x01;
+                if executable {
+                    flags = flags | 0x04;
+                }
+                if let Some(_) = redirect {
+                    flags = flags | 0x08;
+                }
+                flags.serialize(output);
+                children.serialize(output);
+                if let Some(redirect) = redirect {
+                    redirect.serialize(output);
+                }
+                name.serialize(output);
+            }
+            Self::Argument(executable, children, redirect, name, parser, has_suggestions) => {
+                flags = flags | 0x02;
+                if executable {
+                    flags = flags | 0x04;
+                }
+                if let Some(_) = redirect {
+                    flags = flags | 0x08;
+                }
+                if has_suggestions {
+                    flags = flags | 0x10;
+                }
+                flags.serialize(output);
+                children.serialize(output);
+                if let Some(redirect) = redirect {
+                    redirect.serialize(output);
+                }
+                name.serialize(output);
+                parser.serialize(output);
+                if has_suggestions {
+                    "minecraft:ask_server".to_string().serialize(output); // always ask server
+                }
+            }
+        }
+    }
+    fn deserialize(input: &mut Cursor<&Vec<u8>>) -> io::Result<Self> {
+        unimplemented!();
+    }
+}
+
+impl DataType for Parser {
+    fn serialize<W: Write>(self, output: &mut W) {
+        match self {
+            Parser::String(properties) => {
+                "brigadier:string".to_string().serialize(output);
+
+                properties.serialize(output);
+            }
+        }
+    }
+    fn deserialize(input: &mut Cursor<&Vec<u8>>) -> io::Result<Self> {
         unimplemented!();
     }
 }
