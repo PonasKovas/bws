@@ -120,9 +120,9 @@ fn process_wbound_messages<W: World>(world: &mut W, w_receiver: &mut WReceiver) 
                     false,
                     0,
                     -1,
-                    vec![MString(world.get_world_name().to_string())],
+                    vec![world.get_world_name().to_string()],
                     dimension,
-                    MString(world.get_world_name().to_string()),
+                    world.get_world_name().to_string(),
                     0,
                     VarInt(20),
                     VarInt(8),
@@ -133,9 +133,7 @@ fn process_wbound_messages<W: World>(world: &mut W, w_receiver: &mut WReceiver) 
                 );
                 sh_sender.send(SHBound::Packet(packet)).unwrap();
                 sh_sender
-                    .send(SHBound::Packet(ClientBound::SetBrand(MString(
-                        "BWS".to_string(),
-                    ))))
+                    .send(SHBound::Packet(ClientBound::SetBrand("BWS".to_string())))
                     .unwrap();
 
                 sh_sender
@@ -153,20 +151,17 @@ fn process_wbound_messages<W: World>(world: &mut W, w_receiver: &mut WReceiver) 
                 // this definetely belongs in the login world only TODO (chunk data above too)
                 sh_sender
                     .send(SHBound::Packet(ClientBound::Title(TitleAction::SetTitle(
-                        MString(
-                            to_string(&chat_parse("§bWelcome to §d§lBWS§r§b!".to_string()))
-                                .unwrap(),
-                        ),
+                        to_string(&chat_parse("§bWelcome to §d§lBWS§r§b!".to_string())).unwrap(),
                     ))))
                     .unwrap();
                 sh_sender
                     .send(SHBound::Packet(ClientBound::Title(
-                        TitleAction::SetActionBar(MString(
+                        TitleAction::SetActionBar(
                             to_string(&chat_parse(
                                 "§aType §6/login §aor §6/register §ato continue".to_string(),
                             ))
                             .unwrap(),
-                        )),
+                        ),
                     )))
                     .unwrap();
                 sh_sender

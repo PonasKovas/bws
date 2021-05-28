@@ -21,7 +21,7 @@ use structopt::StructOpt;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 
-const SUPPORTED_PROTOCOL_VERSIONS: &[i64] = &[753, 754]; // 1.16.3+
+const SUPPORTED_PROTOCOL_VERSIONS: &[i32] = &[753, 754]; // 1.16.3+
 const VERSION_NAME: &str = "1.16 BWS";
 
 #[derive(Debug, StructOpt, Clone)]
@@ -46,6 +46,10 @@ pub struct Opt {
     /// The maximum number of players allowed on the server, if zero or negative, no limit is enforced
     #[structopt(short, long, default_value = "0", env = "MAX_PLAYERS")]
     pub max_players: i32,
+
+    /// The maximum number of bytes before the packet is compressed. Negative means no compression.
+    #[structopt(long, default_value = "256", env = "COMPRESSION_TRESHOLD")]
+    pub compression_treshold: i32,
 }
 
 #[tokio::main]
@@ -79,6 +83,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         max_players: Arc::new(Mutex::new(opt.max_players)),
         players: Arc::new(Mutex::new(Slab::new())),
         w_login: world::start(world::login::new()),
+        compression_treshold: opt.compression_treshold,
     };
 
     let listener = TcpListener::bind(("0.0.0.0", opt.port)).await.unwrap();
