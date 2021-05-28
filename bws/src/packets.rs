@@ -13,6 +13,7 @@ pub enum ServerBound {
     StatusPing(i64),    // random number
     LoginStart(String), // username
     KeepAlive(i64),
+    ChatMessage(String), // the raw message
     // ChatMessage(String), // the raw message, up to 256 characters
     // ClientStatus(VarInt), // 0 - respawn, 1 - request statistics
     // InteractEntity(VarInt, VarInt, bool), // entity id, [0 - interact, 1 - attack, 2 - interact at (not supported)], whether sneaking
@@ -55,6 +56,7 @@ pub enum ClientBound {
     Title(TitleAction),
     PlayerPositionAndLook(f64, f64, f64, f32, f32, u8, VarInt), // x, y, z, yaw, pitch, flags, tp id
     SetBrand(String),                                           // name
+    DeclareCommands(Vec<CommandNode>, VarInt), // all the nodes, and the index of the root node
     ChunkData(
         i32,
         i32,
@@ -64,30 +66,30 @@ pub enum ClientBound {
         Vec<ChunkSection>,
         Vec<Nbt>,
     ), // chunk X, chunk Z, primary bit mask, heightmaps, biomes, data, block entities
-                                                                // PlayDisconnect(String),
-                                                                // UpdateHealth(f32, VarInt, f32), // health, food, saturation
-                                                                //
-                                                                // SpawnLivingEntity(
-                                                                //     VarInt,
-                                                                //     u128,
-                                                                //     VarInt,
-                                                                //     f64,
-                                                                //     f64,
-                                                                //     f64,
-                                                                //     u8,
-                                                                //     u8,
-                                                                //     u8,
-                                                                //     i16,
-                                                                //     i16,
-                                                                //     i16,
-                                                                // ), // entity id, uuid, type, x, y, z, yaw, pitch, head pitch, velocity: x, y, z
-                                                                // EntityTeleport(VarInt, f64, f64, f64, u8, u8, bool), // entity id, x, y, z, yaw, pitch, whether on ground
-                                                                // EntityPosition(VarInt, i16, i16, i16, bool), // entity id, delta x, y ,z, whether on ground
-                                                                // DestroyEntities(Vec<VarInt>),                // Array of entity IDs to destroy
-                                                                //
-                                                                // SetSlot(i8, i16, Slot), // window id, slot id, slot data
-                                                                // Statistics(Vec<(VarInt, VarInt, VarInt)>), // Category, id, value
-                                                                //
+                                               // PlayDisconnect(String),
+                                               // UpdateHealth(f32, VarInt, f32), // health, food, saturation
+                                               //
+                                               // SpawnLivingEntity(
+                                               //     VarInt,
+                                               //     u128,
+                                               //     VarInt,
+                                               //     f64,
+                                               //     f64,
+                                               //     f64,
+                                               //     u8,
+                                               //     u8,
+                                               //     u8,
+                                               //     i16,
+                                               //     i16,
+                                               //     i16,
+                                               // ), // entity id, uuid, type, x, y, z, yaw, pitch, head pitch, velocity: x, y, z
+                                               // EntityTeleport(VarInt, f64, f64, f64, u8, u8, bool), // entity id, x, y, z, yaw, pitch, whether on ground
+                                               // EntityPosition(VarInt, i16, i16, i16, bool), // entity id, delta x, y ,z, whether on ground
+                                               // DestroyEntities(Vec<VarInt>),                // Array of entity IDs to destroy
+                                               //
+                                               // SetSlot(i8, i16, Slot), // window id, slot id, slot data
+                                               // Statistics(Vec<(VarInt, VarInt, VarInt)>), // Category, id, value
+                                               //
 }
 
 #[derive(Debug, Clone)]
@@ -136,6 +138,7 @@ impl ServerBound {
                 // Play
                 match packet_id {
                     0x10 => Ok(Self::KeepAlive(i64::deserialize(input)?)),
+                    0x03 => Ok(Self::ChatMessage(String::deserialize(input)?)),
                     _ => Ok(Self::Unknown(VarInt(packet_id))),
                 }
             }
@@ -236,6 +239,12 @@ impl ClientBound {
 
                 "minecraft:brand".to_string().serialize(output);
                 brand.serialize(output);
+            }
+            Self::DeclareCommands(nodes, root_index) => {
+                VarInt(0x10).serialize(output);
+
+                nodes.serialize(output);
+                root_index.serialize(output);
             }
             Self::ChunkData(
                 chunk_x,
