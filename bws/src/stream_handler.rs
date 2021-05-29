@@ -41,6 +41,7 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
 
     let player_id_in_world = RwLock::new(None);
 
+    // scopeguard
     defer! {
         if let Some(id) = *player_id_in_world.read().unwrap() {
             // if the player is still in some world, send them a message telling about the disconnection
@@ -116,7 +117,7 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
                     }
                     ServerBound::StatusRequest => {
                         let supported = global_state.description.lock().await;
-                        let unsupported = crate::chat_parse(
+                        let unsupported = crate::chat_parse::parse_json(
                             format!("§4Your Minecraft version is §lnot supported§r§4.\n§c§lThe server §r§cis running §b§l{}§r§c.", crate::VERSION_NAME)
                         );
 
@@ -149,7 +150,7 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
                         // check if version is supported
                         if !crate::SUPPORTED_PROTOCOL_VERSIONS.iter().any(|&i| i==client_protocol) {
                             let packet = ClientBound::LoginDisconnect(
-                                to_string(&chat_parse(format!("§4Your Minecraft version is §lnot supported§r§4.\n§c§lThe server §r§cis running §b§l{}§r§c.", crate::VERSION_NAME))).unwrap(),
+                                chat_parse(format!("§4Your Minecraft version is §lnot supported§r§4.\n§c§lThe server §r§cis running §b§l{}§r§c.", crate::VERSION_NAME)),
                             );
                             let _ = write_packet(&mut socket, &mut buffer, packet, -1).await;
                             return;
@@ -158,7 +159,7 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
                         // TODO: check if anyone is already playing with this username
                         if false {
                             let packet = ClientBound::LoginDisconnect(
-                                to_string(&chat_parse("§c§lSomeone is already playing with this username!".to_string())).unwrap(),
+                                chat_parse("§c§lSomeone is already playing with this username!".to_string()),
                             );
                             let _ = write_packet(&mut socket, &mut buffer, packet, -1).await;
                             return;

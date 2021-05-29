@@ -1,7 +1,12 @@
-use serde_json::{json, Value};
+use crate::datatypes::*;
+use serde_json::{json, to_string, Value};
+
+pub fn parse(mut input: String) -> Chat {
+    Chat(to_string(&parse_json(input)).unwrap())
+}
 
 // Converts a string with § to a json object that is used internally in minecraft
-pub fn parse(mut input: String) -> Value {
+pub fn parse_json(mut input: String) -> Value {
     let mut modifiers = Vec::new();
 
     let mut i = 0;
