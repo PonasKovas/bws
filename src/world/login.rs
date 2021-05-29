@@ -169,10 +169,14 @@ impl World for LoginWorld {
         self.players
             .insert((username, sh_sender, password.cloned()))
     }
+    fn remove_player(&mut self, id: usize) {
+        self.players.remove(id);
+    }
     fn sh_send(&self, id: usize, message: SHBound) {
-        self.players.get(id).unwrap().1.send(message).unwrap();
+        let _ = self.players.get(id).unwrap().1.send(message);
     }
     fn tick(&mut self, counter: u32) {
+        // this here looks inefficient, but we'll see if it actually causes any performance issues later.
         if counter % 20 == 0 {
             let login = to_string(&chat_parse(
                 "§aType §6/login §3<password> §ato continue".to_string(),

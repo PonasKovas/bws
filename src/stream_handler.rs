@@ -6,14 +6,15 @@ use crate::GlobalState;
 use flate2::write::ZlibDecoder;
 use flate2::write::ZlibEncoder;
 use flate2::Compression;
+use scopeguard::defer;
 use serde_json::{json, to_string};
 use std::io::Cursor;
 use std::io::Write;
-use std::sync::Arc;
+use std::sync::RwLock;
 use tokio::io::BufReader;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio::sync::{mpsc::unbounded_channel, Mutex};
+use tokio::sync::mpsc::unbounded_channel;
 use tokio::time::{Duration, Instant};
 
 pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
@@ -38,7 +39,14 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
     let mut next_keepalive = Instant::now() + Duration::from_secs(5);
     let mut last_keepalive_received = Instant::now();
 
-    let mut player_id_in_world = 0;
+    let player_id_in_world = RwLock::new(None);
+
+    defer! {
+        if let Some(id) = *player_id_in_world.read().unwrap() {
+            // if the player is still in some world, send them a message telling about the disconnection
+            global_state.w_login.send(ic::WBound::RemovePlayer(id)).unwrap();
+        }
+    }
 
     let mut state = 0; // 0 - handshake, 1 - status, 2 - login, 3 - play
     loop {
@@ -182,7 +190,10 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
                         last_keepalive_received = Instant::now();
                     }
                     other => {
-                        global_state.w_login.send(ic::WBound::Packet(player_id_in_world, other)).unwrap();
+                        if let Some(id) = *player_id_in_world.read().unwrap() {
+                            // TODO should send to the world currently in, not just w_login
+                            global_state.w_login.send(ic::WBound::Packet(id, other)).unwrap();
+                        }
                     }
                 }
             },
@@ -206,7 +217,7 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
                         }
                     }
                     ic::SHBound::AssignId(id) => {
-                        player_id_in_world = id;
+                        *player_id_in_world.write().unwrap() = Some(id);
                     }
                 }
             },

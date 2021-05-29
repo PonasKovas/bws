@@ -19,5 +19,6 @@ pub enum SHBound {
 #[derive(Debug)]
 pub enum WBound {
     AddPlayer(String, SHSender), // The player username and sender to the connection task
+    RemovePlayer(usize),         // id of the player
     Packet(usize, ServerBound),  // id of the player and the packet
 }

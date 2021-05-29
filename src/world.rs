@@ -49,6 +49,8 @@ pub trait World: Sized {
     // is called when new players join, and returns the internal world player ID
     // should also send the PlayerPositionAndLook packet
     fn add_player(&mut self, username: String, sh_sender: SHSender) -> usize;
+    // removes the player from memory
+    fn remove_player(&mut self, id: usize);
     // sends a SHBound message to the SHSender of the specified player
     // panics if no player with the given ID is in the world
     fn sh_send(&self, id: usize, message: SHBound);
@@ -92,6 +94,11 @@ fn process_wbound_messages<W: World>(world: &mut W, w_receiver: &mut WReceiver) 
                     .unwrap();
 
                 world.sh_send(id, SHBound::AssignId(id));
+            }
+            WBound::RemovePlayer(id) => {
+                println!("removing {}", id);
+
+                world.remove_player(id);
             }
             WBound::Packet(id, packet) => match packet {
                 ServerBound::ChatMessage(message) => {
