@@ -1,10 +1,8 @@
 use crate::chat_parse;
 use crate::datatypes::*;
-use crate::internal_communication::{SHBound, SHSender, WBound, WSender};
-use crate::packets::{ClientBound, ServerBound, TitleAction};
+use crate::internal_communication::{SHBound, SHSender};
+use crate::packets::{ClientBound, TitleAction};
 use crate::world::World;
-use nbt::Map;
-use serde_json::to_string;
 use sha2::{Digest, Sha256};
 use slab::Slab;
 use std::collections::HashMap;
@@ -13,12 +11,6 @@ use std::io::BufRead;
 use std::io::BufReader;
 use std::io::Write;
 use std::path::Path;
-use std::{
-    process::Command,
-    thread::{sleep, Builder},
-    time::Duration,
-};
-use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 
 const ACCOUNTS_FILE: &str = "accounts.bwsdata";
 
@@ -155,7 +147,7 @@ impl World for LoginWorld {
 
         sh_sender
             .send(SHBound::Packet(ClientBound::Title(TitleAction::SetTitle(
-                to_string(&chat_parse("§bWelcome to §d§lBWS§r§b!".to_string())).unwrap(),
+                chat_parse("§bWelcome to §d§lBWS§r§b!".to_string()),
             ))))
             .unwrap();
 
@@ -178,14 +170,10 @@ impl World for LoginWorld {
     fn tick(&mut self, counter: u32) {
         // this here looks inefficient, but we'll see if it actually causes any performance issues later.
         if counter % 20 == 0 {
-            let login = to_string(&chat_parse(
-                "§aType §6/login §3<password> §ato continue".to_string(),
-            ))
-            .unwrap();
-            let register = to_string(&chat_parse(
+            let login = chat_parse("§aType §6/login §3<password> §ato continue".to_string());
+            let register = chat_parse(
                 "§aType §6/register §3<password> <password again> §ato continue".to_string(),
-            ))
-            .unwrap();
+            );
 
             for (id, player) in &self.players {
                 let subtitle = if self.accounts.contains_key(&player.0) {
@@ -210,16 +198,9 @@ impl World for LoginWorld {
                     if let Some(password) = iterator.nth(1) {
                         let hash = format!("{:x}", Sha256::digest(password.as_bytes()));
                         if *password_hash == hash {
-                            self.tell(
-                                id,
-                                to_string(&chat_parse("§a§lSuccess!".to_string())).unwrap(),
-                            );
+                            self.tell(id, "§a§lSuccess!".to_string());
                         } else {
-                            self.tell(
-                                id,
-                                to_string(&chat_parse("§4§lIncorrect password!".to_string()))
-                                    .unwrap(),
-                            );
+                            self.tell(id, "§4§lIncorrect password!".to_string());
                         }
                         return;
                     }
@@ -233,18 +214,12 @@ impl World for LoginWorld {
                             if first_password != second_password {
                                 self.tell(
                                     id,
-                                    to_string(&chat_parse(
-                                        "§cThe passwords do not match, try again.".to_string(),
-                                    ))
-                                    .unwrap(),
+                                    "§cThe passwords do not match, try again.".to_string(),
                                 );
                                 return;
                             }
 
-                            self.tell(
-                                id,
-                                to_string(&chat_parse("§a§lSuccess!".to_string())).unwrap(),
-                            );
+                            self.tell(id, "§a§lSuccess!".to_string());
 
                             // register the gentleman
                             self.accounts.insert(
@@ -261,10 +236,7 @@ impl World for LoginWorld {
         }
 
         if message.starts_with("/") {
-            self.tell(
-                id,
-                to_string(&chat_parse("§cInvalid command.".to_string())).unwrap(),
-            );
+            self.tell(id, "§cInvalid command.".to_string());
             return;
         }
         println!("{}: {}", self.username(id), message);
@@ -321,7 +293,10 @@ pub fn new() -> LoginWorld {
 
 impl LoginWorld {
     pub fn tell(&self, id: usize, message: String) {
-        self.sh_send(id, SHBound::Packet(ClientBound::ChatMessage(message, 1)));
+        self.sh_send(
+            id,
+            SHBound::Packet(ClientBound::ChatMessage(chat_parse(message), 1)),
+        );
     }
     pub fn save_accounts(&self) {
         match File::create(ACCOUNTS_FILE) {

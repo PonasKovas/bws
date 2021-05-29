@@ -74,7 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let global_state = GlobalState {
-        description: Arc::new(Mutex::new(chat_parse(opt.description))),
+        description: Arc::new(Mutex::new(chat_parse::parse_json(opt.description))),
         favicon: Arc::new(Mutex::new(format!(
             "data:image/png;base64,{}",
             base64::encode(favicon)

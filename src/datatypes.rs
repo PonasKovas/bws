@@ -34,6 +34,9 @@ pub enum Palette {
     Full,
 }
 
+#[derive(Debug, Clone)]
+pub struct Chat(pub String);
+
 // Used in DeclareCommands packet
 #[derive(Debug, Clone)]
 pub enum CommandNode {
@@ -153,6 +156,16 @@ impl DataType for String {
         let string = String::from_utf8_lossy(&string).into_owned();
 
         Ok(string)
+    }
+}
+
+impl DataType for Chat {
+    fn serialize<W: Write>(self, output: &mut W) {
+        // since its just a newtype for string
+        self.0.serialize(output);
+    }
+    fn deserialize(input: &mut Cursor<&Vec<u8>>) -> io::Result<Self> {
+        Ok(Self(String::deserialize(input)?))
     }
 }
 
