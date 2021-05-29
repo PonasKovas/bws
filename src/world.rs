@@ -22,11 +22,14 @@ pub trait World: Sized {
 
     // the main method, takes over the thread and runs the world
     fn run(mut self, mut w_receiver: WReceiver) {
+        let mut counter = 0;
         loop {
             let start_of_tick = Instant::now();
 
             // first - process all WBound messages on the channel
             process_wbound_messages(&mut self, &mut w_receiver);
+
+            self.tick(counter);
 
             // and then simulate the game
 
@@ -35,16 +38,24 @@ pub trait World: Sized {
                 Duration::from_nanos(1_000_000_000 / 20)
                     .saturating_sub(Instant::now().duration_since(start_of_tick)),
             );
+            counter += 1;
         }
     }
+    // is called every tick
+    fn tick(&mut self, counter: u32);
     // should return the name of the world, which doesn't have to be unique
     // but should only contain [a-z0-9/._-] characters
     fn get_world_name(&self) -> &str;
-    // Should return the dimension of the world, which send to new players
-    fn dimension(&self) -> nbt::Blob;
-    // is called when new players join
+    // is called when new players join, and returns the internal world player ID
     // should also send the PlayerPositionAndLook packet
-    fn add_player(&mut self, username: String, sh_sender: SHSender);
+    fn add_player(&mut self, username: String, sh_sender: SHSender) -> usize;
+    // sends a SHBound message to the SHSender of the specified player
+    // panics if no player with the given ID is in the world
+    fn sh_send(&self, id: usize, message: SHBound);
+    // called when players type something in the chat. Could be a command
+    fn chat(&mut self, id: usize, message: String);
+    // should return the uesername of the given player
+    fn username(&self, id: usize) -> &str;
 }
 
 pub fn start<W: 'static + World + Send>(world: W) -> WSender {
@@ -74,32 +85,22 @@ fn process_wbound_messages<W: World>(world: &mut W, w_receiver: &mut WReceiver) 
             WBound::AddPlayer(username, sh_sender) => {
                 // Request to add the player to this world
 
-                let dimension = world.dimension();
-
-                let packet = ClientBound::JoinGame(
-                    0,
-                    false,
-                    0,
-                    -1,
-                    vec![world.get_world_name().to_string()],
-                    dimension,
-                    world.get_world_name().to_string(),
-                    0,
-                    VarInt(20),
-                    VarInt(8),
-                    false,
-                    false,
-                    false,
-                    true,
-                );
-                sh_sender.send(SHBound::Packet(packet)).unwrap();
+                let id = world.add_player(username, sh_sender.clone());
 
                 sh_sender
                     .send(SHBound::Packet(ClientBound::SetBrand("BWS".to_string())))
                     .unwrap();
 
-                world.add_player(username, sh_sender);
+                world.sh_send(id, SHBound::AssignId(id));
             }
+            WBound::Packet(id, packet) => match packet {
+                ServerBound::ChatMessage(message) => {
+                    world.chat(id, message);
+                }
+                _ => {
+                    println!("from {}: {:?}", id, packet);
+                }
+            },
             _ => {}
         }
     }
