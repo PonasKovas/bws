@@ -38,6 +38,8 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
     let mut next_keepalive = Instant::now() + Duration::from_secs(5);
     let mut last_keepalive_received = Instant::now();
 
+    let mut player_id_in_world = 0;
+
     let mut state = 0; // 0 - handshake, 1 - status, 2 - login, 3 - play
     loop {
         // tokio::select - whichever arrives first: SHBound messages from other threads or input from the client
@@ -81,8 +83,6 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
                     }
                     Ok(p) => p,
                 };
-
-                println!("{:?}", packet);
 
                 match packet {
                     ServerBound::Handshake(protocol, _ip, _port, next_state) => {
@@ -138,6 +138,15 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
                         }
                     }
                     ServerBound::LoginStart(username) => {
+                        // check if version is supported
+                        if !crate::SUPPORTED_PROTOCOL_VERSIONS.iter().any(|&i| i==client_protocol) {
+                            let packet = ClientBound::LoginDisconnect(
+                                to_string(&chat_parse(format!("§4Your Minecraft version is §lnot supported§r§4.\n§c§lThe server §r§cis running §b§l{}§r§c.", crate::VERSION_NAME))).unwrap(),
+                            );
+                            let _ = write_packet(&mut socket, &mut buffer, packet, -1).await;
+                            return;
+                        }
+
                         // TODO: check if anyone is already playing with this username
                         if false {
                             let packet = ClientBound::LoginDisconnect(
@@ -172,7 +181,9 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
                         // Reset the timeout timer
                         last_keepalive_received = Instant::now();
                     }
-                    _ => {}
+                    other => {
+                        global_state.w_login.send(ic::WBound::Packet(player_id_in_world, other)).unwrap();
+                    }
                 }
             },
             message = sh_receiver.recv() => {
@@ -193,6 +204,9 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
                         if let Err(_) = write_packet(&mut socket, &mut buffer, packet, global_state.compression_treshold).await {
                             return;
                         }
+                    }
+                    ic::SHBound::AssignId(id) => {
+                        player_id_in_world = id;
                     }
                 }
             },
@@ -274,7 +288,7 @@ async fn write_packet(
             buffer.clear();
             let mut encoder = ZlibEncoder::new(&mut *buffer, Compression::fast());
             packet.serialize(&mut encoder);
-            encoder.finish();
+            encoder.finish().unwrap();
             let compressed_length = buffer.len();
 
             let uncompressed_length = VarInt(uncompressed_length as i32);

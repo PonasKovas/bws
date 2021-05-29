@@ -14,3 +14,4 @@ futures = "0.3"
 slab = "0.4.2"
 hematite-nbt = "0.5.1"
 flate2 = { version = "1.0", features = ["tokio"] }
+sha2 = "0.9"

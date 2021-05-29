@@ -10,6 +10,7 @@ pub type WReceiver = UnboundedReceiver<WBound>;
 // players' stream handler threads
 #[derive(Debug)]
 pub enum SHBound {
+    AssignId(usize), // the stream handler thread receives this packet when the player joins any world, it contains the player ID inside that world
     Packet(ClientBound),
 }
 
@@ -18,5 +19,5 @@ pub enum SHBound {
 #[derive(Debug)]
 pub enum WBound {
     AddPlayer(String, SHSender), // The player username and sender to the connection task
-    Packet(ServerBound),
+    Packet(usize, ServerBound),  // id of the player and the packet
 }
