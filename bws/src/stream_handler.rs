@@ -1,8 +1,9 @@
 use crate::chat_parse;
 use crate::datatypes::*;
 use crate::internal_communication as ic;
+use crate::internal_communication::WSender;
 use crate::packets::{ClientBound, ServerBound};
-use crate::GlobalState;
+use crate::GLOBAL_STATE;
 use flate2::write::ZlibDecoder;
 use flate2::write::ZlibEncoder;
 use flate2::Compression;
@@ -17,7 +18,7 @@ use tokio::net::TcpStream;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::time::{Duration, Instant};
 
-pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
+pub async fn handle_stream(socket: TcpStream) {
     // get the address of the client
     let address = match socket.peer_addr() {
         Ok(addr) => addr,
@@ -40,12 +41,15 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
     let mut last_keepalive_received = Instant::now();
 
     let player_id_in_world = RwLock::new(None);
+    let world_sender: RwLock<Option<WSender>> = RwLock::new(None);
 
     // scopeguard
     defer! {
-        if let Some(id) = *player_id_in_world.read().unwrap() {
-            // if the player is still in some world, send them a message telling about the disconnection
-            global_state.w_login.send(ic::WBound::RemovePlayer(id)).unwrap();
+        if let Some(world_sender) = world_sender.read().unwrap().as_ref() {
+            if let Some(id) = *player_id_in_world.read().unwrap() {
+                // if the player is still in some world, send them a message telling about the disconnection
+                world_sender.send(ic::WBound::RemovePlayer(id)).unwrap();
+            }
         }
     }
 
@@ -63,7 +67,7 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
                     },
                     Ok(b) => b,
                 };
-                let mut i = 0;
+                let mut i: usize = 0;
                 let mut length: i32 = 0;
                 loop {
                     let value = (number & 0b01111111) as i32;
@@ -85,7 +89,7 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
 
 
                 // read the rest of the packet
-                let packet = match read_packet(&mut socket, &mut buffer, state, length as usize, global_state.compression_treshold).await {
+                let packet = match read_packet(&mut socket, &mut buffer, state, length as usize, GLOBAL_STATE.compression_treshold).await {
                     Err(_) => {
                         // another one lost ;(
                         return;
@@ -116,7 +120,7 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
                         }
                     }
                     ServerBound::StatusRequest => {
-                        let supported = global_state.description.lock().await;
+                        let supported = GLOBAL_STATE.description.lock().await;
                         let unsupported = crate::chat_parse::parse_json(
                             format!("§4Your Minecraft version is §lnot supported§r§4.\n§c§lThe server §r§cis running §b§l{}§r§c.", crate::VERSION_NAME)
                         );
@@ -128,16 +132,16 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
                                     "protocol": client_protocol,
                                 },
                                 "players": {
-                                    "max": &*global_state.max_players.lock().await,
+                                    "max": &*GLOBAL_STATE.max_players.lock().await,
                                     "online": -1095,
-                                    "sample": &*global_state.player_sample.lock().await,
+                                    "sample": &*GLOBAL_STATE.player_sample.lock().await,
                                 },
                                 "description": if crate::SUPPORTED_PROTOCOL_VERSIONS.iter().any(|&i| i==client_protocol) {
                                         &*supported
                                     } else {
                                         &unsupported
                                     },
-                                "favicon": &*global_state.favicon.lock().await,
+                                "favicon": &*GLOBAL_STATE.favicon.lock().await,
                             }))
                             .unwrap(),
                         );
@@ -166,8 +170,8 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
                         }
 
                         // set compression if non-negative
-                        if global_state.compression_treshold >= 0 {
-                            let packet = ClientBound::SetCompression(VarInt(global_state.compression_treshold as i32));
+                        if GLOBAL_STATE.compression_treshold >= 0 {
+                            let packet = ClientBound::SetCompression(VarInt(GLOBAL_STATE.compression_treshold as i32));
                             if let Err(_) = write_packet(&mut socket, &mut buffer, packet, -1).await {
                                 return;
                             }
@@ -175,7 +179,7 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
 
                         // everything's alright, come in
                         let packet = ClientBound::LoginSuccess(0, username.clone());
-                        if let Err(_) = write_packet(&mut socket, &mut buffer, packet, global_state.compression_treshold).await {
+                        if let Err(_) = write_packet(&mut socket, &mut buffer, packet, GLOBAL_STATE.compression_treshold).await {
                             return;
                         }
 
@@ -184,17 +188,20 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
                         state = 3;
 
                         // add the player to the login world
-                        global_state.w_login.send(ic::WBound::AddPlayer(username, sh_sender.clone())).unwrap();
+                        *world_sender.write().unwrap() = Some(GLOBAL_STATE.w_login.clone());
+                        world_sender.read().unwrap().as_ref().unwrap().send(ic::WBound::AddPlayer(username, sh_sender.clone(), address.clone())).unwrap();
                     }
                     ServerBound::KeepAlive(_) => {
                         // Reset the timeout timer
                         last_keepalive_received = Instant::now();
                     }
                     other => {
-                        if let Some(id) = *player_id_in_world.read().unwrap() {
-                            // TODO should send to the world currently in, not just w_login
-                            global_state.w_login.send(ic::WBound::Packet(id, other)).unwrap();
+                        if let Some(world_sender) = world_sender.read().unwrap().as_ref() {
+                            if let Some(id) = *player_id_in_world.read().unwrap() {
+                                world_sender.send(ic::WBound::Packet(id, other)).unwrap();
+                            }
                         }
+
                     }
                 }
             },
@@ -213,12 +220,19 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
 
                 match message {
                     ic::SHBound::Packet(packet) => {
-                        if let Err(_) = write_packet(&mut socket, &mut buffer, packet, global_state.compression_treshold).await {
+                        if let Err(_) = write_packet(&mut socket, &mut buffer, packet, GLOBAL_STATE.compression_treshold).await {
                             return;
                         }
                     }
                     ic::SHBound::AssignId(id) => {
                         *player_id_in_world.write().unwrap() = Some(id);
+                    }
+                    ic::SHBound::Disconnect => {
+                        return;
+                    }
+                    ic::SHBound::ChangeWorld(new_world_sender) => {
+                        *world_sender.write().unwrap() = Some(new_world_sender);
+                        // todo leave old world and join new
                     }
                 }
             },
@@ -230,7 +244,7 @@ pub async fn handle_stream(socket: TcpStream, global_state: GlobalState) {
                     }
                     // send the keep alive packet
                     let packet = ClientBound::KeepAlive(0);
-                    if let Err(_) = write_packet(&mut socket, &mut buffer, packet, global_state.compression_treshold).await {
+                    if let Err(_) = write_packet(&mut socket, &mut buffer, packet, GLOBAL_STATE.compression_treshold).await {
                         return;
                     }
                 }

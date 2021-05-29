@@ -2,6 +2,8 @@ pub mod login;
 
 use crate::chat_parse;
 use crate::datatypes::*;
+use crate::global_state;
+use crate::global_state::Player;
 use crate::internal_communication::SHSender;
 use crate::internal_communication::{SHBound, WBound, WReceiver, WSender};
 use crate::packets::{ClientBound, ServerBound, TitleAction};
@@ -58,6 +60,10 @@ pub trait World: Sized {
     fn chat(&mut self, id: usize, message: String);
     // should return the uesername of the given player
     fn username(&self, id: usize) -> &str;
+    // disconnectes the player from the server.
+    fn disconnect(&self, id: usize) {
+        self.sh_send(id, SHBound::Disconnect);
+    }
 }
 
 pub fn start<W: 'static + World + Send>(world: W) -> WSender {
@@ -84,8 +90,16 @@ fn process_wbound_messages<W: World>(world: &mut W, w_receiver: &mut WReceiver) 
         };
 
         match message {
-            WBound::AddPlayer(username, sh_sender) => {
+            WBound::AddPlayer(username, sh_sender, address) => {
                 // Request to add the player to this world
+
+                // todo might want to make a trait which could lock async mutex in sync context
+                let _global_id = futures::executor::block_on(crate::GLOBAL_STATE.players.lock())
+                    .insert(Player {
+                        username: username.clone(),
+                        sh_sender: sh_sender.clone(),
+                        address,
+                    });
 
                 let id = world.add_player(username, sh_sender.clone());
 
@@ -96,8 +110,6 @@ fn process_wbound_messages<W: World>(world: &mut W, w_receiver: &mut WReceiver) 
                 world.sh_send(id, SHBound::AssignId(id));
             }
             WBound::RemovePlayer(id) => {
-                println!("removing {}", id);
-
                 world.remove_player(id);
             }
             WBound::Packet(id, packet) => match packet {

@@ -25,51 +25,27 @@ impl World for LoginWorld {
     }
     fn add_player(&mut self, username: String, sh_sender: SHSender) -> usize {
         let mut dimension = nbt::Blob::new();
-        dimension
-            .insert("piglin_safe".to_string(), nbt::Value::Byte(0))
-            .unwrap();
-        dimension
-            .insert("natural".to_string(), nbt::Value::Byte(1))
-            .unwrap();
-        dimension
-            .insert("ambient_light".to_string(), nbt::Value::Float(1.0))
-            .unwrap();
-        dimension
-            .insert("fixed_time".to_string(), nbt::Value::Long(18000))
-            .unwrap();
-        dimension
-            .insert("infiniburn".to_string(), nbt::Value::String("".to_string()))
-            .unwrap();
-        dimension
-            .insert("respawn_anchor_works".to_string(), nbt::Value::Byte(0))
-            .unwrap();
-        dimension
-            .insert("has_skylight".to_string(), nbt::Value::Byte(1))
-            .unwrap();
-        dimension
-            .insert("bed_works".to_string(), nbt::Value::Byte(0))
-            .unwrap();
-        dimension
-            .insert(
-                "effects".to_string(),
-                nbt::Value::String("minecraft:overworld".to_string()),
-            )
-            .unwrap();
-        dimension
-            .insert("has_raids".to_string(), nbt::Value::Byte(0))
-            .unwrap();
-        dimension
-            .insert("logical_height".to_string(), nbt::Value::Int(256))
-            .unwrap();
-        dimension
-            .insert("coordinate_scale".to_string(), nbt::Value::Float(1.0))
-            .unwrap();
-        dimension
-            .insert("ultrawarm".to_string(), nbt::Value::Byte(0))
-            .unwrap();
-        dimension
-            .insert("has_ceiling".to_string(), nbt::Value::Byte(0))
-            .unwrap();
+
+        // rustfmt makes this block reaaally fat and ugly and disgusting oh my god
+        #[rustfmt::skip]
+        {
+            use nbt::Value::{Byte, Float, Int, Long, String as NbtString};
+
+            dimension.insert("piglin_safe".to_string(), Byte(0)).unwrap();
+            dimension.insert("natural".to_string(), Byte(1)).unwrap();
+            dimension.insert("ambient_light".to_string(), Float(1.0)).unwrap();
+            dimension.insert("fixed_time".to_string(), Long(18000)).unwrap();
+            dimension.insert("infiniburn".to_string(), NbtString("".to_string())).unwrap();
+            dimension.insert("respawn_anchor_works".to_string(), Byte(0)).unwrap();
+            dimension.insert("has_skylight".to_string(), Byte(1)).unwrap();
+            dimension.insert("bed_works".to_string(), Byte(0)).unwrap();
+            dimension.insert("effects".to_string(), NbtString("minecraft:overworld".to_string())).unwrap();
+            dimension.insert("has_raids".to_string(), Byte(0)).unwrap();
+            dimension.insert("logical_height".to_string(), Int(256)).unwrap();
+            dimension.insert("coordinate_scale".to_string(), Float(1.0)).unwrap();
+            dimension.insert("ultrawarm".to_string(), Byte(0)).unwrap();
+            dimension.insert("has_ceiling".to_string(), Byte(0)).unwrap();
+        };
 
         let packet = ClientBound::JoinGame(
             0,
@@ -199,6 +175,15 @@ impl World for LoginWorld {
                         let hash = format!("{:x}", Sha256::digest(password.as_bytes()));
                         if *password_hash == hash {
                             self.tell(id, "§a§lSuccess!".to_string());
+
+                            // TODO
+                            self.sh_send(
+                                id,
+                                SHBound::Packet(ClientBound::PlayDisconnect(chat_parse(
+                                    "ok".to_string(),
+                                ))),
+                            );
+                            self.disconnect(id);
                         } else {
                             self.tell(id, "§4§lIncorrect password!".to_string());
                         }
@@ -228,6 +213,15 @@ impl World for LoginWorld {
                             );
                             self.save_accounts();
 
+                            // TODO
+                            self.sh_send(
+                                id,
+                                SHBound::Packet(ClientBound::PlayDisconnect(chat_parse(
+                                    "ok".to_string(),
+                                ))),
+                            );
+                            self.disconnect(id);
+
                             return;
                         }
                     }
@@ -239,7 +233,6 @@ impl World for LoginWorld {
             self.tell(id, "§cInvalid command.".to_string());
             return;
         }
-        println!("{}: {}", self.username(id), message);
     }
     fn username(&self, id: usize) -> &str {
         &self.players.get(id).unwrap().0
@@ -308,8 +301,8 @@ impl LoginWorld {
                 std::process::exit(1);
             }
             Ok(mut f) => {
-                // yes i know and im sorry
                 for account in &self.accounts {
+                    // yes i know and im sorry
                     if let Err(e) = f.write_all(account.0.as_bytes()).and(
                         f.write_all(b" ")
                             .and(f.write_all(account.1.as_bytes()).and(f.write_all(b"\n"))),
@@ -318,7 +311,7 @@ impl LoginWorld {
                             "Failed to write to the accounts datafile ({}). {:?}",
                             ACCOUNTS_FILE, e
                         );
-                        std::process::exit(1);
+                        panic!();
                     }
                 }
             }

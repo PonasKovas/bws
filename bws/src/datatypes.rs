@@ -113,7 +113,7 @@ impl DataType for VarInt {
                 byte = byte | 0b10000000;
             }
 
-            output.write_all(&[byte]);
+            output.write_all(&[byte]).unwrap();
 
             if number == 0 {
                 break;
