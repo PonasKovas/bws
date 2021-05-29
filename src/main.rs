@@ -13,6 +13,7 @@ mod world;
 
 pub use chat_parse::parse as chat_parse;
 use global_state::GlobalState;
+use lazy_static::lazy_static;
 use serde_json::json;
 use slab::Slab;
 use std::path::PathBuf;
@@ -52,45 +53,53 @@ pub struct Opt {
     pub compression_treshold: i32,
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let opt = Opt::from_args();
+lazy_static! {
+    static ref GLOBAL_STATE: GlobalState = {
+        let opt = Opt::from_args();
 
-    let favicon = match std::fs::read(&opt.favicon) {
-        Ok(f) => f,
-        Err(e) => {
-            println!("Couldn't load the favicon ({:?})! {}", opt.favicon, e);
-            return Ok(());
+        let favicon = match std::fs::read(&opt.favicon) {
+            Ok(f) => f,
+            Err(e) => {
+                println!("Couldn't load the favicon ({:?})! {}", opt.favicon, e);
+                panic!();
+            }
+        };
+
+        // parse the player sample to the format minecraft requires
+        let mut player_sample = json!([]);
+        for line in opt.player_sample.lines() {
+            player_sample.as_array_mut().unwrap().push(json!({
+                "name": line.to_string(),
+                "id": "00000000-0000-0000-0000-000000000000",
+            }));
+        }
+        GlobalState {
+            description: Arc::new(Mutex::new(chat_parse::parse_json(opt.description))),
+            favicon: Arc::new(Mutex::new(format!(
+                "data:image/png;base64,{}",
+                base64::encode(favicon)
+            ))),
+            player_sample: Arc::new(Mutex::new(player_sample)),
+            max_players: Arc::new(Mutex::new(opt.max_players)),
+            players: Arc::new(Mutex::new(Slab::new())),
+            w_login: world::start(world::login::new()),
+            compression_treshold: opt.compression_treshold,
+            port: opt.port,
         }
     };
+}
 
-    // parse the player sample to the format minecraft requires
-    let mut player_sample = json!([]);
-    for line in opt.player_sample.lines() {
-        player_sample.as_array_mut().unwrap().push(json!({
-            "name": line.to_string(),
-            "id": "00000000-0000-0000-0000-000000000000",
-        }));
-    }
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    lazy_static::initialize(&GLOBAL_STATE);
 
-    let global_state = GlobalState {
-        description: Arc::new(Mutex::new(chat_parse::parse_json(opt.description))),
-        favicon: Arc::new(Mutex::new(format!(
-            "data:image/png;base64,{}",
-            base64::encode(favicon)
-        ))),
-        player_sample: Arc::new(Mutex::new(player_sample)),
-        max_players: Arc::new(Mutex::new(opt.max_players)),
-        players: Arc::new(Mutex::new(Slab::new())),
-        w_login: world::start(world::login::new()),
-        compression_treshold: opt.compression_treshold,
-    };
-
-    let listener = TcpListener::bind(("0.0.0.0", opt.port)).await.unwrap();
+    let listener = TcpListener::bind(("0.0.0.0", GLOBAL_STATE.port))
+        .await
+        .unwrap();
 
     loop {
         let (socket, _) = listener.accept().await.unwrap();
 
-        tokio::spawn(stream_handler::handle_stream(socket, global_state.clone()));
+        tokio::spawn(stream_handler::handle_stream(socket));
     }
 }

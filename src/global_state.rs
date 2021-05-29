@@ -1,4 +1,5 @@
 use crate::internal_communication as ic;
+use crate::internal_communication::SHSender;
 use slab::Slab;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -6,8 +7,9 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::Mutex;
 
 pub struct Player {
-    sh_sender: UnboundedSender<ic::SHBound>,
-    address: SocketAddr,
+    pub username: String,
+    pub sh_sender: SHSender,
+    pub address: SocketAddr,
 }
 
 // This is the global state that will be available on all threads
@@ -21,4 +23,5 @@ pub struct GlobalState {
     pub players: Arc<Mutex<Slab<Player>>>,
     pub w_login: ic::WSender,
     pub compression_treshold: i32,
+    pub port: u16,
 }
