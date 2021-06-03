@@ -14,6 +14,7 @@ mod world;
 pub use chat_parse::parse as chat_parse;
 use global_state::GlobalState;
 use lazy_static::lazy_static;
+use log::{debug, error, info};
 use serde_json::json;
 use slab::Slab;
 use std::path::PathBuf;
@@ -91,7 +92,14 @@ lazy_static! {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    env_logger::builder()
+        .filter_level(log::LevelFilter::Info)
+        .parse_default_env()
+        .init();
+
     lazy_static::initialize(&GLOBAL_STATE);
+
+    info!("Listening on port {}", GLOBAL_STATE.port);
 
     let listener = TcpListener::bind(("0.0.0.0", GLOBAL_STATE.port))
         .await
