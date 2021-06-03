@@ -8,6 +8,7 @@ use crate::internal_communication::SHSender;
 use crate::internal_communication::{SHBound, WBound, WReceiver, WSender};
 use crate::packets::{ClientBound, ServerBound, TitleAction};
 use futures::future::FutureExt;
+use log::info;
 use serde_json::{json, to_string};
 use std::{
     thread::Builder,
@@ -93,14 +94,6 @@ fn process_wbound_messages<W: World>(world: &mut W, w_receiver: &mut WReceiver) 
             WBound::AddPlayer(username, sh_sender, address) => {
                 // Request to add the player to this world
 
-                // todo might want to make a trait which could lock async mutex in sync context
-                let _global_id = futures::executor::block_on(crate::GLOBAL_STATE.players.lock())
-                    .insert(Player {
-                        username: username.clone(),
-                        sh_sender: sh_sender.clone(),
-                        address,
-                    });
-
                 let id = world.add_player(username, sh_sender.clone());
 
                 sh_sender
@@ -117,7 +110,7 @@ fn process_wbound_messages<W: World>(world: &mut W, w_receiver: &mut WReceiver) 
                     world.chat(id, message);
                 }
                 _ => {
-                    println!("from {}: {:?}", id, packet);
+                    info!("from {}: {:?}", id, packet);
                 }
             },
             _ => {}
