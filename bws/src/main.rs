@@ -1,12 +1,17 @@
 #![feature(array_map)]
+#![deny(unused_must_use)]
+// while developing (TODO remove)
+#![allow(unused_imports)]
 
 #[macro_use]
 mod incl_macro;
 mod chat_parse;
 mod clone_all;
+#[allow(dead_code)]
 mod datatypes;
 mod global_state;
 mod internal_communication;
+#[allow(dead_code)]
 mod packets;
 mod stream_handler;
 mod world;
@@ -14,7 +19,7 @@ mod world;
 pub use chat_parse::parse as chat_parse;
 use global_state::GlobalState;
 use lazy_static::lazy_static;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use serde_json::json;
 use slab::Slab;
 use std::path::PathBuf;
@@ -61,8 +66,8 @@ lazy_static! {
         let favicon = match std::fs::read(&opt.favicon) {
             Ok(f) => f,
             Err(e) => {
-                println!("Couldn't load the favicon ({:?})! {}", opt.favicon, e);
-                panic!();
+                error!("Couldn't load the favicon ({:?})! {}", opt.favicon, e);
+                std::process::exit(1);
             }
         };
 
@@ -83,7 +88,20 @@ lazy_static! {
             player_sample: Arc::new(Mutex::new(player_sample)),
             max_players: Arc::new(Mutex::new(opt.max_players)),
             players: Arc::new(Mutex::new(Slab::new())),
-            w_login: world::start(world::login::new()),
+            w_login: world::start(match world::login::new() {
+                Ok(w) => w,
+                Err(e) => {
+                    error!("Error creating login world: {}", e);
+                    std::process::exit(1);
+                },
+            }),
+            w_lobby: world::start(match world::lobby::new() {
+                Ok(w) => w,
+                Err(e) => {
+                    error!("Error creating lobby world: {}", e);
+                    std::process::exit(1);
+                },
+            }),
             compression_treshold: opt.compression_treshold,
             port: opt.port,
         }

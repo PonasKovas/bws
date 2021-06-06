@@ -1,7 +1,8 @@
-use crate::datatypes::*;
+use crate::{datatypes::*, world};
 use nbt::Blob as Nbt;
 use std::{
     env::Vars,
+    hash,
     io::{self, Cursor, Write},
 };
 
@@ -53,6 +54,7 @@ pub enum ClientBound {
         bool,
     ), // entity id, is_hardcore, gamemode, previous gamemode, worlds [name], dimension, identifier, hashed seed, max_players, view_distance, reduced_debug_info, enable_respawn_screen, is_debug, is_flat
     TimeUpdate(i64, i64), // world age and region time.
+    Respawn(Nbt, String, i64, u8, u8, bool, bool, bool), // dimension, world name, hashed seed, gamemoe, previous gamemode, debug, flat, copy metadata
     Title(TitleAction),
     PlayerPositionAndLook(f64, f64, f64, f32, f32, u8, VarInt), // x, y, z, yaw, pitch, flags, tp id
     SetBrand(String),                                           // name
@@ -151,7 +153,7 @@ impl ServerBound {
 }
 
 impl ClientBound {
-    pub fn serialize<W: Write>(self, output: &mut W) {
+    pub fn serialize<W: Write>(&self, output: &mut W) {
         match self {
             Self::StatusResponse(json) => {
                 VarInt(0x00).serialize(output);
@@ -194,6 +196,27 @@ impl ClientBound {
 
                 world_age.serialize(output);
                 region_time.serialize(output);
+            }
+            Self::Respawn(
+                dimension,
+                world_name,
+                hashed_seed,
+                gamemode,
+                previous_gamemode,
+                debug,
+                flat,
+                copy_metadata,
+            ) => {
+                VarInt(0x39).serialize(output);
+
+                dimension.to_writer(output).unwrap();
+                world_name.serialize(output);
+                hashed_seed.serialize(output);
+                gamemode.serialize(output);
+                previous_gamemode.serialize(output);
+                debug.serialize(output);
+                flat.serialize(output);
+                copy_metadata.serialize(output);
             }
             Self::Title(action) => {
                 VarInt(0x4F).serialize(output);
@@ -277,9 +300,28 @@ impl ClientBound {
                 primary_bit_mask.serialize(output);
                 heightmaps.to_writer(output).unwrap();
                 biomes.serialize(output);
-                data.serialize(output);
+                let mut chunk_sections_size = 0i32;
+                for chunk_section in data {
+                    chunk_sections_size += 3; // 2 bytes for block count, 1 byte for "bits per block"
+                    match &chunk_section.palette {
+                        Palette::Indirect(palette) => {
+                            chunk_sections_size += VarInt(palette.len() as i32).size() as i32;
+                            for block in palette {
+                                chunk_sections_size += block.size() as i32;
+                            }
+                        }
+                        Palette::Direct => {}
+                    }
+
+                    chunk_sections_size += VarInt(chunk_section.data.len() as i32).size() as i32;
+                    chunk_sections_size += 8 * chunk_section.data.len() as i32; // i64s
+                }
+                VarInt(chunk_sections_size).serialize(output); // TODO
+                for chunk_section in data {
+                    chunk_section.serialize(output);
+                }
                 VarInt(block_entities.len() as i32).serialize(output);
-                for entity in &block_entities {
+                for entity in block_entities {
                     entity.to_writer(output).unwrap();
                 }
             }

@@ -1,3 +1,4 @@
+pub mod lobby;
 pub mod login;
 
 use crate::chat_parse;
@@ -7,13 +8,15 @@ use crate::global_state::Player;
 use crate::internal_communication::SHSender;
 use crate::internal_communication::{SHBound, WBound, WReceiver, WSender};
 use crate::packets::{ClientBound, ServerBound, TitleAction};
+use anyhow::Result;
 use futures::future::FutureExt;
-use log::info;
+use log::{debug, error, info, warn};
 use serde_json::{json, to_string};
 use std::{
     thread::Builder,
     time::{Duration, Instant},
 };
+use tokio::sync::mpsc::error::SendError;
 use tokio::{
     sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
     task::unconstrained,
@@ -51,24 +54,26 @@ pub trait World: Sized {
     fn get_world_name(&self) -> &str;
     // is called when new players join, and returns the internal world player ID
     // should also send the PlayerPositionAndLook packet
-    fn add_player(&mut self, username: String, sh_sender: SHSender) -> usize;
+    fn add_player(&mut self, username: String, sh_sender: SHSender) -> Result<usize>;
     // removes the player from memory
     fn remove_player(&mut self, id: usize);
     // sends a SHBound message to the SHSender of the specified player
     // panics if no player with the given ID is in the world
-    fn sh_send(&self, id: usize, message: SHBound);
+    fn sh_send(&self, id: usize, message: SHBound) -> Result<()>;
     // called when players type something in the chat. Could be a command
-    fn chat(&mut self, id: usize, message: String);
+    fn chat(&mut self, id: usize, message: String) -> Result<()>;
     // should return the uesername of the given player
-    fn username(&self, id: usize) -> &str;
+    fn username(&self, id: usize) -> Result<&str>;
     // disconnectes the player from the server.
-    fn disconnect(&self, id: usize) {
-        self.sh_send(id, SHBound::Disconnect);
+    fn disconnect(&self, id: usize) -> Result<()> {
+        self.sh_send(id, SHBound::Disconnect)?;
+        Ok(())
     }
+    fn is_fixed_time(&self) -> Option<i64>;
 }
 
 pub fn start<W: 'static + World + Send>(world: W) -> WSender {
-    let (w_sender, mut w_receiver) = unbounded_channel::<WBound>();
+    let (w_sender, w_receiver) = unbounded_channel::<WBound>();
 
     Builder::new()
         .name(format!("'{}' world thread", world.get_world_name()))
@@ -91,23 +96,30 @@ fn process_wbound_messages<W: World>(world: &mut W, w_receiver: &mut WReceiver) 
         };
 
         match message {
-            WBound::AddPlayer(username, sh_sender, address) => {
+            WBound::AddPlayer(username, sh_sender, _address) => {
                 // Request to add the player to this world
 
-                let id = world.add_player(username, sh_sender.clone());
+                let id = match world.add_player(username, sh_sender.clone()) {
+                    Ok(id) => id,
+                    Err(e) => {
+                        error!("Couldn't add player to world: {}", e);
+                        continue;
+                    }
+                };
 
-                sh_sender
-                    .send(SHBound::Packet(ClientBound::SetBrand("BWS".to_string())))
-                    .unwrap();
-
-                world.sh_send(id, SHBound::AssignId(id));
+                if let Err(e) = world.sh_send(id, SHBound::AssignId(id)) {
+                    debug!("Couldn't send the player ID to stream handler: {}", e);
+                    continue;
+                }
             }
             WBound::RemovePlayer(id) => {
                 world.remove_player(id);
             }
             WBound::Packet(id, packet) => match packet {
                 ServerBound::ChatMessage(message) => {
-                    world.chat(id, message);
+                    if let Err(e) = world.chat(id, message) {
+                        error!("Error handling chat message from {}: {}", id, e);
+                    }
                 }
                 _ => {
                     info!("from {}: {:?}", id, packet);

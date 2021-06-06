@@ -22,6 +22,7 @@ pub struct GlobalState {
     pub max_players: Arc<Mutex<i32>>,
     pub players: Arc<Mutex<Slab<Player>>>,
     pub w_login: ic::WSender,
+    pub w_lobby: ic::WSender,
     pub compression_treshold: i32,
     pub port: u16,
 }
