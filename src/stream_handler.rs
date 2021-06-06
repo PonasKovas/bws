@@ -55,7 +55,11 @@ pub async fn handle_stream(socket: TcpStream) {
     if let Some(world_sender) = world_sender {
         if let Some(id) = player_id_in_world {
             // if the player is still in some world, send them a message telling about the disconnection
-            world_sender.send(ic::WBound::RemovePlayer(id)).unwrap();
+            if let Err(_) = world_sender.send(ic::WBound::RemovePlayer(id)) {
+                error!(
+                    "Tried to inform a world about a leaving player, but the world is not alive."
+                );
+            }
         }
     }
 }
@@ -164,7 +168,6 @@ async fn handle(
                             return Ok(());
                         }
 
-                        // TODO: check if anyone is already playing with this username
                         if GLOBAL_STATE.players.lock().await.iter().any(|(_, player)| player.username == username) {
                             let packet = ClientBound::LoginDisconnect(
                                 chat_parse("§c§lSomeone is already playing with this username!".to_string()),
@@ -189,7 +192,7 @@ async fn handle(
 
                         // add the player to the global_state
                         let global_id =
-                            crate::GLOBAL_STATE.players.lock().await.insert(Player {
+                            GLOBAL_STATE.players.lock().await.insert(Player {
                                 username: username.clone(),
                                 sh_sender: sh_sender.clone(),
                                 address,
@@ -198,7 +201,8 @@ async fn handle(
 
                         // add the player to the login world
                         GLOBAL_STATE.w_login.send(ic::WBound::AddPlayer(username, sh_sender.clone(), address.clone())).context("Login world receiver lost.")?;
-                        *world_sender = Some(GLOBAL_STATE.w_login.clone());                    }
+                        *world_sender = Some(GLOBAL_STATE.w_login.clone());
+                    }
                     ServerBound::KeepAlive(_) => {
                         // Reset the timeout timer
                         last_keepalive_received = Instant::now();
@@ -214,7 +218,9 @@ async fn handle(
                 }
             },
             message = sh_receiver.recv() => {
-                let message =message.unwrap();
+                // its impossible for this unwrap to fail, since
+                // there is always a sender to this receiver in this very same thread.
+                let message = message.unwrap();
 
                 match message {
                     ic::SHBound::Packet(packet) => {
@@ -227,8 +233,16 @@ async fn handle(
                         return Ok(());
                     }
                     ic::SHBound::ChangeWorld(new_world_sender) => {
-                        *world_sender = Some(new_world_sender);
-                        // todo leave old world and join new
+                        // wouldnt make sense to "change" worlds before even sending the LoginStart packet
+                        if let Some(global_id) = global_player_id {
+                            if let Some(old_world) = world_sender {
+                                if let Some(world_id) = player_id_in_world {
+                                    old_world.send(ic::WBound::RemovePlayer(*world_id)).context("World receiver lost.")?;
+                                }
+                            }
+                            new_world_sender.send(ic::WBound::AddPlayer(GLOBAL_STATE.players.lock().await.get(*global_id).unwrap().username.clone(), sh_sender.clone(), address.clone())).context("World receiver lost.")?;
+                            *world_sender = Some(new_world_sender);
+                        }
                     }
                 }
             },

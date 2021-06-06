@@ -1,7 +1,9 @@
 use crate::datatypes::*;
+use anyhow::Result;
+use log::debug;
 use serde_json::{json, to_string, Value};
 
-pub fn parse(mut input: String) -> Chat {
+pub fn parse(input: String) -> Chat {
     Chat(to_string(&parse_json(input)).unwrap())
 }
 
@@ -37,8 +39,8 @@ pub fn parse_json(mut input: String) -> Value {
 
             // remove the characters
             let start_byte_index = input.char_indices().nth(i).unwrap().0;
-            let end_byte_index = input.char_indices().nth(i + 2).unwrap().0;
-            input.replace_range(start_byte_index..end_byte_index, "");
+            let end_byte_index = input.char_indices().nth(i + 1).unwrap().0;
+            input.replace_range(start_byte_index..=end_byte_index, "");
             continue;
         }
         // normal text
@@ -147,16 +149,24 @@ pub fn parse_json(mut input: String) -> Value {
 
         if i == modifiers.len() - 1 {
             // the last segment so just read to end
-            let lower_bound = input.char_indices().nth(modifier.0).unwrap().0;
-            container["text"] = json!(input[lower_bound..]);
+            container["text"] = match input.char_indices().nth(modifier.0) {
+                Some(lower_bound) => json!(input[(lower_bound.0)..]),
+                None => json!(""),
+            }
         } else {
             // if last modifier of the same segment
             if modifiers[i + 1].0 != modifier.0 {
                 // (different position follows)
                 // add the text
                 let lower_bound = input.char_indices().nth(modifier.0).unwrap().0;
-                let upper_bound = input.char_indices().nth(modifiers[i + 1].0).unwrap().0;
-                container["text"] = json!(input[lower_bound..upper_bound]);
+                container["text"] = match input.char_indices().nth(modifiers[i + 1].0) {
+                    Some(upper_bound) => {
+                        json!(input[lower_bound..upper_bound.0])
+                    }
+                    None => {
+                        json!(input[lower_bound..])
+                    }
+                }
             }
         }
 

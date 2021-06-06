@@ -3,6 +3,11 @@ use crate::datatypes::*;
 use crate::internal_communication::{SHBound, SHSender};
 use crate::packets::{ClientBound, TitleAction};
 use crate::world::World;
+use crate::GLOBAL_STATE;
+use anyhow::bail;
+use anyhow::Context;
+use anyhow::Result;
+use log::{debug, error, info, warn};
 use sha2::{Digest, Sha256};
 use slab::Slab;
 use std::collections::HashMap;
@@ -23,7 +28,10 @@ impl World for LoginWorld {
     fn get_world_name(&self) -> &str {
         "authentication"
     }
-    fn add_player(&mut self, username: String, sh_sender: SHSender) -> usize {
+    fn is_fixed_time(&self) -> Option<i64> {
+        Some(18000)
+    }
+    fn add_player(&mut self, username: String, sh_sender: SHSender) -> Result<usize> {
         let mut dimension = nbt::Blob::new();
 
         // rustfmt makes this block reaaally fat and ugly and disgusting oh my god
@@ -34,9 +42,11 @@ impl World for LoginWorld {
             dimension.insert("piglin_safe".to_string(), Byte(0)).unwrap();
             dimension.insert("natural".to_string(), Byte(1)).unwrap();
             dimension.insert("ambient_light".to_string(), Float(1.0)).unwrap();
-            dimension.insert("fixed_time".to_string(), Long(18000)).unwrap();
+            if let Some(time) = self.is_fixed_time() {
+                dimension.insert("fixed_time".to_string(), Long(time)).unwrap();
+            }
             dimension.insert("infiniburn".to_string(), NbtString("".to_string())).unwrap();
-            dimension.insert("respawn_anchor_works".to_string(), Byte(0)).unwrap();
+            dimension.insert("respawn_anchor_works".to_string(), Byte(1)).unwrap();
             dimension.insert("has_skylight".to_string(), Byte(1)).unwrap();
             dimension.insert("bed_works".to_string(), Byte(0)).unwrap();
             dimension.insert("effects".to_string(), NbtString("minecraft:overworld".to_string())).unwrap();
@@ -63,85 +73,87 @@ impl World for LoginWorld {
             false,
             true,
         );
-        sh_sender.send(SHBound::Packet(packet)).unwrap();
+        sh_sender.send(SHBound::Packet(packet))?;
 
-        sh_sender
-            .send(SHBound::Packet(ClientBound::PlayerPositionAndLook(
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0,
-                VarInt(0),
-            )))
-            .unwrap();
+        sh_sender.send(SHBound::Packet(ClientBound::PlayerPositionAndLook(
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            -20.0,
+            0,
+            VarInt(0),
+        )))?;
+
+        sh_sender.send(SHBound::Packet(ClientBound::SetBrand("BWS".to_string())))?;
 
         let password = self.accounts.get(&username);
 
         // declare commands
-        sh_sender
-            .send(SHBound::Packet(ClientBound::DeclareCommands(
-                if password.is_some() {
-                    vec![
-                        CommandNode::Root(vec![VarInt(1)]),
-                        CommandNode::Literal(false, vec![VarInt(2)], None, "login".to_string()),
-                        CommandNode::Argument(
-                            true,
-                            Vec::new(),
-                            None,
-                            "password".to_string(),
-                            Parser::String(VarInt(0)),
-                            false,
-                        ),
-                    ]
-                } else {
-                    vec![
-                        CommandNode::Root(vec![VarInt(1)]),
-                        CommandNode::Literal(false, vec![VarInt(2)], None, "register".to_string()),
-                        CommandNode::Argument(
-                            false,
-                            vec![VarInt(3)],
-                            None,
-                            "password".to_string(),
-                            Parser::String(VarInt(0)),
-                            false,
-                        ),
-                        CommandNode::Argument(
-                            true,
-                            Vec::new(),
-                            None,
-                            "password".to_string(),
-                            Parser::String(VarInt(0)),
-                            false,
-                        ),
-                    ]
-                },
-                VarInt(0),
-            )))
-            .unwrap();
+        sh_sender.send(SHBound::Packet(ClientBound::DeclareCommands(
+            if password.is_some() {
+                vec![
+                    CommandNode::Root(vec![VarInt(1)]),
+                    CommandNode::Literal(false, vec![VarInt(2)], None, "login".to_string()),
+                    CommandNode::Argument(
+                        true,
+                        Vec::new(),
+                        None,
+                        "password".to_string(),
+                        Parser::String(VarInt(0)),
+                        false,
+                    ),
+                ]
+            } else {
+                vec![
+                    CommandNode::Root(vec![VarInt(1)]),
+                    CommandNode::Literal(false, vec![VarInt(2)], None, "register".to_string()),
+                    CommandNode::Argument(
+                        false,
+                        vec![VarInt(3)],
+                        None,
+                        "password".to_string(),
+                        Parser::String(VarInt(0)),
+                        false,
+                    ),
+                    CommandNode::Argument(
+                        true,
+                        Vec::new(),
+                        None,
+                        "password".to_string(),
+                        Parser::String(VarInt(0)),
+                        false,
+                    ),
+                ]
+            },
+            VarInt(0),
+        )))?;
 
-        sh_sender
-            .send(SHBound::Packet(ClientBound::Title(TitleAction::SetTitle(
-                chat_parse("§bWelcome to §d§lBWS§r§b!".to_string()),
-            ))))
-            .unwrap();
+        sh_sender.send(SHBound::Packet(ClientBound::Title(TitleAction::Reset)))?;
 
-        sh_sender
-            .send(SHBound::Packet(ClientBound::Title(
-                TitleAction::SetDisplayTime(15, 60, 15),
-            )))
-            .unwrap();
+        sh_sender.send(SHBound::Packet(ClientBound::Title(TitleAction::SetTitle(
+            chat_parse("§bWelcome to §d§lBWS§r§b!".to_string()),
+        ))))?;
+
+        sh_sender.send(SHBound::Packet(ClientBound::Title(
+            TitleAction::SetDisplayTime(15, 60, 15),
+        )))?;
 
         // return the id of player
-        self.players
-            .insert((username, sh_sender, password.cloned()))
+        Ok(self
+            .players
+            .insert((username, sh_sender, password.cloned())))
     }
     fn remove_player(&mut self, id: usize) {
         self.players.remove(id);
     }
-    fn sh_send(&self, id: usize, message: SHBound) {
-        let _ = self.players.get(id).unwrap().1.send(message);
+    fn sh_send(&self, id: usize, message: SHBound) -> Result<()> {
+        self.players
+            .get(id)
+            .context("No player with given ID in world")?
+            .1
+            .send(message)?;
+        Ok(())
     }
     fn tick(&mut self, counter: u32) {
         // this here looks inefficient, but we'll see if it actually causes any performance issues later.
@@ -157,37 +169,30 @@ impl World for LoginWorld {
                 } else {
                     &register
                 };
-                self.sh_send(
+                if let Err(e) = self.sh_send(
                     id,
                     SHBound::Packet(ClientBound::Title(TitleAction::SetActionBar(
                         subtitle.clone(),
                     ))),
-                );
+                ) {
+                    debug!("Couldn't send packet to client: {}", e);
+                }
             }
         }
     }
-    fn chat(&mut self, id: usize, message: String) {
-        match &self.players.get(id).unwrap().2 {
+    fn chat(&mut self, id: usize, message: String) -> Result<()> {
+        match &self.players.get(id).context("No player with given ID")?.2 {
             Some(password_hash) => {
                 if message.starts_with("/login ") {
                     let mut iterator = message.split(' ');
                     if let Some(password) = iterator.nth(1) {
                         let hash = format!("{:x}", Sha256::digest(password.as_bytes()));
                         if *password_hash == hash {
-                            self.tell(id, "§a§lSuccess!".to_string());
-
-                            // TODO
-                            self.sh_send(
-                                id,
-                                SHBound::Packet(ClientBound::PlayDisconnect(chat_parse(
-                                    "ok".to_string(),
-                                ))),
-                            );
-                            self.disconnect(id);
+                            self.sh_send(id, SHBound::ChangeWorld(GLOBAL_STATE.w_lobby.clone()))?;
                         } else {
-                            self.tell(id, "§4§lIncorrect password!".to_string());
+                            self.tell(id, "§4§lIncorrect password!".to_string())?;
                         }
-                        return;
+                        return Ok(());
                     }
                 }
             }
@@ -200,29 +205,20 @@ impl World for LoginWorld {
                                 self.tell(
                                     id,
                                     "§cThe passwords do not match, try again.".to_string(),
-                                );
-                                return;
+                                )?;
+                                return Ok(());
                             }
-
-                            self.tell(id, "§a§lSuccess!".to_string());
 
                             // register the gentleman
                             self.accounts.insert(
-                                self.username(id).to_string(),
+                                self.username(id)?.to_string(),
                                 format!("{:x}", Sha256::digest(first_password.as_bytes())),
                             );
-                            self.save_accounts();
+                            self.save_accounts()?;
 
-                            // TODO
-                            self.sh_send(
-                                id,
-                                SHBound::Packet(ClientBound::PlayDisconnect(chat_parse(
-                                    "ok".to_string(),
-                                ))),
-                            );
-                            self.disconnect(id);
+                            self.sh_send(id, SHBound::ChangeWorld(GLOBAL_STATE.w_lobby.clone()))?;
 
-                            return;
+                            return Ok(());
                         }
                     }
                 }
@@ -230,91 +226,74 @@ impl World for LoginWorld {
         }
 
         if message.starts_with("/") {
-            self.tell(id, "§cInvalid command.".to_string());
-            return;
+            self.tell(id, "§cInvalid command.".to_string())?;
         }
+        Ok(())
     }
-    fn username(&self, id: usize) -> &str {
-        &self.players.get(id).unwrap().0
+    fn username(&self, id: usize) -> Result<&str> {
+        Ok(&self
+            .players
+            .get(id)
+            .context("No player with given ID in this world")?
+            .0)
     }
 }
 
-pub fn new() -> LoginWorld {
-    // read the accounts data (this should probably be done in main() and then passed as an argument, but whatever)
+pub fn new() -> Result<LoginWorld> {
+    // read the accounts data
     let mut accounts = HashMap::new();
     if Path::new(ACCOUNTS_FILE).exists() {
         // read the data
-        match File::open(ACCOUNTS_FILE) {
-            Err(e) => {
-                println!("Failed to open {}. {:?}", ACCOUNTS_FILE, e);
-                std::process::exit(1);
-            }
-            Ok(f) => {
-                let file = BufReader::new(f);
-                for line in file.lines() {
-                    match line {
-                        Ok(l) => {
-                            let mut iterator = l.split(' ');
-                            let username = iterator
-                                .next()
-                                .expect(&format!("Incorrect {} format.", ACCOUNTS_FILE));
-                            let password_hash = iterator
-                                .next()
-                                .expect(&format!("Incorrect {} format.", ACCOUNTS_FILE));
-                            accounts.insert(username.to_string(), password_hash.to_string());
-                        }
-                        Err(e) => {
-                            println!("Failed to read {}. {:?}", ACCOUNTS_FILE, e);
-                            std::process::exit(1);
-                        }
-                    }
-                }
-            }
+        let f = File::open(ACCOUNTS_FILE).context(format!("Failed to open {}.", ACCOUNTS_FILE))?;
+
+        let file = BufReader::new(f);
+        for line in file.lines() {
+            let line = line.context(format!("Error reading {}.", ACCOUNTS_FILE))?;
+            let mut iterator = line.split(' ');
+
+            let username = iterator
+                .next()
+                .context(format!("Incorrect {} format.", ACCOUNTS_FILE))?;
+            let password_hash = iterator
+                .next()
+                .context(format!("Incorrect {} format.", ACCOUNTS_FILE))?;
+
+            accounts.insert(username.to_string(), password_hash.to_string());
         }
     } else {
         // create the file
-        if let Err(e) = File::create(ACCOUNTS_FILE) {
-            println!("Failed to create the accounts datafile. {:?}", e);
-            std::process::exit(1);
-        }
+        File::create(ACCOUNTS_FILE)?;
     }
-    LoginWorld {
+
+    Ok(LoginWorld {
         players: Slab::new(),
         accounts,
-    }
+    })
 }
 
 impl LoginWorld {
-    pub fn tell(&self, id: usize, message: String) {
+    pub fn tell(&self, id: usize, message: String) -> Result<()> {
         self.sh_send(
             id,
             SHBound::Packet(ClientBound::ChatMessage(chat_parse(message), 1)),
-        );
+        )?;
+        Ok(())
     }
-    pub fn save_accounts(&self) {
-        match File::create(ACCOUNTS_FILE) {
-            Err(e) => {
-                println!(
-                    "Failed to create the accounts datafile ({}). {:?}",
-                    ACCOUNTS_FILE, e
-                );
-                std::process::exit(1);
-            }
-            Ok(mut f) => {
-                for account in &self.accounts {
-                    // yes i know and im sorry
-                    if let Err(e) = f.write_all(account.0.as_bytes()).and(
-                        f.write_all(b" ")
-                            .and(f.write_all(account.1.as_bytes()).and(f.write_all(b"\n"))),
-                    ) {
-                        println!(
-                            "Failed to write to the accounts datafile ({}). {:?}",
-                            ACCOUNTS_FILE, e
-                        );
-                        panic!();
-                    }
-                }
-            }
+    pub fn save_accounts(&self) -> Result<()> {
+        let mut f = File::create(ACCOUNTS_FILE)?;
+
+        for account in &self.accounts {
+            // I wish to apologize for the readability of the following statement
+            #[rustfmt::skip]
+            f.write_all(account.0.as_bytes()).and(
+                f.write_all(b" ").and(
+                    f.write_all(account.1.as_bytes()).and(
+                        f.write_all(b"\n")
+                    )
+                ),
+            ).context(format!("Couldn't write to {}", ACCOUNTS_FILE))?;
         }
+
+        Ok(())
     }
 }
