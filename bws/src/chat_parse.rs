@@ -3,174 +3,125 @@ use anyhow::Result;
 use log::debug;
 use serde_json::{json, to_string, Value};
 
-pub fn parse(input: String) -> Chat {
+pub fn parse<T: AsRef<str>>(input: T) -> Chat {
     Chat(to_string(&parse_json(input)).unwrap())
 }
 
 // Converts a string with § to a json object that is used internally in minecraft
-pub fn parse_json(mut input: String) -> Value {
-    let mut modifiers = Vec::new();
-
-    let mut i = 0;
-    while i < input.chars().count() {
-        // find all §
-        if input.chars().nth(i).unwrap() == '§' {
-            // check if it was escaped
-            // (cant be escaped if its the first char)
-            if i > 0 {
-                if input.chars().nth(i - 1).unwrap() == '\\' {
-                    // remove the escape character
-                    let byte_index = input.char_indices().nth(i - 1).unwrap().0;
-                    input.remove(byte_index);
-                    continue;
-                }
-                // or if its not in valid format
-                if input.chars().nth(i + 1).is_none() {
-                    // there is no modifier following
-                    // so just ignore this whole thing
-                    i += 1;
-                    continue;
-                }
-            }
-
-            // save the modifier
-            let modifier = input.chars().nth(i + 1).unwrap();
-            modifiers.push((i, modifier));
-
-            // remove the characters
-            let start_byte_index = input.char_indices().nth(i).unwrap().0;
-            let end_byte_index = input.char_indices().nth(i + 1).unwrap().0;
-            input.replace_range(start_byte_index..=end_byte_index, "");
-            continue;
-        }
-        // normal text
-        i += 1;
-    }
-
+pub fn parse_json<T: AsRef<str>>(input: T) -> Value {
     let mut result = json!({});
+    let mut innermost = &mut result;
+    let mut escaping = false;
+    let mut modifying = false;
 
-    if modifiers.len() == 0 {
-        // if there are no modifiers just add the normal text
-        result["text"] = json!(input);
-    } else {
-        // add the beggining text without any modifiers if there is any
-        result["text"] = json!(input.chars().take(modifiers[0].0).collect::<String>());
-    }
-
-    let mut last_pos = 0;
-    let mut depth = 0;
-    for (i, modifier) in modifiers.iter().enumerate() {
-        if modifier.0 != last_pos {
-            depth += 1;
-        }
-
-        let mut container = &mut result;
-        for _ in 0..depth {
-            if !container["extra"].is_array() {
-                container["extra"] = json!([{}]);
-            }
-            container = &mut container["extra"][0];
-        }
-
-        match modifier.1 {
-            'l' => {
-                container["bold"] = json!(true);
-            }
-            'k' => {
-                container["obfuscated"] = json!(true);
-            }
-            'm' => {
-                container["strikethrough"] = json!(true);
-            }
-            'n' => {
-                container["underlined"] = json!(true);
-            }
-            'o' => {
-                container["italic"] = json!(true);
-            }
-            'r' => {
-                container["bold"] = json!(false);
-                container["obfuscated"] = json!(false);
-                container["strikethrough"] = json!(false);
-                container["underlined"] = json!(false);
-                container["italic"] = json!(false);
-                container["color"] = json!("reset");
-            }
-            '0' => {
-                container["color"] = json!("black");
-            }
-            '1' => {
-                container["color"] = json!("dark_blue");
-            }
-            '2' => {
-                container["color"] = json!("dark_green");
-            }
-            '3' => {
-                container["color"] = json!("dark_aqua");
-            }
-            '4' => {
-                container["color"] = json!("dark_red");
-            }
-            '5' => {
-                container["color"] = json!("dark_purple");
-            }
-            '6' => {
-                container["color"] = json!("gold");
-            }
-            '7' => {
-                container["color"] = json!("gray");
-            }
-            '8' => {
-                container["color"] = json!("dark_gray");
-            }
-            '9' => {
-                container["color"] = json!("blue");
-            }
-            'a' => {
-                container["color"] = json!("green");
-            }
-            'b' => {
-                container["color"] = json!("aqua");
-            }
-            'c' => {
-                container["color"] = json!("red");
-            }
-            'd' => {
-                container["color"] = json!("light_purple");
-            }
-            'e' => {
-                container["color"] = json!("yellow");
-            }
-            'f' => {
-                container["color"] = json!("white");
-            }
-            _ => {}
-        }
-
-        if i == modifiers.len() - 1 {
-            // the last segment so just read to end
-            container["text"] = match input.char_indices().nth(modifier.0) {
-                Some(lower_bound) => json!(input[(lower_bound.0)..]),
-                None => json!(""),
+    for character in input.as_ref().chars() {
+        if !escaping && !modifying {
+            if character == '\\' {
+                escaping = true;
+            } else if character == '§' {
+                modifying = true;
+            } else {
+                if let Some(Value::String(s)) = innermost.get_mut("text") {
+                    s.push(character);
+                } else {
+                    innermost["text"] = json!(character.to_string());
+                }
             }
         } else {
-            // if last modifier of the same segment
-            if modifiers[i + 1].0 != modifier.0 {
-                // (different position follows)
-                // add the text
-                let lower_bound = input.char_indices().nth(modifier.0).unwrap().0;
-                container["text"] = match input.char_indices().nth(modifiers[i + 1].0) {
-                    Some(upper_bound) => {
-                        json!(input[lower_bound..upper_bound.0])
-                    }
-                    None => {
-                        json!(input[lower_bound..])
-                    }
+            if escaping {
+                if let Some(Value::String(s)) = innermost.get_mut("text") {
+                    s.push(character);
+                } else {
+                    innermost["text"] = json!(character.to_string());
                 }
+                escaping = false;
+            } else if modifying {
+                if innermost.get("text").is_some() {
+                    innermost["extra"] = json!([{}]);
+                    innermost = &mut innermost["extra"][0];
+                }
+
+                match character {
+                    'l' => {
+                        innermost["bold"] = json!(true);
+                    }
+                    'k' => {
+                        innermost["obfuscated"] = json!(true);
+                    }
+                    'm' => {
+                        innermost["strikethrough"] = json!(true);
+                    }
+                    'n' => {
+                        innermost["underlined"] = json!(true);
+                    }
+                    'o' => {
+                        innermost["italic"] = json!(true);
+                    }
+                    'r' => {
+                        innermost["bold"] = json!(false);
+                        innermost["obfuscated"] = json!(false);
+                        innermost["strikethrough"] = json!(false);
+                        innermost["underlined"] = json!(false);
+                        innermost["italic"] = json!(false);
+                        innermost["color"] = json!("reset");
+                    }
+                    '0' => {
+                        innermost["color"] = json!("black");
+                    }
+                    '1' => {
+                        innermost["color"] = json!("dark_blue");
+                    }
+                    '2' => {
+                        innermost["color"] = json!("dark_green");
+                    }
+                    '3' => {
+                        innermost["color"] = json!("dark_aqua");
+                    }
+                    '4' => {
+                        innermost["color"] = json!("dark_red");
+                    }
+                    '5' => {
+                        innermost["color"] = json!("dark_purple");
+                    }
+                    '6' => {
+                        innermost["color"] = json!("gold");
+                    }
+                    '7' => {
+                        innermost["color"] = json!("gray");
+                    }
+                    '8' => {
+                        innermost["color"] = json!("dark_gray");
+                    }
+                    '9' => {
+                        innermost["color"] = json!("blue");
+                    }
+                    'a' => {
+                        innermost["color"] = json!("green");
+                    }
+                    'b' => {
+                        innermost["color"] = json!("aqua");
+                    }
+                    'c' => {
+                        innermost["color"] = json!("red");
+                    }
+                    'd' => {
+                        innermost["color"] = json!("light_purple");
+                    }
+                    'e' => {
+                        innermost["color"] = json!("yellow");
+                    }
+                    'f' => {
+                        innermost["color"] = json!("white");
+                    }
+                    _ => {}
+                }
+                modifying = false;
             }
         }
+    }
 
-        last_pos = modifier.0;
+    if result.get("text").is_none() {
+        result["text"] = json!("");
     }
 
     result

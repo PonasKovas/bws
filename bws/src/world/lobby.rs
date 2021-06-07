@@ -79,31 +79,26 @@ impl World for LobbyWorld {
         sh_sender.send(SHBound::Packet(ClientBound::Title(TitleAction::Reset)))?;
 
         sh_sender.send(SHBound::Packet(ClientBound::Title(TitleAction::SetTitle(
-            chat_parse("§aLogged in§7!".to_string()),
+            chat_parse("§aLogged in§7!"),
         ))))?;
 
         sh_sender.send(SHBound::Packet(ClientBound::Title(
-            TitleAction::SetSubtitle(chat_parse("§bhave fun§7!".to_string())),
+            TitleAction::SetSubtitle(chat_parse("§bhave fun§7!")),
         )))?;
 
         sh_sender.send(SHBound::Packet(ClientBound::Title(
-            TitleAction::SetActionBar(chat_parse("".to_string())),
+            TitleAction::SetActionBar(chat_parse("")),
         )))?;
 
         sh_sender.send(SHBound::Packet(ClientBound::Title(
             TitleAction::SetDisplayTime(15, 20, 15),
         )))?;
 
-        let mut heightmap = nbt::Blob::new();
-        heightmap
-            .insert("MOTION_BLOCKING", nbt::Value::LongArray(vec![0x0i64, 37]))
-            .unwrap();
-
         sh_sender.send(SHBound::Packet(ClientBound::ChunkData(
             0,
             0,
             VarInt(0b1),
-            heightmap.clone(),
+            nbt::Blob::new(),
             vec![VarInt(127); 1024],
             vec![ChunkSection {
                 block_count: 4096,
@@ -121,7 +116,7 @@ impl World for LobbyWorld {
             -1,
             -1,
             VarInt(0b101),
-            heightmap.clone(),
+            nbt::Blob::new(),
             vec![VarInt(127); 1024],
             vec![
                 ChunkSection {
@@ -150,7 +145,7 @@ impl World for LobbyWorld {
                     x,
                     y,
                     VarInt(0b0),
-                    heightmap.clone(),
+                    nbt::Blob::new(),
                     vec![VarInt(127); 1024],
                     vec![],
                     Vec::new(),

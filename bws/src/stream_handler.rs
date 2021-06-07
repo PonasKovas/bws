@@ -134,7 +134,7 @@ async fn handle(
                     ServerBound::StatusRequest => {
                         let supported = GLOBAL_STATE.description.lock().await;
                         let unsupported = crate::chat_parse::parse_json(
-                            format!("§4Your Minecraft version is §lnot supported§r§4.\n§c§lThe server §r§cis running §b§l{}§r§c.", crate::VERSION_NAME)
+                            &format!("§4Your Minecraft version is §lnot supported§r§4.\n§c§lThe server §r§cis running §b§l{}§r§c.", crate::VERSION_NAME)
                         );
 
                         let packet = ClientBound::StatusResponse(
@@ -162,7 +162,7 @@ async fn handle(
                         // check if version is supported
                         if !crate::SUPPORTED_PROTOCOL_VERSIONS.iter().any(|&i| i==client_protocol) {
                             let packet = ClientBound::LoginDisconnect(
-                                chat_parse(format!("§4Your Minecraft version is §lnot supported§r§4.\n§c§lThe server §r§cis running §b§l{}§r§c.", crate::VERSION_NAME)),
+                                chat_parse(&format!("§4Your Minecraft version is §lnot supported§r§4.\n§c§lThe server §r§cis running §b§l{}§r§c.", crate::VERSION_NAME)),
                             );
                             let _ = write_packet(&mut socket, &mut buffer, packet, -1).await;
                             return Ok(());
@@ -170,7 +170,7 @@ async fn handle(
 
                         if GLOBAL_STATE.players.lock().await.iter().any(|(_, player)| player.username == username) {
                             let packet = ClientBound::LoginDisconnect(
-                                chat_parse("§c§lSomeone is already playing with this username!".to_string()),
+                                chat_parse("§c§lSomeone is already playing with this username!"),
                             );
                             let _ = write_packet(&mut socket, &mut buffer, packet, -1).await;
                             return Ok(());

@@ -132,7 +132,7 @@ impl World for LoginWorld {
         sh_sender.send(SHBound::Packet(ClientBound::Title(TitleAction::Reset)))?;
 
         sh_sender.send(SHBound::Packet(ClientBound::Title(TitleAction::SetTitle(
-            chat_parse("§bWelcome to §d§lBWS§r§b!".to_string()),
+            chat_parse("§bWelcome to §d§lBWS§r§b!"),
         ))))?;
 
         sh_sender.send(SHBound::Packet(ClientBound::Title(
@@ -158,10 +158,9 @@ impl World for LoginWorld {
     fn tick(&mut self, counter: u32) {
         // this here looks inefficient, but we'll see if it actually causes any performance issues later.
         if counter % 20 == 0 {
-            let login = chat_parse("§aType §6/login §3<password> §ato continue".to_string());
-            let register = chat_parse(
-                "§aType §6/register §3<password> <password again> §ato continue".to_string(),
-            );
+            let login = chat_parse("§aType §6/login §3<password> §ato continue");
+            let register =
+                chat_parse("§aType §6/register §3<password> <password again> §ato continue");
 
             for (id, player) in &self.players {
                 let subtitle = if self.accounts.contains_key(&player.0) {
