@@ -23,6 +23,8 @@ const ACCOUNTS_FILE: &str = "accounts.bwsdata";
 pub struct LoginWorld {
     players: HashMap<usize, (String, SHSender, Option<String>)>, // username and SHSender, and the password hash, if registered
     accounts: HashMap<String, String>,
+    login_message: Chat,
+    register_message: Chat,
 }
 
 impl World for LoginWorld {
@@ -33,7 +35,7 @@ impl World for LoginWorld {
         Some(18000)
     }
     fn add_player(&mut self, id: usize) -> Result<()> {
-        let mut lock = futures::executor::block_on(GLOBAL_STATE.players.lock());
+        let lock = futures::executor::block_on(GLOBAL_STATE.players.lock());
         let sh_sender = lock
             .get(id)
             .context("tried to add non-existing player")?
@@ -179,17 +181,12 @@ impl World for LoginWorld {
         Ok(())
     }
     fn tick(&mut self, counter: u64) {
-        // this here looks inefficient, but we'll see if it actually causes any performance issues later.
         if counter % 20 == 0 {
-            let login = chat_parse("§aType §6/login §3<password> §ato continue");
-            let register =
-                chat_parse("§aType §6/register §3<password> <password again> §ato continue");
-
             for (id, player) in &self.players {
                 let subtitle = if self.accounts.contains_key(&player.0) {
-                    &login
+                    &self.login_message
                 } else {
-                    &register
+                    &self.register_message
                 };
                 if let Err(e) = self.sh_send(
                     *id,
@@ -287,6 +284,10 @@ pub fn new() -> Result<LoginWorld> {
     Ok(LoginWorld {
         players: HashMap::new(),
         accounts,
+        login_message: chat_parse("§aType §6/login §3<password> §ato continue"),
+        register_message: chat_parse(
+            "§aType §6/register §3<password> <password again> §ato continue",
+        ),
     })
 }
 

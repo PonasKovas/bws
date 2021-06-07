@@ -16,10 +16,13 @@ mod packets;
 mod stream_handler;
 mod world;
 
+use anyhow::{Context, Result};
 pub use chat_parse::parse as chat_parse;
 use global_state::GlobalState;
+use internal_communication::SHBound;
 use lazy_static::lazy_static;
 use log::{debug, error, info, warn};
+use packets::ClientBound;
 use serde_json::json;
 use slab::Slab;
 use std::path::PathBuf;
@@ -27,6 +30,7 @@ use std::sync::Arc;
 use structopt::StructOpt;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
+use tokio::task::JoinHandle;
 
 const SUPPORTED_PROTOCOL_VERSIONS: &[i32] = &[753, 754]; // 1.16.3+
 const VERSION_NAME: &str = "1.16 BWS";
@@ -109,7 +113,7 @@ lazy_static! {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<()> {
     env_logger::builder()
         .filter_level(log::LevelFilter::Info)
         .parse_default_env()
@@ -117,15 +121,50 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     lazy_static::initialize(&GLOBAL_STATE);
 
+    let join_handles = Arc::new(std::sync::Mutex::new(Vec::new()));
+
+    // properly shutdown in case of SIGINT
+    ctrlc::set_handler({
+        clone_all!(join_handles);
+        move || {
+            shutdown(join_handles.clone());
+        }
+    })
+    .context("Error setting SIGINT handler")?;
+
     info!("Listening on port {}", GLOBAL_STATE.port);
 
     let listener = TcpListener::bind(("0.0.0.0", GLOBAL_STATE.port))
         .await
-        .unwrap();
+        .context("Couldn't bind the listener")?;
 
     loop {
         let (socket, _) = listener.accept().await.unwrap();
 
-        tokio::spawn(stream_handler::handle_stream(socket));
+        join_handles
+            .lock()
+            .unwrap()
+            .push(tokio::spawn(stream_handler::handle_stream(socket)));
     }
+}
+
+fn shutdown(sh_handles: Arc<std::sync::Mutex<Vec<JoinHandle<()>>>>) {
+    for player in &*futures::executor::block_on(GLOBAL_STATE.players.lock()) {
+        let _ = (player.1)
+            .sh_sender
+            .send(SHBound::Packet(ClientBound::PlayDisconnect(chat_parse(
+                "§4§lThe server has shutdown.",
+            ))));
+        let _ = (player.1).sh_sender.send(SHBound::Disconnect);
+    }
+
+    // todo also shutdown worlds
+
+    info!("Exiting...");
+
+    for handle in &mut *sh_handles.lock().unwrap() {
+        let _ = futures::executor::block_on(handle);
+    }
+
+    std::process::exit(0);
 }
