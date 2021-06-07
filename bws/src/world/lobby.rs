@@ -17,8 +17,15 @@ use std::io::BufReader;
 use std::io::Write;
 use std::path::Path;
 
+struct Player {
+    username: String,
+    sh_sender: SHSender,
+    position: (f64, f64, f64),
+    rotation: (f32, f32),
+}
+
 pub struct LobbyWorld {
-    players: HashMap<usize, (String, SHSender)>, // username and SHSender
+    players: HashMap<usize, Player>,
 }
 
 impl World for LobbyWorld {
@@ -29,7 +36,7 @@ impl World for LobbyWorld {
         None
     }
     fn add_player(&mut self, id: usize) -> Result<()> {
-        let mut lock = futures::executor::block_on(GLOBAL_STATE.players.lock());
+        let lock = futures::executor::block_on(GLOBAL_STATE.players.lock());
         let sh_sender = lock
             .get(id)
             .context("tried to add non-existing player")?
@@ -168,7 +175,15 @@ impl World for LobbyWorld {
         }
 
         // add the player
-        self.players.insert(id, (username, sh_sender));
+        self.players.insert(
+            id,
+            Player {
+                username,
+                sh_sender,
+                position: (0.0, 20.0, 0.0),
+                rotation: (0.0, 0.0),
+            },
+        );
 
         Ok(())
     }
@@ -179,11 +194,18 @@ impl World for LobbyWorld {
         self.players
             .get(&id)
             .context("No player with given ID in world")?
-            .1
+            .sh_sender
             .send(message)?;
         Ok(())
     }
-    fn tick(&mut self, counter: u64) {}
+    fn tick(&mut self, _counter: u64) {
+        for (id, player) in &self.players {
+            info!(
+                "{} is in {:?} and looking {:?}",
+                player.username, player.position, player.rotation
+            );
+        }
+    }
     fn chat(&mut self, id: usize, message: String) -> Result<()> {
         self.tell(id, format!("§a§l{}: §r§f{}", self.username(id)?, message))?;
         Ok(())
@@ -193,7 +215,22 @@ impl World for LobbyWorld {
             .players
             .get(&id)
             .context("No player with given ID in this world")?
-            .0)
+            .username)
+    }
+    fn set_player_position(&mut self, id: usize, new_position: (f64, f64, f64)) -> Result<()> {
+        self.players
+            .get_mut(&id)
+            .context("No player with given ID in this world")?
+            .position = new_position;
+        Ok(())
+    }
+    // is called when the player rotation changes
+    fn set_player_rotation(&mut self, id: usize, new_rotation: (f32, f32)) -> Result<()> {
+        self.players
+            .get_mut(&id)
+            .context("No player with given ID in this world")?
+            .rotation = new_rotation;
+        Ok(())
     }
 }
 

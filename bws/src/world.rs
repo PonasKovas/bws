@@ -49,7 +49,7 @@ pub trait World: Sized {
         }
     }
     // is called every tick
-    fn tick(&mut self, counter: u64);
+    fn tick(&mut self, _counter: u64) {}
     // should return the name of the world, which doesn't have to be unique
     // but should only contain [a-z0-9/._-] characters
     fn get_world_name(&self) -> &str;
@@ -61,7 +61,9 @@ pub trait World: Sized {
     // panics if no player with the given ID is in the world
     fn sh_send(&self, id: usize, message: SHBound) -> Result<()>;
     // called when players type something in the chat. Could be a command
-    fn chat(&mut self, id: usize, message: String) -> Result<()>;
+    fn chat(&mut self, _id: usize, _message: String) -> Result<()> {
+        Ok(())
+    }
     // should return the uesername of the given player
     fn username(&self, id: usize) -> Result<&str>;
     // disconnectes the player from the server.
@@ -70,6 +72,18 @@ pub trait World: Sized {
         Ok(())
     }
     fn is_fixed_time(&self) -> Option<i64>;
+    // is called when the player position changes
+    fn set_player_position(&mut self, _id: usize, _new_position: (f64, f64, f64)) -> Result<()> {
+        Ok(())
+    }
+    // is called when the player rotation changes
+    fn set_player_rotation(&mut self, _id: usize, _new_rotation: (f32, f32)) -> Result<()> {
+        Ok(())
+    }
+    // is called when the player rotation changes
+    fn set_player_on_ground(&mut self, _id: usize, _on_ground: bool) -> Result<()> {
+        Ok(())
+    }
 }
 
 pub fn start<W: 'static + World + Send>(world: W) -> WSender {
@@ -110,6 +124,36 @@ fn process_wbound_messages<W: World>(world: &mut W, w_receiver: &mut WReceiver) 
                 ServerBound::ChatMessage(message) => {
                     if let Err(e) = world.chat(id, message) {
                         error!("Error handling chat message from {}: {}", id, e);
+                    }
+                }
+                ServerBound::PlayerPosition(x, y, z, on_ground) => {
+                    if let Err(_) = world
+                        .set_player_position(id, (x, y, z))
+                        .and(world.set_player_on_ground(id, on_ground))
+                    {
+                        error!("Trying set position for player which does not exist in this world");
+                    }
+                }
+                ServerBound::PlayerPositionAndRotation(x, y, z, yaw, pitch, on_ground) => {
+                    if let Err(_) = world
+                        .set_player_position(id, (x, y, z))
+                        .and(world.set_player_rotation(id, (yaw, pitch)))
+                        .and(world.set_player_on_ground(id, on_ground))
+                    {
+                        error!("Trying set position for player which does not exist in this world");
+                    }
+                }
+                ServerBound::PlayerRotation(yaw, pitch, on_ground) => {
+                    if let Err(_) = world
+                        .set_player_rotation(id, (yaw, pitch))
+                        .and(world.set_player_on_ground(id, on_ground))
+                    {
+                        error!("Trying set position for player which does not exist in this world");
+                    }
+                }
+                ServerBound::PlayerMovement(on_ground) => {
+                    if let Err(_) = world.set_player_on_ground(id, on_ground) {
+                        error!("Trying set position for player which does not exist in this world");
                     }
                 }
                 _ => {

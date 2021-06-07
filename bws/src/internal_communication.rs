@@ -13,7 +13,7 @@ pub type WReceiver = UnboundedReceiver<WBound>;
 #[derive(Debug)]
 pub enum SHBound {
     Packet(ClientBound),
-    Disconnect, // only
+    Disconnect,
     ChangeWorld(WSender),
 }
 

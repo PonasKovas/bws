@@ -14,11 +14,15 @@ pub enum ServerBound {
     StatusPing(i64),    // random number
     LoginStart(String), // username
     KeepAlive(i64),
-    ChatMessage(String), // the raw message
+    ChatMessage(String),                                      // the raw message
+    PlayerPosition(f64, f64, f64, bool),                      // xyz, on_ground
+    PlayerPositionAndRotation(f64, f64, f64, f32, f32, bool), // x, y, z, yaw, pitch, on_ground
+    PlayerRotation(f32, f32, bool),                           // yaw, pitch, on_ground
+    PlayerMovement(bool),                                     // on_ground
     // ChatMessage(String), // the raw message, up to 256 characters
     // ClientStatus(VarInt), // 0 - respawn, 1 - request statistics
     // InteractEntity(VarInt, VarInt, bool), // entity id, [0 - interact, 1 - attack, 2 - interact at (not supported)], whether sneaking
-    // PlayerPositionAndRotation(f64, f64, f64, f32, f32, bool), // x, y, z, yaw, pitch, whether on ground
+
     // Animation(VarInt),                                        // 0 - main hand, 1 - off hand
     // TeleportConfirm(VarInt),                                  // teleport id
     // EntityAction(VarInt, VarInt, VarInt), // player's entity id, action (see https://wiki.vg/index.php?title=Protocol&oldid=16091#Entity_Action), jump boost (only for jumping with horse)
@@ -144,6 +148,26 @@ impl ServerBound {
                 match packet_id {
                     0x10 => Ok(Self::KeepAlive(i64::deserialize(input)?)),
                     0x03 => Ok(Self::ChatMessage(String::deserialize(input)?)),
+                    0x12 => Ok(Self::PlayerPosition(
+                        f64::deserialize(input)?,
+                        f64::deserialize(input)?,
+                        f64::deserialize(input)?,
+                        bool::deserialize(input)?,
+                    )),
+                    0x13 => Ok(Self::PlayerPositionAndRotation(
+                        f64::deserialize(input)?,
+                        f64::deserialize(input)?,
+                        f64::deserialize(input)?,
+                        f32::deserialize(input)?,
+                        f32::deserialize(input)?,
+                        bool::deserialize(input)?,
+                    )),
+                    0x14 => Ok(Self::PlayerRotation(
+                        f32::deserialize(input)?,
+                        f32::deserialize(input)?,
+                        bool::deserialize(input)?,
+                    )),
+                    0x15 => Ok(Self::PlayerMovement(bool::deserialize(input)?)),
                     _ => Ok(Self::Unknown(VarInt(packet_id))),
                 }
             }
