@@ -8,6 +8,7 @@ use crate::global_state::Player;
 use crate::internal_communication::SHSender;
 use crate::internal_communication::{SHBound, WBound, WReceiver, WSender};
 use crate::packets::{ClientBound, ServerBound, TitleAction};
+use crate::GLOBAL_STATE;
 use anyhow::Result;
 use futures::future::FutureExt;
 use log::{debug, error, info, warn};
@@ -48,13 +49,12 @@ pub trait World: Sized {
         }
     }
     // is called every tick
-    fn tick(&mut self, counter: u32);
+    fn tick(&mut self, counter: u64);
     // should return the name of the world, which doesn't have to be unique
     // but should only contain [a-z0-9/._-] characters
     fn get_world_name(&self) -> &str;
-    // is called when new players join, and returns the internal world player ID
-    // should also send the PlayerPositionAndLook packet
-    fn add_player(&mut self, username: String, sh_sender: SHSender) -> Result<usize>;
+    // Adds a player to the world and the world starts sending packets
+    fn add_player(&mut self, id: usize) -> Result<()>;
     // removes the player from memory
     fn remove_player(&mut self, id: usize);
     // sends a SHBound message to the SHSender of the specified player
@@ -96,19 +96,10 @@ fn process_wbound_messages<W: World>(world: &mut W, w_receiver: &mut WReceiver) 
         };
 
         match message {
-            WBound::AddPlayer(username, sh_sender, _address) => {
+            WBound::AddPlayer(id) => {
                 // Request to add the player to this world
-
-                let id = match world.add_player(username, sh_sender.clone()) {
-                    Ok(id) => id,
-                    Err(e) => {
-                        error!("Couldn't add player to world: {}", e);
-                        continue;
-                    }
-                };
-
-                if let Err(e) = world.sh_send(id, SHBound::AssignId(id)) {
-                    debug!("Couldn't send the player ID to stream handler: {}", e);
+                if let Err(e) = world.add_player(id) {
+                    error!("Couldn't add player to world: {}", e);
                     continue;
                 }
             }

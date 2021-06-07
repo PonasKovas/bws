@@ -3,6 +3,7 @@ use crate::datatypes::*;
 use crate::internal_communication::{SHBound, SHSender};
 use crate::packets::{ClientBound, TitleAction};
 use crate::world::World;
+use crate::GLOBAL_STATE;
 use anyhow::bail;
 use anyhow::Context;
 use anyhow::Result;
@@ -17,7 +18,7 @@ use std::io::Write;
 use std::path::Path;
 
 pub struct LobbyWorld {
-    players: Slab<(String, SHSender)>, // username and SHSender
+    players: HashMap<usize, (String, SHSender)>, // username and SHSender
 }
 
 impl World for LobbyWorld {
@@ -27,7 +28,20 @@ impl World for LobbyWorld {
     fn is_fixed_time(&self) -> Option<i64> {
         None
     }
-    fn add_player(&mut self, username: String, sh_sender: SHSender) -> Result<usize> {
+    fn add_player(&mut self, id: usize) -> Result<()> {
+        let mut lock = futures::executor::block_on(GLOBAL_STATE.players.lock());
+        let sh_sender = lock
+            .get(id)
+            .context("tried to add non-existing player")?
+            .sh_sender
+            .clone();
+        let username = lock
+            .get(id)
+            .context("tried to add non-existing player")?
+            .username
+            .clone();
+        drop(lock);
+
         let mut dimension = nbt::Blob::new();
 
         // rustfmt makes this block reaaally fat and ugly and disgusting oh my god
@@ -153,21 +167,23 @@ impl World for LobbyWorld {
             }
         }
 
-        // return the id of player
-        Ok(self.players.insert((username, sh_sender)))
+        // add the player
+        self.players.insert(id, (username, sh_sender));
+
+        Ok(())
     }
     fn remove_player(&mut self, id: usize) {
-        self.players.remove(id);
+        self.players.remove(&id);
     }
     fn sh_send(&self, id: usize, message: SHBound) -> Result<()> {
         self.players
-            .get(id)
+            .get(&id)
             .context("No player with given ID in world")?
             .1
             .send(message)?;
         Ok(())
     }
-    fn tick(&mut self, counter: u32) {}
+    fn tick(&mut self, counter: u64) {}
     fn chat(&mut self, id: usize, message: String) -> Result<()> {
         self.tell(id, format!("§a§l{}: §r§f{}", self.username(id)?, message))?;
         Ok(())
@@ -175,7 +191,7 @@ impl World for LobbyWorld {
     fn username(&self, id: usize) -> Result<&str> {
         Ok(&self
             .players
-            .get(id)
+            .get(&id)
             .context("No player with given ID in this world")?
             .0)
     }
@@ -183,12 +199,12 @@ impl World for LobbyWorld {
 
 pub fn new() -> Result<LobbyWorld> {
     Ok(LobbyWorld {
-        players: Slab::new(),
+        players: HashMap::new(),
     })
 }
 
 impl LobbyWorld {
-    pub fn tell(&self, id: usize, message: String) -> Result<()> {
+    pub fn tell<T: AsRef<str>>(&self, id: usize, message: T) -> Result<()> {
         self.sh_send(
             id,
             SHBound::Packet(ClientBound::ChatMessage(chat_parse(message), 1)),

@@ -11,6 +11,7 @@ use log::{debug, error, info, warn};
 use sha2::{Digest, Sha256};
 use slab::Slab;
 use std::collections::HashMap;
+use std::env::Vars;
 use std::fs::File;
 use std::io::BufRead;
 use std::io::BufReader;
@@ -20,7 +21,7 @@ use std::path::Path;
 const ACCOUNTS_FILE: &str = "accounts.bwsdata";
 
 pub struct LoginWorld {
-    players: Slab<(String, SHSender, Option<String>)>, // username and SHSender, and the password hash, if registered
+    players: HashMap<usize, (String, SHSender, Option<String>)>, // username and SHSender, and the password hash, if registered
     accounts: HashMap<String, String>,
 }
 
@@ -31,7 +32,20 @@ impl World for LoginWorld {
     fn is_fixed_time(&self) -> Option<i64> {
         Some(18000)
     }
-    fn add_player(&mut self, username: String, sh_sender: SHSender) -> Result<usize> {
+    fn add_player(&mut self, id: usize) -> Result<()> {
+        let mut lock = futures::executor::block_on(GLOBAL_STATE.players.lock());
+        let sh_sender = lock
+            .get(id)
+            .context("tried to add non-existing player")?
+            .sh_sender
+            .clone();
+        let username = lock
+            .get(id)
+            .context("tried to add non-existing player")?
+            .username
+            .clone();
+        drop(lock);
+
         let mut dimension = nbt::Blob::new();
 
         // rustfmt makes this block reaaally fat and ugly and disgusting oh my god
@@ -58,7 +72,7 @@ impl World for LoginWorld {
         };
 
         let packet = ClientBound::JoinGame(
-            0,
+            id as i32,
             false,
             3,
             -1,
@@ -139,23 +153,32 @@ impl World for LoginWorld {
             TitleAction::SetDisplayTime(15, 60, 15),
         )))?;
 
-        // return the id of player
-        Ok(self
-            .players
-            .insert((username, sh_sender, password.cloned())))
+        sh_sender.send(SHBound::Packet(ClientBound::EntitySoundEffect(
+            VarInt(482),
+            VarInt(0),         // MASTER category
+            VarInt(id as i32), // player
+            1.0,
+            1.0,
+        )))?;
+
+        // add the player
+        self.players
+            .insert(id, (username, sh_sender, password.cloned()));
+
+        Ok(())
     }
     fn remove_player(&mut self, id: usize) {
-        self.players.remove(id);
+        self.players.remove(&id);
     }
     fn sh_send(&self, id: usize, message: SHBound) -> Result<()> {
         self.players
-            .get(id)
-            .context("No player with given ID in world")?
+            .get(&id)
+            .context("No player with given ID in this world")?
             .1
             .send(message)?;
         Ok(())
     }
-    fn tick(&mut self, counter: u32) {
+    fn tick(&mut self, counter: u64) {
         // this here looks inefficient, but we'll see if it actually causes any performance issues later.
         if counter % 20 == 0 {
             let login = chat_parse("§aType §6/login §3<password> §ato continue");
@@ -169,7 +192,7 @@ impl World for LoginWorld {
                     &register
                 };
                 if let Err(e) = self.sh_send(
-                    id,
+                    *id,
                     SHBound::Packet(ClientBound::Title(TitleAction::SetActionBar(
                         subtitle.clone(),
                     ))),
@@ -180,7 +203,7 @@ impl World for LoginWorld {
         }
     }
     fn chat(&mut self, id: usize, message: String) -> Result<()> {
-        match &self.players.get(id).context("No player with given ID")?.2 {
+        match &self.players.get(&id).context("No player with given ID")?.2 {
             Some(password_hash) => {
                 if message.starts_with("/login ") {
                     let mut iterator = message.split(' ');
@@ -201,10 +224,7 @@ impl World for LoginWorld {
                     if let Some(first_password) = iterator.nth(1) {
                         if let Some(second_password) = iterator.next() {
                             if first_password != second_password {
-                                self.tell(
-                                    id,
-                                    "§cThe passwords do not match, try again.".to_string(),
-                                )?;
+                                self.tell(id, "§cThe passwords do not match, try again.")?;
                                 return Ok(());
                             }
 
@@ -225,14 +245,14 @@ impl World for LoginWorld {
         }
 
         if message.starts_with("/") {
-            self.tell(id, "§cInvalid command.".to_string())?;
+            self.tell(id, "§cInvalid command.")?;
         }
         Ok(())
     }
     fn username(&self, id: usize) -> Result<&str> {
         Ok(&self
             .players
-            .get(id)
+            .get(&id)
             .context("No player with given ID in this world")?
             .0)
     }
@@ -265,13 +285,13 @@ pub fn new() -> Result<LoginWorld> {
     }
 
     Ok(LoginWorld {
-        players: Slab::new(),
+        players: HashMap::new(),
         accounts,
     })
 }
 
 impl LoginWorld {
-    pub fn tell(&self, id: usize, message: String) -> Result<()> {
+    pub fn tell<T: AsRef<str>>(&self, id: usize, message: T) -> Result<()> {
         self.sh_send(
             id,
             SHBound::Packet(ClientBound::ChatMessage(chat_parse(message), 1)),
