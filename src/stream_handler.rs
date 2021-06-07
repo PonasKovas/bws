@@ -25,18 +25,10 @@ use tokio::sync::mpsc::unbounded_channel;
 use tokio::time::{Duration, Instant};
 
 pub async fn handle_stream(socket: TcpStream) {
-    let mut player_id_in_world = None;
     let mut world_sender = None;
     let mut global_player_id = None;
 
-    if let Err(e) = handle(
-        socket,
-        &mut player_id_in_world,
-        &mut world_sender,
-        &mut global_player_id,
-    )
-    .await
-    {
+    if let Err(e) = handle(socket, &mut world_sender, &mut global_player_id).await {
         if e.is::<std::io::Error>() {
             debug!("IO error: {}", e);
         } else if e.is::<tokio::sync::mpsc::error::SendError<WBound>>()
@@ -50,10 +42,7 @@ pub async fn handle_stream(socket: TcpStream) {
     }
 
     if let Some(id) = global_player_id {
-        futures::executor::block_on(GLOBAL_STATE.players.lock()).remove(id);
-    }
-    if let Some(world_sender) = world_sender {
-        if let Some(id) = player_id_in_world {
+        if let Some(world_sender) = world_sender {
             // if the player is still in some world, send them a message telling about the disconnection
             if let Err(_) = world_sender.send(ic::WBound::RemovePlayer(id)) {
                 error!(
@@ -61,12 +50,12 @@ pub async fn handle_stream(socket: TcpStream) {
                 );
             }
         }
+        GLOBAL_STATE.players.lock().await.remove(id);
     }
 }
 
 async fn handle(
     socket: TcpStream,
-    player_id_in_world: &mut Option<usize>,
     world_sender: &mut Option<WSender>,
     global_player_id: &mut Option<usize>,
 ) -> Result<()> {
@@ -200,7 +189,7 @@ async fn handle(
                         *global_player_id = Some(global_id);
 
                         // add the player to the login world
-                        GLOBAL_STATE.w_login.send(ic::WBound::AddPlayer(username, sh_sender.clone(), address.clone())).context("Login world receiver lost.")?;
+                        GLOBAL_STATE.w_login.send(ic::WBound::AddPlayer(global_id)).context("Login world receiver lost.")?;
                         *world_sender = Some(GLOBAL_STATE.w_login.clone());
                     }
                     ServerBound::KeepAlive(_) => {
@@ -208,8 +197,8 @@ async fn handle(
                         last_keepalive_received = Instant::now();
                     }
                     other => {
-                        if let Some(world_sender) = world_sender {
-                            if let Some(id) = player_id_in_world {
+                        if let Some(id) = global_player_id {
+                            if let Some(world_sender) = world_sender {
                                 world_sender.send(ic::WBound::Packet(*id, other)).context("Current world receiver has been lost.")?;
                             }
                         }
@@ -226,9 +215,6 @@ async fn handle(
                     ic::SHBound::Packet(packet) => {
                         write_packet(&mut socket, &mut buffer, packet, GLOBAL_STATE.compression_treshold).await?
                     }
-                    ic::SHBound::AssignId(id) => {
-                        *player_id_in_world = Some(id);
-                    }
                     ic::SHBound::Disconnect => {
                         return Ok(());
                     }
@@ -236,11 +222,9 @@ async fn handle(
                         // wouldnt make sense to "change" worlds before even sending the LoginStart packet
                         if let Some(global_id) = global_player_id {
                             if let Some(old_world) = world_sender {
-                                if let Some(world_id) = player_id_in_world {
-                                    old_world.send(ic::WBound::RemovePlayer(*world_id)).context("World receiver lost.")?;
-                                }
+                                old_world.send(ic::WBound::RemovePlayer(*global_id)).context("World receiver lost.")?;
                             }
-                            new_world_sender.send(ic::WBound::AddPlayer(GLOBAL_STATE.players.lock().await.get(*global_id).unwrap().username.clone(), sh_sender.clone(), address.clone())).context("World receiver lost.")?;
+                            new_world_sender.send(ic::WBound::AddPlayer(*global_id)).context("World receiver lost.")?;
                             *world_sender = Some(new_world_sender);
                         }
                     }

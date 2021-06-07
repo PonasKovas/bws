@@ -70,29 +70,31 @@ pub enum ClientBound {
         Vec<Nbt>,
     ), // chunk X, chunk Z, primary bit mask, heightmaps, biomes, data, block entities
     PlayDisconnect(Chat),
-    // UpdateHealth(f32, VarInt, f32), // health, food, saturation
-    //
-    // SpawnLivingEntity(
-    //     VarInt,
-    //     u128,
-    //     VarInt,
-    //     f64,
-    //     f64,
-    //     f64,
-    //     u8,
-    //     u8,
-    //     u8,
-    //     i16,
-    //     i16,
-    //     i16,
-    // ), // entity id, uuid, type, x, y, z, yaw, pitch, head pitch, velocity: x, y, z
-    // EntityTeleport(VarInt, f64, f64, f64, u8, u8, bool), // entity id, x, y, z, yaw, pitch, whether on ground
-    // EntityPosition(VarInt, i16, i16, i16, bool), // entity id, delta x, y ,z, whether on ground
-    // DestroyEntities(Vec<VarInt>),                // Array of entity IDs to destroy
-    //
-    // SetSlot(i8, i16, Slot), // window id, slot id, slot data
-    // Statistics(Vec<(VarInt, VarInt, VarInt)>), // Category, id, value
-    //
+    NamedSoundEffect(String, VarInt, i32, i32, i32, f32, f32), // identifier, category, x, y, z, volume, pitch
+    EntitySoundEffect(VarInt, VarInt, VarInt, f32, f32), // sound_id, category, entity_id, volume, pitch
+                                                         // UpdateHealth(f32, VarInt, f32), // health, food, saturation
+                                                         //
+                                                         // SpawnLivingEntity(
+                                                         //     VarInt,
+                                                         //     u128,
+                                                         //     VarInt,
+                                                         //     f64,
+                                                         //     f64,
+                                                         //     f64,
+                                                         //     u8,
+                                                         //     u8,
+                                                         //     u8,
+                                                         //     i16,
+                                                         //     i16,
+                                                         //     i16,
+                                                         // ), // entity id, uuid, type, x, y, z, yaw, pitch, head pitch, velocity: x, y, z
+                                                         // EntityTeleport(VarInt, f64, f64, f64, u8, u8, bool), // entity id, x, y, z, yaw, pitch, whether on ground
+                                                         // EntityPosition(VarInt, i16, i16, i16, bool), // entity id, delta x, y ,z, whether on ground
+                                                         // DestroyEntities(Vec<VarInt>),                // Array of entity IDs to destroy
+                                                         //
+                                                         // SetSlot(i8, i16, Slot), // window id, slot id, slot data
+                                                         // Statistics(Vec<(VarInt, VarInt, VarInt)>), // Category, id, value
+                                                         //
 }
 
 #[derive(Debug, Clone)]
@@ -247,6 +249,26 @@ impl ClientBound {
                         VarInt(5).serialize(output);
                     }
                 }
+            }
+            Self::NamedSoundEffect(effect, category, x, y, z, volume, pitch) => {
+                VarInt(0x18).serialize(output);
+
+                effect.serialize(output);
+                category.serialize(output);
+                x.serialize(output);
+                y.serialize(output);
+                z.serialize(output);
+                volume.serialize(output);
+                pitch.serialize(output);
+            }
+            Self::EntitySoundEffect(sound_id, category, entity_id, volume, pitch) => {
+                VarInt(0x50).serialize(output);
+
+                sound_id.serialize(output);
+                category.serialize(output);
+                entity_id.serialize(output);
+                volume.serialize(output);
+                pitch.serialize(output);
             }
             Self::PlayerPositionAndLook(x, y, z, yaw, pitch, flags, tp_id) => {
                 VarInt(0x34).serialize(output);
