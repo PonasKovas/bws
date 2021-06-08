@@ -6,6 +6,7 @@ edition = "2018"
 
 [dependencies]
 tokio = { version = "1.6", features = ["full"] }
+tokio-util = {version = "0.6", features = ["compat"]}
 structopt = "0.3"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
@@ -19,4 +20,3 @@ lazy_static = "1.4"
 anyhow = "1.0"
 log = "0.4"
 env_logger = "0.8"
-ctrlc = "3.1.9"

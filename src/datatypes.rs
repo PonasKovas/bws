@@ -5,7 +5,7 @@ use tokio::{io::BufReader, net::TcpStream};
 // all info available on https://wiki.vg/index.php?title=Protocol
 pub trait DataType {
     fn serialize<W: Write>(&self, output: &mut W);
-    fn deserialize(input: &mut Cursor<&Vec<u8>>) -> io::Result<Self>
+    fn deserialize<R: Read>(input: &mut R) -> io::Result<Self>
     where
         Self: Sized;
 }
@@ -120,7 +120,7 @@ impl DataType for VarInt {
             }
         }
     }
-    fn deserialize(input: &mut Cursor<&Vec<u8>>) -> io::Result<Self> {
+    fn deserialize<R: Read>(input: &mut R) -> io::Result<Self> {
         let mut i = 0;
         let mut result: i32 = 0;
 
@@ -148,7 +148,7 @@ impl DataType for String {
         // the actual string bytes
         output.write_all(self.as_bytes()).unwrap();
     }
-    fn deserialize(input: &mut Cursor<&Vec<u8>>) -> io::Result<Self> {
+    fn deserialize<R: Read>(input: &mut R) -> io::Result<Self> {
         let string_length = VarInt::deserialize(input)?;
 
         let mut string = vec![0; string_length.0 as usize];
@@ -164,7 +164,7 @@ impl DataType for Chat {
         // since its just a newtype for string
         self.0.serialize(output);
     }
-    fn deserialize(input: &mut Cursor<&Vec<u8>>) -> io::Result<Self> {
+    fn deserialize<R: Read>(input: &mut R) -> io::Result<Self> {
         Ok(Self(String::deserialize(input)?))
     }
 }
@@ -185,7 +185,7 @@ impl DataType for Palette {
             }
         }
     }
-    fn deserialize(_input: &mut Cursor<&Vec<u8>>) -> io::Result<Self> {
+    fn deserialize<R: Read>(_input: &mut R) -> io::Result<Self> {
         // not sure if the client ever sends palettes :/
         unimplemented!();
     }
@@ -238,7 +238,7 @@ impl DataType for CommandNode {
             }
         }
     }
-    fn deserialize(_input: &mut Cursor<&Vec<u8>>) -> io::Result<Self> {
+    fn deserialize<R: Read>(_input: &mut R) -> io::Result<Self> {
         unimplemented!();
     }
 }
@@ -253,7 +253,7 @@ impl DataType for Parser {
             }
         }
     }
-    fn deserialize(_input: &mut Cursor<&Vec<u8>>) -> io::Result<Self> {
+    fn deserialize<R: Read>(_input: &mut R) -> io::Result<Self> {
         unimplemented!();
     }
 }
@@ -266,7 +266,7 @@ impl DataType for ChunkSection {
 
         self.data.serialize(output);
     }
-    fn deserialize(_input: &mut Cursor<&Vec<u8>>) -> io::Result<Self> {
+    fn deserialize<R: Read>(_input: &mut R) -> io::Result<Self> {
         // not sure if the client ever sends chunk sections either
         unimplemented!();
     }
@@ -286,7 +286,7 @@ impl DataType for Slot {
             }
         }
     }
-    fn deserialize(input: &mut Cursor<&Vec<u8>>) -> io::Result<Self> {
+    fn deserialize<R: Read>(input: &mut R) -> io::Result<Self> {
         if bool::deserialize(input)? {
             Ok(Self::Present(
                 VarInt::deserialize(input)?,
@@ -309,7 +309,7 @@ impl<T: DataType> DataType for Vec<T> {
             item.serialize(output);
         }
     }
-    fn deserialize(input: &mut Cursor<&Vec<u8>>) -> io::Result<Self> {
+    fn deserialize<R: Read>(input: &mut R) -> io::Result<Self> {
         let vec_size = VarInt::deserialize(input)?;
 
         let mut data = Vec::with_capacity(vec_size.0 as usize);
@@ -325,7 +325,7 @@ impl DataType for u16 {
     fn serialize<W: Write>(&self, output: &mut W) {
         output.write_all(&mut self.to_be_bytes()).unwrap();
     }
-    fn deserialize(input: &mut Cursor<&Vec<u8>>) -> io::Result<Self> {
+    fn deserialize<R: Read>(input: &mut R) -> io::Result<Self> {
         let mut bytes = [0u8; 2];
 
         input.read_exact(&mut bytes)?;
@@ -338,7 +338,7 @@ impl DataType for i32 {
     fn serialize<W: Write>(&self, output: &mut W) {
         output.write_all(&mut self.to_be_bytes()).unwrap();
     }
-    fn deserialize(input: &mut Cursor<&Vec<u8>>) -> io::Result<Self> {
+    fn deserialize<R: Read>(input: &mut R) -> io::Result<Self> {
         let mut bytes = [0u8; 4];
 
         input.read_exact(&mut bytes)?;
@@ -351,7 +351,7 @@ impl DataType for i16 {
     fn serialize<W: Write>(&self, output: &mut W) {
         output.write_all(&mut self.to_be_bytes()).unwrap();
     }
-    fn deserialize(input: &mut Cursor<&Vec<u8>>) -> io::Result<Self> {
+    fn deserialize<R: Read>(input: &mut R) -> io::Result<Self> {
         let mut bytes = [0u8; 2];
 
         input.read_exact(&mut bytes)?;
@@ -364,7 +364,7 @@ impl DataType for i8 {
     fn serialize<W: Write>(&self, output: &mut W) {
         output.write_all(&mut self.to_be_bytes()).unwrap();
     }
-    fn deserialize(input: &mut Cursor<&Vec<u8>>) -> io::Result<Self> {
+    fn deserialize<R: Read>(input: &mut R) -> io::Result<Self> {
         let mut bytes = [0u8; 1];
 
         input.read_exact(&mut bytes)?;
@@ -377,7 +377,7 @@ impl DataType for i64 {
     fn serialize<W: Write>(&self, output: &mut W) {
         output.write_all(&mut self.to_be_bytes()).unwrap();
     }
-    fn deserialize(input: &mut Cursor<&Vec<u8>>) -> io::Result<Self> {
+    fn deserialize<R: Read>(input: &mut R) -> io::Result<Self> {
         let mut bytes = [0u8; 8];
 
         input.read_exact(&mut bytes)?;
@@ -390,7 +390,7 @@ impl DataType for f32 {
     fn serialize<W: Write>(&self, output: &mut W) {
         output.write_all(&mut self.to_be_bytes()).unwrap();
     }
-    fn deserialize(input: &mut Cursor<&Vec<u8>>) -> io::Result<Self> {
+    fn deserialize<R: Read>(input: &mut R) -> io::Result<Self> {
         let mut bytes = [0u8; 4];
 
         input.read_exact(&mut bytes)?;
@@ -403,7 +403,7 @@ impl DataType for f64 {
     fn serialize<W: Write>(&self, output: &mut W) {
         output.write_all(&mut self.to_be_bytes()).unwrap();
     }
-    fn deserialize(input: &mut Cursor<&Vec<u8>>) -> io::Result<Self> {
+    fn deserialize<R: Read>(input: &mut R) -> io::Result<Self> {
         let mut bytes = [0u8; 8];
 
         input.read_exact(&mut bytes)?;
@@ -416,7 +416,7 @@ impl DataType for u8 {
     fn serialize<W: Write>(&self, output: &mut W) {
         output.write_all(&mut self.to_be_bytes()).unwrap();
     }
-    fn deserialize(input: &mut Cursor<&Vec<u8>>) -> io::Result<Self> {
+    fn deserialize<R: Read>(input: &mut R) -> io::Result<Self> {
         let mut bytes = [0u8; 1];
 
         input.read_exact(&mut bytes)?;
@@ -429,7 +429,7 @@ impl DataType for bool {
     fn serialize<W: Write>(&self, output: &mut W) {
         output.write_all(&[*self as u8]).unwrap();
     }
-    fn deserialize(input: &mut Cursor<&Vec<u8>>) -> io::Result<Self> {
+    fn deserialize<R: Read>(input: &mut R) -> io::Result<Self> {
         let mut x = [0];
         input.read_exact(&mut x)?;
 
@@ -445,7 +445,7 @@ impl DataType for u128 {
             .unwrap();
         output.write_all(&mut (*self as u64).to_be_bytes()).unwrap();
     }
-    fn deserialize(input: &mut Cursor<&Vec<u8>>) -> io::Result<Self> {
+    fn deserialize<R: Read>(input: &mut R) -> io::Result<Self> {
         let mut bytes = [0u8; 8];
         input.read_exact(&mut bytes)?;
         let mut number = (u64::from_be_bytes(bytes) as u128) << 64;
