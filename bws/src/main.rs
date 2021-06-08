@@ -85,14 +85,14 @@ lazy_static! {
             }));
         }
         GlobalState {
-            description: Arc::new(Mutex::new(chat_parse::parse_json(opt.description))),
-            favicon: Arc::new(Mutex::new(format!(
+            description: Mutex::new(chat_parse::parse_json(opt.description)),
+            favicon: Mutex::new(format!(
                 "data:image/png;base64,{}",
                 base64::encode(favicon)
-            ))),
-            player_sample: Arc::new(Mutex::new(player_sample)),
-            max_players: Arc::new(Mutex::new(opt.max_players)),
-            players: Arc::new(Mutex::new(Slab::new())),
+            )),
+            player_sample: Mutex::new(player_sample),
+            max_players: Mutex::new(opt.max_players),
+            players: Mutex::new(Slab::new()),
             w_login: world::start(match world::login::new() {
                 Ok(w) => w,
                 Err(e) => {
@@ -124,15 +124,17 @@ async fn main() -> Result<()> {
 
     let join_handles = Arc::new(std::sync::Mutex::new(Vec::new()));
 
-    // properly shutdown in case of SIGINT
-    ctrlc::set_handler({
-        clone_all!(join_handles);
-        move || {
-            shutdown(join_handles.clone());
-        }
-    })
-    .context("Error setting SIGINT handler")?;
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {
+            shutdown(&join_handles.clone());
+        },
+        _ = run(&join_handles) => {
+            Ok(())
+        },
+    }
+}
 
+async fn run(join_handles: &std::sync::Mutex<Vec<JoinHandle<()>>>) -> Result<()> {
     info!("Listening on port {}", GLOBAL_STATE.port);
 
     let listener = TcpListener::bind(("0.0.0.0", GLOBAL_STATE.port))
@@ -153,7 +155,7 @@ async fn main() -> Result<()> {
     }
 }
 
-fn shutdown(sh_handles: Arc<std::sync::Mutex<Vec<JoinHandle<()>>>>) {
+fn shutdown(sh_handles: &std::sync::Mutex<Vec<JoinHandle<()>>>) -> ! {
     for player in &*futures::executor::block_on(GLOBAL_STATE.players.lock()) {
         let _ = (player.1)
             .sh_sender

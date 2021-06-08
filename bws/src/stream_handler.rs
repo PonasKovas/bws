@@ -17,9 +17,11 @@ use serde_json::{json, to_string};
 use std::io::Cursor;
 use std::io::Write;
 use std::sync::RwLock;
+use tokio::io::AsyncBufRead;
 use tokio::io::BufReader;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+use tokio::pin;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::time::{Duration, Instant};
 
@@ -104,7 +106,7 @@ async fn handle(
                     ServerBound::Handshake(protocol, _ip, _port, next_state) => {
                         if state != 0 {
                             // wrong state buddy
-                            continue;
+                            bail!("Bad client ({})", address);
                         }
                         client_protocol = protocol.0;
                         if next_state.0 != 1 && next_state.0 != 2 {
@@ -265,12 +267,26 @@ async fn read_packet(
             // time to decompress
             buffer.clear();
             let mut decoder = ZlibDecoder::new(&mut *buffer);
-            for _ in 0..(length - uncompressed_size.size() as usize) {
-                // this probably isn't really good but since the ZlibDecoder can't read from an async stream directly
-                // I will just feed it bytes one by one
-                let mut byte = [0];
-                socket.read_exact(&mut byte).await?;
-                decoder.write_all(&byte)?;
+
+            let mut to_read = length - uncompressed_size.size() as usize;
+
+            while to_read > 0 {
+                use futures::AsyncBufReadExt;
+                use tokio_util::compat::TokioAsyncReadCompatExt;
+
+                if socket.buffer().len() == 0 {
+                    socket.compat().fill_buf().await?;
+                }
+                if to_read >= socket.buffer().len() {
+                    let buffer_size = socket.buffer().len();
+                    decoder.write_all(socket.buffer())?;
+                    socket.compat().consume_unpin(buffer_size);
+                    to_read -= buffer_size;
+                } else {
+                    decoder.write_all(&socket.buffer()[..to_read])?;
+                    socket.compat().consume_unpin(to_read);
+                    to_read = 0;
+                }
             }
             decoder.finish()?;
         }
@@ -317,7 +333,7 @@ async fn write_packet(
         } else {
             // the packet is not actually compressed
             // ok just send it then
-            VarInt(uncompressed_length as i32 + 1).write(socket).await?; // + 1 because the following VarInt is counter too and it's always 1 byte since it's 0
+            VarInt(uncompressed_length as i32 + 1).write(socket).await?; // + 1 because the following VarInt is counted too and it's always 1 byte since it's 0
             VarInt(0).write(socket).await?;
             socket.write_all(&buffer[..]).await?;
         }
