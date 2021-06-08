@@ -15,7 +15,6 @@ slab = "0.4.2"
 hematite-nbt = "0.5.1"
 flate2 = { version = "1.0", features = ["tokio"] }
 sha2 = "0.9"
-scopeguard = "1.1"
 lazy_static = "1.4"
 anyhow = "1.0"
 log = "0.4"

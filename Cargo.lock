@@ -83,7 +83,6 @@ dependencies = [
  "hematite-nbt",
  "lazy_static",
  "log",
- "scopeguard",
  "serde",
  "serde_json",
  "sha2",
