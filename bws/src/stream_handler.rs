@@ -13,7 +13,6 @@ use flate2::write::ZlibDecoder;
 use flate2::write::ZlibEncoder;
 use flate2::Compression;
 use log::{debug, error, info, warn};
-use scopeguard::defer;
 use serde_json::{json, to_string};
 use std::io::Cursor;
 use std::io::Write;

@@ -11,6 +11,7 @@ use log::{debug, error, info, warn};
 use sha2::{Digest, Sha256};
 use slab::Slab;
 use std::collections::HashMap;
+use std::env::Vars;
 use std::fs::File;
 use std::io::BufRead;
 use std::io::BufReader;
@@ -115,60 +116,28 @@ impl World for LobbyWorld {
             TitleAction::SetDisplayTime(15, 20, 15),
         )))?;
 
-        sh_sender.send(SHBound::Packet(ClientBound::ChunkData(
-            0,
-            0,
-            VarInt(0b1),
-            nbt::Blob::new(),
-            vec![VarInt(127); 1024],
-            vec![ChunkSection {
-                block_count: 4096,
-                palette: Palette::Direct,
-                data: {
-                    let mut x = vec![0x200040008001; 1023];
-                    x.extend_from_slice(&vec![0x2C005800B0016; 1]);
-                    x
-                },
-            }],
-            Vec::new(),
+        sh_sender.send(SHBound::Packet(ClientBound::UpdateViewPosition(
+            VarInt(0),
+            VarInt(0),
         )))?;
 
-        sh_sender.send(SHBound::Packet(ClientBound::ChunkData(
-            -1,
-            -1,
-            VarInt(0b101),
-            nbt::Blob::new(),
-            vec![VarInt(127); 1024],
-            vec![
-                ChunkSection {
-                    block_count: 4096,
-                    palette: Palette::Indirect(vec![VarInt(1), VarInt(22)]),
-                    data: {
-                        let mut x = vec![0x0; 128];
-                        x.extend_from_slice(&vec![0x1111111111111111; 128]);
-                        x
-                    },
-                },
-                ChunkSection {
-                    block_count: 4096,
-                    palette: Palette::Direct,
-                    data: vec![0x1111111111111111; 1024],
-                },
-            ],
-            Vec::new(),
-        )))?;
-        for y in -2..=1 {
-            for x in -2..=1 {
-                if x == 0 && y == 0 || x == -1 && y == -1 {
-                    continue;
-                }
+        for y in -8..=7 {
+            for x in -8..=7 {
                 sh_sender.send(SHBound::Packet(ClientBound::ChunkData(
                     x,
                     y,
-                    VarInt(0b0),
+                    VarInt(0b1),
                     nbt::Blob::new(),
                     vec![VarInt(127); 1024],
-                    vec![],
+                    vec![ChunkSection {
+                        block_count: 4096,
+                        palette: Palette::Direct,
+                        data: {
+                            let mut x = vec![0x200040008001; 1023];
+                            x.extend_from_slice(&vec![0x2C005800B0016; 1]);
+                            x
+                        },
+                    }],
                     Vec::new(),
                 )))?;
             }
@@ -199,11 +168,11 @@ impl World for LobbyWorld {
         Ok(())
     }
     fn tick(&mut self, _counter: u64) {
-        for (id, player) in &self.players {
-            info!(
-                "{} is in {:?} and looking {:?}",
-                player.username, player.position, player.rotation
-            );
+        for (_id, player) in &self.players {
+            // info!(
+            //     "{} is in {:?} and looking {:?}",
+            //     player.username, player.position, player.rotation
+            // );
         }
     }
     fn chat(&mut self, id: usize, message: String) -> Result<()> {
@@ -218,10 +187,77 @@ impl World for LobbyWorld {
             .username)
     }
     fn set_player_position(&mut self, id: usize, new_position: (f64, f64, f64)) -> Result<()> {
-        self.players
+        let position = &mut self
+            .players
             .get_mut(&id)
             .context("No player with given ID in this world")?
-            .position = new_position;
+            .position;
+
+        // check if chunk passed
+        let old_chunks = (
+            (position.0.floor() / 16.0).floor(),
+            (position.2.floor() / 16.0).floor(),
+        );
+        let old_y = position.1.floor() as i32;
+        let new_chunks = (
+            (new_position.0.floor() / 16.0).floor(),
+            (new_position.2.floor() / 16.0).floor(),
+        );
+        let chunk_passed = !((old_chunks.0 == new_chunks.0) && (old_chunks.1 == new_chunks.1));
+        *position = new_position;
+
+        if chunk_passed || old_y != new_position.1.floor() as i32 {
+            self.sh_send(
+                id,
+                SHBound::Packet(ClientBound::UpdateViewPosition(
+                    VarInt(new_chunks.0 as i32),
+                    VarInt(new_chunks.1 as i32),
+                )),
+            )?;
+        }
+
+        if chunk_passed {
+            // send new chunks
+            // todo yo this is ugly and not really efficient, but I gotta know more about chunks before implementing it properly
+            let mut needed_chunks = Vec::with_capacity(16 * 16);
+            for z in -8..=7 {
+                for x in -8..=7 {
+                    needed_chunks.push((new_chunks.0 as i32 + x, new_chunks.1 as i32 + z));
+                }
+            }
+            for z in -8..=7 {
+                for x in -8..=7 {
+                    for i in (0..needed_chunks.len()).rev() {
+                        if needed_chunks[i] == (old_chunks.0 as i32 + x, old_chunks.1 as i32 + z) {
+                            needed_chunks.remove(i);
+                        }
+                    }
+                }
+            }
+            for chunk in needed_chunks {
+                self.sh_send(
+                    id,
+                    SHBound::Packet(ClientBound::ChunkData(
+                        chunk.0,
+                        chunk.1,
+                        VarInt(0b1),
+                        nbt::Blob::new(),
+                        vec![VarInt(127); 1024],
+                        vec![ChunkSection {
+                            block_count: 4096,
+                            palette: Palette::Direct,
+                            data: {
+                                let mut x = vec![0x200040008001; 1023];
+                                x.extend_from_slice(&vec![0x2C005800B0016; 1]);
+                                x
+                            },
+                        }],
+                        Vec::new(),
+                    )),
+                )?;
+            }
+        }
+
         Ok(())
     }
     // is called when the player rotation changes

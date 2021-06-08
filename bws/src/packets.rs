@@ -76,6 +76,7 @@ pub enum ClientBound {
     PlayDisconnect(Chat),
     NamedSoundEffect(String, VarInt, i32, i32, i32, f32, f32), // identifier, category, x, y, z, volume, pitch
     EntitySoundEffect(VarInt, VarInt, VarInt, f32, f32), // sound_id, category, entity_id, volume, pitch
+    UpdateViewPosition(VarInt, VarInt),                  // chunk_x, chunk_z
                                                          // UpdateHealth(f32, VarInt, f32), // health, food, saturation
                                                          //
                                                          // SpawnLivingEntity(
@@ -222,6 +223,12 @@ impl ClientBound {
 
                 world_age.serialize(output);
                 region_time.serialize(output);
+            }
+            Self::UpdateViewPosition(chunk_x, chunk_z) => {
+                VarInt(0x40).serialize(output);
+
+                chunk_x.serialize(output);
+                chunk_z.serialize(output);
             }
             Self::Respawn(
                 dimension,

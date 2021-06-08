@@ -18,6 +18,7 @@ mod world;
 
 use anyhow::{Context, Result};
 pub use chat_parse::parse as chat_parse;
+use futures::FutureExt;
 use global_state::GlobalState;
 use internal_communication::SHBound;
 use lazy_static::lazy_static;
@@ -141,10 +142,14 @@ async fn main() -> Result<()> {
     loop {
         let (socket, _) = listener.accept().await.unwrap();
 
-        join_handles
-            .lock()
-            .unwrap()
-            .push(tokio::spawn(stream_handler::handle_stream(socket)));
+        let mut lock = join_handles.lock().unwrap();
+        // cleanup already finished handles
+        for handle in (0..lock.len()).rev() {
+            if let Some(_) = tokio::task::unconstrained(&mut lock[handle]).now_or_never() {
+                lock.remove(handle);
+            }
+        }
+        lock.push(tokio::spawn(stream_handler::handle_stream(socket)));
     }
 }
 
