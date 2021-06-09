@@ -77,6 +77,12 @@ pub enum ClientBound {
     NamedSoundEffect(String, VarInt, i32, i32, i32, f32, f32), // identifier, category, x, y, z, volume, pitch
     EntitySoundEffect(VarInt, VarInt, VarInt, f32, f32), // sound_id, category, entity_id, volume, pitch
     UpdateViewPosition(VarInt, VarInt),                  // chunk_x, chunk_z
+    Tags(
+        Vec<(String, Vec<VarInt>)>,
+        Vec<(String, Vec<VarInt>)>,
+        Vec<(String, Vec<VarInt>)>,
+        Vec<(String, Vec<VarInt>)>,
+    ), // blocks, items, fluids, entities
                                                          // UpdateHealth(f32, VarInt, f32), // health, food, saturation
                                                          //
                                                          // SpawnLivingEntity(
@@ -229,6 +235,14 @@ impl ClientBound {
 
                 chunk_x.serialize(output);
                 chunk_z.serialize(output);
+            }
+            Self::Tags(blocks, items, fluids, entities) => {
+                VarInt(0x5B).serialize(output);
+
+                blocks.serialize(output);
+                items.serialize(output);
+                fluids.serialize(output);
+                entities.serialize(output);
             }
             Self::Respawn(
                 dimension,
