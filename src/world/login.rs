@@ -73,33 +73,33 @@ impl World for LoginWorld {
             dimension.insert("has_ceiling".to_string(), Byte(0)).unwrap();
         };
 
-        let packet = ClientBound::JoinGame(
-            id as i32,
-            false,
-            3,
-            -1,
-            vec![self.get_world_name().to_string()],
+        let packet = ClientBound::JoinGame {
+            eid: id as i32,
+            hardcore: false,
+            gamemode: 3,
+            previous_gamemode: -1,
+            world_names: vec![self.get_world_name().to_string()],
             dimension,
-            self.get_world_name().to_string(),
-            0,
-            VarInt(20),
-            VarInt(8),
-            false,
-            false,
-            false,
-            true,
-        );
+            world_name: self.get_world_name().to_string(),
+            hashed_seed: 0,
+            max_players: VarInt(20),
+            view_distance: VarInt(8),
+            reduced_debug_info: false,
+            enable_respawn_screen: false,
+            debug_mode: false,
+            flat: true,
+        };
         sh_sender.send(SHBound::Packet(packet))?;
 
-        sh_sender.send(SHBound::Packet(ClientBound::PlayerPositionAndLook(
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            -20.0,
-            0,
-            VarInt(0),
-        )))?;
+        sh_sender.send(SHBound::Packet(ClientBound::PlayerPositionAndLook {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+            yaw: 0.0,
+            pitch: -20.0,
+            flags: 0,
+            tp_id: VarInt(0),
+        }))?;
 
         sh_sender.send(SHBound::Packet(ClientBound::SetBrand("BWS".to_string())))?;
 
@@ -108,8 +108,8 @@ impl World for LoginWorld {
         let password = self.accounts.get(&username);
 
         // declare commands
-        sh_sender.send(SHBound::Packet(ClientBound::DeclareCommands(
-            if password.is_some() {
+        sh_sender.send(SHBound::Packet(ClientBound::DeclareCommands {
+            nodes: if password.is_some() {
                 vec![
                     CommandNode::Root(vec![VarInt(1)]),
                     CommandNode::Literal(false, vec![VarInt(2)], None, "login".to_string()),
@@ -144,8 +144,8 @@ impl World for LoginWorld {
                     ),
                 ]
             },
-            VarInt(0),
-        )))?;
+            root: VarInt(0),
+        }))?;
 
         sh_sender.send(SHBound::Packet(ClientBound::Title(TitleAction::Reset)))?;
 
@@ -154,16 +154,20 @@ impl World for LoginWorld {
         ))))?;
 
         sh_sender.send(SHBound::Packet(ClientBound::Title(
-            TitleAction::SetDisplayTime(15, 60, 15),
+            TitleAction::SetDisplayTime {
+                fade_in: 15,
+                display: 60,
+                fade_out: 15,
+            },
         )))?;
 
-        sh_sender.send(SHBound::Packet(ClientBound::EntitySoundEffect(
-            VarInt(482),
-            VarInt(0),         // MASTER category
-            VarInt(id as i32), // player
-            1.0,
-            1.0,
-        )))?;
+        sh_sender.send(SHBound::Packet(ClientBound::EntitySoundEffect {
+            sound_id: VarInt(482),
+            category: VarInt(0),          // MASTER category
+            entity_id: VarInt(id as i32), // player
+            volume: 1.0,
+            pitch: 1.0,
+        }))?;
 
         // add the player
         self.players
@@ -297,7 +301,10 @@ impl LoginWorld {
     pub fn tell<T: AsRef<str>>(&self, id: usize, message: T) -> Result<()> {
         self.sh_send(
             id,
-            SHBound::Packet(ClientBound::ChatMessage(chat_parse(message), 1)),
+            SHBound::Packet(ClientBound::ChatMessage {
+                message: chat_parse(message),
+                position: 1,
+            }),
         )?;
         Ok(())
     }

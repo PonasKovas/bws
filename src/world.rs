@@ -129,7 +129,7 @@ fn process_wbound_messages<W: World>(world: &mut W, w_receiver: &mut WReceiver) 
                         error!("Error handling chat message from {}: {}", id, e);
                     }
                 }
-                ServerBound::PlayerPosition(x, y, z, on_ground) => {
+                ServerBound::PlayerPosition { x, y, z, on_ground } => {
                     if let Err(_) = world
                         .set_player_position(id, (x, y, z))
                         .and(world.set_player_on_ground(id, on_ground))
@@ -137,7 +137,14 @@ fn process_wbound_messages<W: World>(world: &mut W, w_receiver: &mut WReceiver) 
                         error!("Trying set position for player which does not exist in this world");
                     }
                 }
-                ServerBound::PlayerPositionAndRotation(x, y, z, yaw, pitch, on_ground) => {
+                ServerBound::PlayerPositionAndRotation {
+                    x,
+                    y,
+                    z,
+                    yaw,
+                    pitch,
+                    on_ground,
+                } => {
                     if let Err(_) = world
                         .set_player_position(id, (x, y, z))
                         .and(world.set_player_rotation(id, (yaw, pitch)))
@@ -146,7 +153,11 @@ fn process_wbound_messages<W: World>(world: &mut W, w_receiver: &mut WReceiver) 
                         error!("Trying set position for player which does not exist in this world");
                     }
                 }
-                ServerBound::PlayerRotation(yaw, pitch, on_ground) => {
+                ServerBound::PlayerRotation {
+                    yaw,
+                    pitch,
+                    on_ground,
+                } => {
                     if let Err(_) = world
                         .set_player_rotation(id, (yaw, pitch))
                         .and(world.set_player_on_ground(id, on_ground))
@@ -154,19 +165,19 @@ fn process_wbound_messages<W: World>(world: &mut W, w_receiver: &mut WReceiver) 
                         error!("Trying set position for player which does not exist in this world");
                     }
                 }
-                ServerBound::PlayerMovement(on_ground) => {
+                ServerBound::PlayerMovement { on_ground } => {
                     if let Err(_) = world.set_player_on_ground(id, on_ground) {
                         error!("Trying set position for player which does not exist in this world");
                     }
                 }
-                ServerBound::ClientSettings(
-                    _locale,
+                ServerBound::ClientSettings {
+                    locale: _,
                     view_distance,
-                    _chat_mode,
-                    _chat_colors,
-                    _skin_parts,
-                    _main_hand,
-                ) => {
+                    chat_mode: _,
+                    chat_colors: _,
+                    skin_parts: _,
+                    main_hand: _,
+                } => {
                     if let Err(_) = world.set_player_view_distance(id, view_distance) {
                         error!("Trying set view-distance for player which does not exist in this world");
                     }

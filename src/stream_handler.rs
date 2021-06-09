@@ -103,7 +103,7 @@ async fn handle(
                 let packet = read_packet(&mut socket, &mut buffer, state, length as usize, GLOBAL_STATE.compression_treshold).await?;
 
                 match packet {
-                    ServerBound::Handshake(protocol, _ip, _port, next_state) => {
+                    ServerBound::Handshake{protocol, address: _, port: _, next_state} => {
                         if state != 0 {
                             // wrong state buddy
                             bail!("Bad client ({})", address);
@@ -148,7 +148,7 @@ async fn handle(
                         );
                         write_packet(&mut socket, &mut buffer, packet, -1).await?;
                     }
-                    ServerBound::LoginStart(username) => {
+                    ServerBound::LoginStart{username} => {
                         // check if version is supported
                         if !crate::SUPPORTED_PROTOCOL_VERSIONS.iter().any(|&i| i==client_protocol) {
                             let packet = ClientBound::LoginDisconnect(
@@ -168,12 +168,14 @@ async fn handle(
 
                         // set compression if non-negative
                         if GLOBAL_STATE.compression_treshold >= 0 {
-                            let packet = ClientBound::SetCompression(VarInt(GLOBAL_STATE.compression_treshold as i32));
+                            let packet = ClientBound::SetCompression {
+                                treshold: VarInt(GLOBAL_STATE.compression_treshold as i32),
+                            };
                             write_packet(&mut socket, &mut buffer, packet, -1).await?;
                         }
 
                         // everything's alright, come in
-                        let packet = ClientBound::LoginSuccess(0, username.clone());
+                        let packet = ClientBound::LoginSuccess{uuid:0, username: username.clone()};
                         write_packet(&mut socket, &mut buffer, packet, GLOBAL_STATE.compression_treshold).await?;
 
                         // since the keepalives are going to start being sent, reset the timeout timer
@@ -198,13 +200,13 @@ async fn handle(
                         // Reset the timeout timer
                         last_keepalive_received = Instant::now();
                     }
-                    ServerBound::ClientSettings(locale, view_distance, chat_mode, chat_colors, skin_parts, main_hand) => {
+                    ServerBound::ClientSettings{locale, view_distance, chat_mode, chat_colors, skin_parts, main_hand} => {
                         if let Some(id) = *global_player_id {
                             GLOBAL_STATE.players.lock().await[id].view_distance = Some(view_distance);
                         }
                         if let Some(id) = global_player_id {
                             if let Some(world_sender) = world_sender {
-                                world_sender.send(ic::WBound::Packet(*id, ServerBound::ClientSettings(locale, view_distance, chat_mode, chat_colors, skin_parts, main_hand))).context("Current world receiver has been lost.")?;
+                                world_sender.send(ic::WBound::Packet(*id, ServerBound::ClientSettings{locale, view_distance, chat_mode, chat_colors, skin_parts, main_hand})).context("Current world receiver has been lost.")?;
                             }
                         }
                     }
