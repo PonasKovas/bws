@@ -467,3 +467,21 @@ impl DataType for u128 {
         Ok(number)
     }
 }
+
+// this is epic. thank you rust, very cool.
+impl<T: DataType, const N: usize> DataType for [T; N] {
+    fn serialize<W: Write>(&self, output: &mut W) {
+        for i in 0..N {
+            self[i].serialize(output);
+        }
+    }
+    fn deserialize<R: Read>(input: &mut R) -> io::Result<Self> {
+        let mut result = [(); N].map(|_| None); // Option<T> is not Copy :/
+
+        for i in 0..N {
+            result[i] = Some(T::deserialize(input)?);
+        }
+
+        Ok(result.map(|e| e.unwrap()))
+    }
+}

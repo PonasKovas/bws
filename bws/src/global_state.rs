@@ -3,12 +3,12 @@ use crate::internal_communication::SHSender;
 use slab::Slab;
 use std::net::SocketAddr;
 use tokio::sync::mpsc::UnboundedSender;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 
 pub struct Player {
     pub username: String,
-    pub sh_sender: SHSender,
     pub address: SocketAddr,
+    pub sh_sender: SHSender,
     pub view_distance: Option<i8>,
 }
 

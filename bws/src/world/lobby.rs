@@ -80,26 +80,26 @@ impl World for LobbyWorld {
             dimension.insert("has_ceiling".to_string(), Byte(0)).unwrap();
         };
 
-        sh_sender.send(SHBound::Packet(ClientBound::Respawn(
+        sh_sender.send(SHBound::Packet(ClientBound::Respawn {
             dimension,
-            self.get_world_name().to_string(),
-            0,
-            1,
-            3,
-            false,
-            true,
-            false,
-        )))?;
+            world_name: self.get_world_name().to_string(),
+            hashed_seed: 0,
+            gamemode: 1,
+            previous_gamemode: 3,
+            debug_mode: false,
+            flat: true,
+            copy_metadata: false,
+        }))?;
 
-        sh_sender.send(SHBound::Packet(ClientBound::PlayerPositionAndLook(
-            0.0,
-            20.0,
-            0.0,
-            0.0,
-            0.0,
-            0,
-            VarInt(0),
-        )))?;
+        sh_sender.send(SHBound::Packet(ClientBound::PlayerPositionAndLook {
+            x: 0.0,
+            y: 20.0,
+            z: 0.0,
+            yaw: 0.0,
+            pitch: 0.0,
+            flags: 0,
+            tp_id: VarInt(0),
+        }))?;
 
         sh_sender.send(SHBound::Packet(ClientBound::SetBrand("BWS".to_string())))?;
 
@@ -118,29 +118,33 @@ impl World for LobbyWorld {
         )))?;
 
         sh_sender.send(SHBound::Packet(ClientBound::Title(
-            TitleAction::SetDisplayTime(15, 20, 15),
+            TitleAction::SetDisplayTime {
+                fade_in: 15,
+                display: 20,
+                fade_out: 15,
+            },
         )))?;
 
-        sh_sender.send(SHBound::Packet(ClientBound::UpdateViewPosition(
-            VarInt(0),
-            VarInt(0),
-        )))?;
+        sh_sender.send(SHBound::Packet(ClientBound::UpdateViewPosition {
+            chunk_x: VarInt(0),
+            chunk_z: VarInt(0),
+        }))?;
 
         let client_view_distance = block_on(GLOBAL_STATE.players.lock())[id]
             .view_distance
             .unwrap_or(8);
 
-        let c = min(8, client_view_distance);
+        let c = min(SERVER_VIEW_DISTANE, client_view_distance);
 
-        for y in -c..c {
+        for z in -c..c {
             for x in -c..c {
-                sh_sender.send(SHBound::Packet(ClientBound::ChunkData(
-                    x as i32,
-                    y as i32,
-                    VarInt(0b1),
-                    nbt::Blob::new(),
-                    vec![VarInt(174); 1024],
-                    vec![ChunkSection {
+                sh_sender.send(SHBound::Packet(ClientBound::ChunkData {
+                    chunk_x: x as i32,
+                    chunk_z: z as i32,
+                    primary_bit_mask: VarInt(0b1),
+                    heightmaps: nbt::Blob::new(),
+                    biomes: [VarInt(174); 1024],
+                    sections: vec![ChunkSection {
                         block_count: 4096,
                         palette: Palette::Direct,
                         data: {
@@ -149,8 +153,8 @@ impl World for LobbyWorld {
                             x
                         },
                     }],
-                    Vec::new(),
-                )))?;
+                    block_entities: Vec::new(),
+                }))?;
             }
         }
 
@@ -217,17 +221,17 @@ impl World for LobbyWorld {
         if chunk_passed || old_y != new_position.1.floor() as i32 {
             self.sh_send(
                 id,
-                SHBound::Packet(ClientBound::UpdateViewPosition(
-                    VarInt(new_chunks.0 as i32),
-                    VarInt(new_chunks.1 as i32),
-                )),
+                SHBound::Packet(ClientBound::UpdateViewPosition {
+                    chunk_x: VarInt(new_chunks.0 as i32),
+                    chunk_z: VarInt(new_chunks.1 as i32),
+                }),
             )?;
         }
 
         if chunk_passed {
             // send new chunks
 
-            let c = min(8, self.players[&id].view_distance) as i32;
+            let c = min(SERVER_VIEW_DISTANE, self.players[&id].view_distance) as i32;
 
             // todo yo this is ugly and not really efficient, but I gotta know more about chunks before implementing it properly
             let mut needed_chunks = Vec::with_capacity(16 * 16);
@@ -248,13 +252,13 @@ impl World for LobbyWorld {
             for chunk in needed_chunks {
                 self.sh_send(
                     id,
-                    SHBound::Packet(ClientBound::ChunkData(
-                        chunk.0,
-                        chunk.1,
-                        VarInt(0b1),
-                        nbt::Blob::new(),
-                        vec![VarInt(174); 1024],
-                        vec![ChunkSection {
+                    SHBound::Packet(ClientBound::ChunkData {
+                        chunk_x: chunk.0,
+                        chunk_z: chunk.1,
+                        primary_bit_mask: VarInt(0b1),
+                        heightmaps: nbt::Blob::new(),
+                        biomes: [VarInt(174); 1024],
+                        sections: vec![ChunkSection {
                             block_count: 4096,
                             palette: Palette::Direct,
                             data: {
@@ -263,8 +267,8 @@ impl World for LobbyWorld {
                                 x
                             },
                         }],
-                        Vec::new(),
-                    )),
+                        block_entities: Vec::new(),
+                    }),
                 )?;
             }
         }
@@ -285,7 +289,7 @@ impl World for LobbyWorld {
                 (player.position.0.floor() / 16.0).floor(),
                 (player.position.2.floor() / 16.0).floor(),
             );
-            let c = min(8, view_distance) as i32;
+            let c = min(SERVER_VIEW_DISTANE, view_distance) as i32;
 
             let mut needed_chunks = Vec::with_capacity(c as usize * c as usize);
             for z in -c..c {
@@ -313,13 +317,13 @@ impl World for LobbyWorld {
             for chunk in needed_chunks {
                 self.sh_send(
                     id,
-                    SHBound::Packet(ClientBound::ChunkData(
-                        chunk.0,
-                        chunk.1,
-                        VarInt(0b1),
-                        nbt::Blob::new(),
-                        vec![VarInt(174); 1024],
-                        vec![ChunkSection {
+                    SHBound::Packet(ClientBound::ChunkData {
+                        chunk_x: chunk.0,
+                        chunk_z: chunk.1,
+                        primary_bit_mask: VarInt(0b1),
+                        heightmaps: nbt::Blob::new(),
+                        biomes: [VarInt(174); 1024],
+                        sections: vec![ChunkSection {
                             block_count: 4096,
                             palette: Palette::Direct,
                             data: {
@@ -328,8 +332,8 @@ impl World for LobbyWorld {
                                 x
                             },
                         }],
-                        Vec::new(),
-                    )),
+                        block_entities: Vec::new(),
+                    }),
                 )?;
             }
         } else {
@@ -349,7 +353,10 @@ impl LobbyWorld {
     pub fn tell<T: AsRef<str>>(&self, id: usize, message: T) -> Result<()> {
         self.sh_send(
             id,
-            SHBound::Packet(ClientBound::ChatMessage(chat_parse(message), 1)),
+            SHBound::Packet(ClientBound::ChatMessage {
+                message: chat_parse(message),
+                position: 1,
+            }),
         )?;
         Ok(())
     }
