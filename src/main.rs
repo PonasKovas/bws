@@ -18,6 +18,7 @@ mod world;
 
 use anyhow::{Context, Result};
 pub use chat_parse::parse as chat_parse;
+use futures::select;
 use futures::FutureExt;
 use global_state::GlobalState;
 use internal_communication::SHBound;
@@ -28,6 +29,7 @@ use serde_json::json;
 use slab::Slab;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use structopt::StructOpt;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
@@ -126,7 +128,8 @@ async fn main() -> Result<()> {
 
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {
-            shutdown(&join_handles.clone());
+            shutdown(&join_handles.clone()).await;
+            Ok(())
         },
         _ = run(&join_handles) => {
             Ok(())
@@ -155,8 +158,8 @@ async fn run(join_handles: &std::sync::Mutex<Vec<JoinHandle<()>>>) -> Result<()>
     }
 }
 
-fn shutdown(sh_handles: &std::sync::Mutex<Vec<JoinHandle<()>>>) -> ! {
-    for player in &*futures::executor::block_on(GLOBAL_STATE.players.lock()) {
+async fn shutdown(sh_handles: &std::sync::Mutex<Vec<JoinHandle<()>>>) -> ! {
+    for player in &*GLOBAL_STATE.players.lock().await {
         let _ = (player.1)
             .sh_sender
             .send(SHBound::Packet(ClientBound::PlayDisconnect(chat_parse(
@@ -169,8 +172,14 @@ fn shutdown(sh_handles: &std::sync::Mutex<Vec<JoinHandle<()>>>) -> ! {
 
     info!("Exiting...");
 
-    for handle in &mut *sh_handles.lock().unwrap() {
-        let _ = futures::executor::block_on(handle);
+    // wait for all stream handler threads with a timeout of 1 second
+    tokio::select! {
+        _ = async move {
+            for handle in &mut *sh_handles.lock().unwrap() {
+                let _ = handle.await;
+            }
+        } => {},
+        _ = tokio::time::sleep(Duration::from_secs(1)) => {}
     }
 
     std::process::exit(0);

@@ -19,6 +19,7 @@ pub enum ServerBound {
     PlayerPositionAndRotation(f64, f64, f64, f32, f32, bool), // x, y, z, yaw, pitch, on_ground
     PlayerRotation(f32, f32, bool),                           // yaw, pitch, on_ground
     PlayerMovement(bool),                                     // on_ground
+    ClientSettings(String, i8, VarInt, bool, u8, VarInt), // locale, view_distance, chat_mode, chat_colors, skin_parts, main_hand
     // ChatMessage(String), // the raw message, up to 256 characters
     // ClientStatus(VarInt), // 0 - respawn, 1 - request statistics
     // InteractEntity(VarInt, VarInt, bool), // entity id, [0 - interact, 1 - attack, 2 - interact at (not supported)], whether sneaking
@@ -77,12 +78,7 @@ pub enum ClientBound {
     NamedSoundEffect(String, VarInt, i32, i32, i32, f32, f32), // identifier, category, x, y, z, volume, pitch
     EntitySoundEffect(VarInt, VarInt, VarInt, f32, f32), // sound_id, category, entity_id, volume, pitch
     UpdateViewPosition(VarInt, VarInt),                  // chunk_x, chunk_z
-    Tags(
-        Vec<(String, Vec<VarInt>)>,
-        Vec<(String, Vec<VarInt>)>,
-        Vec<(String, Vec<VarInt>)>,
-        Vec<(String, Vec<VarInt>)>,
-    ), // blocks, items, fluids, entities
+    Tags,                                                // fixed
                                                          // UpdateHealth(f32, VarInt, f32), // health, food, saturation
                                                          //
                                                          // SpawnLivingEntity(
@@ -155,6 +151,14 @@ impl ServerBound {
                 match packet_id {
                     0x10 => Ok(Self::KeepAlive(i64::deserialize(input)?)),
                     0x03 => Ok(Self::ChatMessage(String::deserialize(input)?)),
+                    0x05 => Ok(Self::ClientSettings(
+                        String::deserialize(input)?,
+                        i8::deserialize(input)?,
+                        VarInt::deserialize(input)?,
+                        bool::deserialize(input)?,
+                        u8::deserialize(input)?,
+                        VarInt::deserialize(input)?,
+                    )),
                     0x12 => Ok(Self::PlayerPosition(
                         f64::deserialize(input)?,
                         f64::deserialize(input)?,
@@ -236,13 +240,10 @@ impl ClientBound {
                 chunk_x.serialize(output);
                 chunk_z.serialize(output);
             }
-            Self::Tags(blocks, items, fluids, entities) => {
+            Self::Tags => {
                 VarInt(0x5B).serialize(output);
 
-                blocks.serialize(output);
-                items.serialize(output);
-                fluids.serialize(output);
-                entities.serialize(output);
+                output.write_all(incl!("assets/raw/tags.bin")).unwrap();
             }
             Self::Respawn(
                 dimension,

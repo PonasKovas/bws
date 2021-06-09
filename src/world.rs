@@ -84,6 +84,9 @@ pub trait World: Sized {
     fn set_player_on_ground(&mut self, _id: usize, _on_ground: bool) -> Result<()> {
         Ok(())
     }
+    fn set_player_view_distance(&mut self, _id: usize, _view_distance: i8) -> Result<()> {
+        Ok(())
+    }
 }
 
 pub fn start<W: 'static + World + Send>(world: W) -> WSender {
@@ -154,6 +157,18 @@ fn process_wbound_messages<W: World>(world: &mut W, w_receiver: &mut WReceiver) 
                 ServerBound::PlayerMovement(on_ground) => {
                     if let Err(_) = world.set_player_on_ground(id, on_ground) {
                         error!("Trying set position for player which does not exist in this world");
+                    }
+                }
+                ServerBound::ClientSettings(
+                    _locale,
+                    view_distance,
+                    _chat_mode,
+                    _chat_colors,
+                    _skin_parts,
+                    _main_hand,
+                ) => {
+                    if let Err(_) = world.set_player_view_distance(id, view_distance) {
+                        error!("Trying set view-distance for player which does not exist in this world");
                     }
                 }
                 _ => {
