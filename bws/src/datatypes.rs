@@ -321,6 +321,16 @@ impl<T: DataType> DataType for Vec<T> {
     }
 }
 
+impl<T: DataType, F: DataType> DataType for (T, F) {
+    fn serialize<W: Write>(&self, output: &mut W) {
+        self.0.serialize(output);
+        self.1.serialize(output);
+    }
+    fn deserialize<R: Read>(input: &mut R) -> io::Result<Self> {
+        Ok((T::deserialize(input)?, F::deserialize(input)?))
+    }
+}
+
 impl DataType for u16 {
     fn serialize<W: Write>(&self, output: &mut W) {
         output.write_all(&mut self.to_be_bytes()).unwrap();

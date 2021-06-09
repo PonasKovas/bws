@@ -128,7 +128,7 @@ impl World for LobbyWorld {
                     y,
                     VarInt(0b1),
                     nbt::Blob::new(),
-                    vec![VarInt(127); 1024],
+                    vec![VarInt(174); 1024],
                     vec![ChunkSection {
                         block_count: 4096,
                         palette: Palette::Direct,
