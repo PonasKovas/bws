@@ -186,6 +186,7 @@ async fn handle(
                                 username: username.clone(),
                                 sh_sender: sh_sender.clone(),
                                 address,
+                                view_distance: None
                             });
                         *global_player_id = Some(global_id);
 
@@ -197,13 +198,22 @@ async fn handle(
                         // Reset the timeout timer
                         last_keepalive_received = Instant::now();
                     }
+                    ServerBound::ClientSettings(locale, view_distance, chat_mode, chat_colors, skin_parts, main_hand) => {
+                        if let Some(id) = *global_player_id {
+                            GLOBAL_STATE.players.lock().await[id].view_distance = Some(view_distance);
+                        }
+                        if let Some(id) = global_player_id {
+                            if let Some(world_sender) = world_sender {
+                                world_sender.send(ic::WBound::Packet(*id, ServerBound::ClientSettings(locale, view_distance, chat_mode, chat_colors, skin_parts, main_hand))).context("Current world receiver has been lost.")?;
+                            }
+                        }
+                    }
                     other => {
                         if let Some(id) = global_player_id {
                             if let Some(world_sender) = world_sender {
                                 world_sender.send(ic::WBound::Packet(*id, other)).context("Current world receiver has been lost.")?;
                             }
                         }
-
                     }
                 }
             },
