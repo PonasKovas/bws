@@ -1,13 +1,17 @@
 use crate::chat_parse;
 use crate::datatypes::*;
-use crate::internal_communication::{SHBound, SHSender};
+use crate::global_state::PStream;
+use crate::internal_communication::WBound;
+use crate::internal_communication::WReceiver;
+use crate::internal_communication::WSender;
+use crate::packets::ServerBound;
 use crate::packets::{ClientBound, TitleAction};
-use crate::world::World;
 use crate::GLOBAL_STATE;
 use anyhow::bail;
 use anyhow::Context;
 use anyhow::Result;
 use futures::executor::block_on;
+use futures::FutureExt;
 use log::{debug, error, info, warn};
 use sha2::{Digest, Sha256};
 use slab::Slab;
@@ -19,13 +23,18 @@ use std::io::BufRead;
 use std::io::BufReader;
 use std::io::Write;
 use std::path::Path;
+use std::time::Duration;
+use std::time::Instant;
+use tokio::spawn;
+use tokio::sync::mpsc::unbounded_channel;
+use tokio::task::unconstrained;
+use tokio::time::sleep;
 
 const SERVER_VIEW_DISTANE: i8 = 8;
 
 struct Player {
     username: String,
-    sh_sender: SHSender,
-    view_distance: i8,
+    stream: PStream,
     position: (f64, f64, f64),
     rotation: (f32, f32),
 }
@@ -34,26 +43,88 @@ pub struct LobbyWorld {
     players: HashMap<usize, Player>,
 }
 
-impl World for LobbyWorld {
-    fn get_world_name(&self) -> &str {
-        "lobby"
+impl LobbyWorld {
+    pub async fn new() -> Self {
+        LobbyWorld {
+            players: HashMap::new(),
+        }
     }
-    fn is_fixed_time(&self) -> Option<i64> {
-        None
+    pub async fn run(&mut self, mut w_receiver: WReceiver) {
+        let mut counter = 0;
+        loop {
+            let start_of_tick = Instant::now();
+
+            // first - process all WBound messages on the channel
+            self.process_wbound_messages(&mut w_receiver).await;
+
+            // second - read and handle all input from players on this world
+            self.process_client_packets().await;
+
+            self.tick(counter).await;
+
+            // and then simulate the game
+
+            // wait until the next tick, if needed
+            sleep(
+                Duration::from_nanos(1_000_000_000 / 20)
+                    .saturating_sub(Instant::now().duration_since(start_of_tick)),
+            )
+            .await;
+            counter += 1;
+        }
     }
-    fn add_player(&mut self, id: usize) -> Result<()> {
-        let lock = block_on(GLOBAL_STATE.players.lock());
-        let sh_sender = lock
-            .get(id)
-            .context("tried to add non-existing player")?
-            .sh_sender
-            .clone();
-        let username = lock
-            .get(id)
-            .context("tried to add non-existing player")?
-            .username
-            .clone();
-        drop(lock);
+}
+impl LobbyWorld {
+    async fn process_wbound_messages(&mut self, w_receiver: &mut WReceiver) {
+        loop {
+            // Tries executing the future exactly once, without forcing it to yield earlier (because non-cooperative multitasking).
+            // If it returns Pending, then break the whole loop, because that means there
+            // are no more messages queued up at this moment.
+            let message = match unconstrained(w_receiver.recv()).now_or_never().flatten() {
+                Some(m) => m,
+                None => break,
+            };
+
+            match message {
+                WBound::AddPlayer { id } => {
+                    let (username, stream) = match GLOBAL_STATE.players.read().await.get(id) {
+                        Some(p) => (p.username.clone(), p.stream.clone()),
+                        None => {
+                            debug!("Tried to add player to world, but the player is already disconnected");
+                            continue;
+                        }
+                    };
+                    debug!("client {} joined", id);
+                    self.players.insert(
+                        id,
+                        Player {
+                            username,
+                            stream,
+                            position: (0.0, 30.0, 0.0),
+                            rotation: (0.0, 0.0),
+                        },
+                    );
+
+                    if let Err(e) = self.new_player(id).await {
+                        debug!("Couldn't send the greetings to a new player: {}", e);
+                    }
+                }
+                WBound::MovePlayer { id, new_world } => match self.players.remove(&id) {
+                    Some(_) => {
+                        if let Err(_) = new_world.send(WBound::AddPlayer { id }) {
+                            error!("Received a request to move a player to a dead world");
+                        }
+                    }
+                    None => {
+                        error!("Received a request to move a player, but I don't even have the player.");
+                    }
+                },
+            }
+        }
+    }
+    async fn new_player(&self, id: usize) -> Result<()> {
+        // lock the stream
+        let mut stream = self.players[&id].stream.lock().await;
 
         let mut dimension = nbt::Blob::new();
 
@@ -65,9 +136,6 @@ impl World for LobbyWorld {
             dimension.insert("piglin_safe".to_string(), Byte(0)).unwrap();
             dimension.insert("natural".to_string(), Byte(1)).unwrap();
             dimension.insert("ambient_light".to_string(), Float(1.0)).unwrap();
-            if let Some(time) = self.is_fixed_time() {
-                dimension.insert("fixed_time".to_string(), Long(time)).unwrap();
-            }
             dimension.insert("infiniburn".to_string(), NbtString("".to_string())).unwrap();
             dimension.insert("respawn_anchor_works".to_string(), Byte(1)).unwrap();
             dimension.insert("has_skylight".to_string(), Byte(1)).unwrap();
@@ -80,18 +148,18 @@ impl World for LobbyWorld {
             dimension.insert("has_ceiling".to_string(), Byte(0)).unwrap();
         };
 
-        sh_sender.send(SHBound::Packet(ClientBound::Respawn {
+        stream.send(ClientBound::Respawn {
             dimension,
-            world_name: self.get_world_name().to_string(),
+            world_name: "lobby".to_string(),
             hashed_seed: 0,
             gamemode: 1,
             previous_gamemode: 3,
             debug_mode: false,
             flat: true,
             copy_metadata: false,
-        }))?;
+        })?;
 
-        sh_sender.send(SHBound::Packet(ClientBound::PlayerPositionAndLook {
+        stream.send(ClientBound::PlayerPositionAndLook {
             x: 0.0,
             y: 20.0,
             z: 0.0,
@@ -99,38 +167,41 @@ impl World for LobbyWorld {
             pitch: 0.0,
             flags: 0,
             tp_id: VarInt(0),
-        }))?;
+        })?;
 
-        sh_sender.send(SHBound::Packet(ClientBound::SetBrand("BWS".to_string())))?;
+        stream.send(ClientBound::SetBrand("BWS".to_string()))?;
 
-        sh_sender.send(SHBound::Packet(ClientBound::Title(TitleAction::Reset)))?;
+        stream.send(ClientBound::Title(TitleAction::Reset))?;
 
-        sh_sender.send(SHBound::Packet(ClientBound::Title(TitleAction::SetTitle(
-            chat_parse("§aLogged in§7!"),
+        stream.send(ClientBound::Title(TitleAction::SetTitle(chat_parse(
+            "§aLogged in§7!",
         ))))?;
 
-        sh_sender.send(SHBound::Packet(ClientBound::Title(
-            TitleAction::SetSubtitle(chat_parse("§bhave fun§7!")),
-        )))?;
+        stream.send(ClientBound::Title(TitleAction::SetSubtitle(chat_parse(
+            "§bhave fun§7!",
+        ))))?;
 
-        sh_sender.send(SHBound::Packet(ClientBound::Title(
-            TitleAction::SetActionBar(chat_parse("")),
-        )))?;
+        stream.send(ClientBound::Title(TitleAction::SetActionBar(chat_parse(
+            "",
+        ))))?;
 
-        sh_sender.send(SHBound::Packet(ClientBound::Title(
-            TitleAction::SetDisplayTime {
-                fade_in: 15,
-                display: 20,
-                fade_out: 15,
-            },
-        )))?;
-
-        sh_sender.send(SHBound::Packet(ClientBound::UpdateViewPosition {
-            chunk_x: VarInt(0),
-            chunk_z: VarInt(0),
+        stream.send(ClientBound::Title(TitleAction::SetDisplayTime {
+            fade_in: 15,
+            display: 20,
+            fade_out: 15,
         }))?;
 
-        let client_view_distance = block_on(GLOBAL_STATE.players.lock())[id]
+        stream.send(ClientBound::UpdateViewPosition {
+            chunk_x: VarInt(0),
+            chunk_z: VarInt(0),
+        })?;
+
+        let client_view_distance = GLOBAL_STATE
+            .players
+            .read()
+            .await
+            .get(id)
+            .context("Player already disconnected")?
             .view_distance
             .unwrap_or(8);
 
@@ -138,7 +209,7 @@ impl World for LobbyWorld {
 
         for z in -c..c {
             for x in -c..c {
-                sh_sender.send(SHBound::Packet(ClientBound::ChunkData {
+                stream.send(ClientBound::ChunkData {
                     chunk_x: x as i32,
                     chunk_z: z as i32,
                     primary_bit_mask: VarInt(0b1),
@@ -154,84 +225,125 @@ impl World for LobbyWorld {
                         },
                     }],
                     block_entities: Vec::new(),
-                }))?;
+                })?;
             }
         }
 
-        // add the player
-        self.players.insert(
-            id,
-            Player {
-                username,
-                sh_sender,
-                position: (0.0, 20.0, 0.0),
-                rotation: (0.0, 0.0),
-                view_distance: client_view_distance,
-            },
-        );
+        Ok(())
+    }
+    async fn process_client_packets(&mut self) {
+        // forgive me father, for the borrow checker does not let me do it any other way
+        let keys: Vec<usize> = self.players.keys().copied().collect();
 
-        Ok(())
-    }
-    fn remove_player(&mut self, id: usize) {
-        self.players.remove(&id);
-    }
-    fn sh_send(&self, id: usize, message: SHBound) -> Result<()> {
-        self.players
-            .get(&id)
-            .context("No player with given ID in world")?
-            .sh_sender
-            .send(message)?;
-        Ok(())
-    }
-    fn tick(&mut self, _counter: u64) {
-        for (_id, player) in &self.players {
-            // info!(
-            //     "{} is in {:?} and looking {:?}",
-            //     player.username, player.position, player.rotation
-            // );
+        for id in keys {
+            'inner: loop {
+                let r = self.players[&id].stream.lock().await.try_recv();
+                match r {
+                    Ok(Some(packet)) => {
+                        self.handle_packet(id, packet).await;
+                    }
+                    Ok(None) => break 'inner, // go on to the next client
+                    Err(_) => {
+                        // eww, looks like someone disconnected!!
+                        // time to clean this up
+                        self.players.remove(&id);
+                        break 'inner;
+                    }
+                }
+            }
         }
     }
-    fn chat(&mut self, id: usize, message: String) -> Result<()> {
-        self.tell(id, format!("§a§l{}: §r§f{}", self.username(id)?, message))?;
-        Ok(())
+    async fn handle_packet<'a>(&mut self, id: usize, packet: ServerBound) {
+        match packet {
+            ServerBound::ChatMessage(message) => {
+                let _ = self.players[&id]
+                    .stream
+                    .lock()
+                    .await
+                    .send(ClientBound::ChatMessage {
+                        message: chat_parse(format!(
+                            "§a§l{}: §r§f{}",
+                            self.players[&id].username, message
+                        )),
+                        position: 0,
+                    });
+            }
+            ServerBound::PlayerPosition { x, y, z, on_ground } => {
+                let _ = self.set_player_position(id, (x, y, z)).await;
+                self.set_player_on_ground(id, on_ground).await;
+            }
+            ServerBound::PlayerPositionAndRotation {
+                x,
+                y,
+                z,
+                yaw,
+                pitch,
+                on_ground,
+            } => {
+                let _ = self.set_player_position(id, (x, y, z)).await;
+                self.set_player_rotation(id, (yaw, pitch)).await;
+                self.set_player_on_ground(id, on_ground).await;
+            }
+            ServerBound::PlayerRotation {
+                yaw,
+                pitch,
+                on_ground,
+            } => {
+                self.set_player_rotation(id, (yaw, pitch)).await;
+                self.set_player_on_ground(id, on_ground).await;
+            }
+            ServerBound::PlayerMovement { on_ground } => {
+                self.set_player_on_ground(id, on_ground).await;
+            }
+            _ => {}
+        }
     }
-    fn username(&self, id: usize) -> Result<&str> {
-        Ok(&self
-            .players
-            .get(&id)
-            .context("No player with given ID in this world")?
-            .username)
-    }
-    fn set_player_position(&mut self, id: usize, new_position: (f64, f64, f64)) -> Result<()> {
-        let position = &mut self.players.get_mut(&id).context("")?.position;
+    async fn set_player_position(
+        &mut self,
+        id: usize,
+        new_position: (f64, f64, f64),
+    ) -> Result<()> {
+        let old_position = &mut self.players.get_mut(&id).unwrap().position;
 
         // check if chunk passed
         let old_chunks = (
-            (position.0.floor() / 16.0).floor(),
-            (position.2.floor() / 16.0).floor(),
+            (old_position.0.floor() / 16.0).floor(),
+            (old_position.2.floor() / 16.0).floor(),
         );
-        let old_y = position.1.floor() as i32;
+        let old_y = old_position.1.floor() as i32;
         let new_chunks = (
             (new_position.0.floor() / 16.0).floor(),
             (new_position.2.floor() / 16.0).floor(),
         );
         let chunk_passed = !((old_chunks.0 == new_chunks.0) && (old_chunks.1 == new_chunks.1));
-        *position = new_position;
+        *old_position = new_position;
 
         if chunk_passed || old_y != new_position.1.floor() as i32 {
-            self.sh_send(
-                id,
-                SHBound::Packet(ClientBound::UpdateViewPosition {
+            self.players
+                .get_mut(&id)
+                .unwrap()
+                .stream
+                .lock()
+                .await
+                .send(ClientBound::UpdateViewPosition {
                     chunk_x: VarInt(new_chunks.0 as i32),
                     chunk_z: VarInt(new_chunks.1 as i32),
-                }),
-            )?;
+                })?;
         }
 
         if chunk_passed {
             // send new chunks
 
-            let c = min(SERVER_VIEW_DISTANE, self.players[&id].view_distance) as i32;
+            let client_view_distance = GLOBAL_STATE
+                .players
+                .read()
+                .await
+                .get(id)
+                .context("Player already disconnected")?
+                .view_distance
+                .unwrap_or(8);
+
+            let c = min(SERVER_VIEW_DISTANE, client_view_distance) as i32;
 
             // todo yo this is ugly and not really efficient, but I gotta know more about chunks before implementing it properly
             let mut needed_chunks = Vec::with_capacity(16 * 16);
@@ -250,9 +362,13 @@ impl World for LobbyWorld {
                 }
             }
             for chunk in needed_chunks {
-                self.sh_send(
-                    id,
-                    SHBound::Packet(ClientBound::ChunkData {
+                self.players
+                    .get_mut(&id)
+                    .unwrap()
+                    .stream
+                    .lock()
+                    .await
+                    .send(ClientBound::ChunkData {
                         chunk_x: chunk.0,
                         chunk_z: chunk.1,
                         primary_bit_mask: VarInt(0b1),
@@ -268,96 +384,22 @@ impl World for LobbyWorld {
                             },
                         }],
                         block_entities: Vec::new(),
-                    }),
-                )?;
+                    })?;
             }
         }
-
         Ok(())
     }
-    // is called when the player rotation changes
-    fn set_player_rotation(&mut self, id: usize, new_rotation: (f32, f32)) -> Result<()> {
-        self.players.get_mut(&id).context("")?.rotation = new_rotation;
-        Ok(())
+    async fn set_player_rotation(&mut self, id: usize, rotation: (f32, f32)) {
+        self.players.get_mut(&id).unwrap().rotation = rotation;
     }
-    fn set_player_view_distance(&mut self, id: usize, view_distance: i8) -> Result<()> {
-        let player = &mut self.players.get_mut(&id).context("")?;
-        // if view distance increased
-        if player.view_distance < view_distance && player.view_distance < 8 {
-            // send new chunks
-            let player_chunks = (
-                (player.position.0.floor() / 16.0).floor(),
-                (player.position.2.floor() / 16.0).floor(),
-            );
-            let c = min(SERVER_VIEW_DISTANE, view_distance) as i32;
-
-            let mut needed_chunks = Vec::with_capacity(c as usize * c as usize);
-            for z in -c..c {
-                for x in -c..c {
-                    needed_chunks.push((player_chunks.0 as i32 + x, player_chunks.1 as i32 + z));
-                }
-            }
-            for z in -player.view_distance..player.view_distance {
-                for x in -player.view_distance..player.view_distance {
-                    for i in (0..needed_chunks.len()).rev() {
-                        if needed_chunks[i]
-                            == (
-                                player_chunks.0 as i32 + x as i32,
-                                player_chunks.1 as i32 + z as i32,
-                            )
-                        {
-                            needed_chunks.remove(i);
-                        }
-                    }
-                }
-            }
-
-            player.view_distance = view_distance;
-
-            for chunk in needed_chunks {
-                self.sh_send(
-                    id,
-                    SHBound::Packet(ClientBound::ChunkData {
-                        chunk_x: chunk.0,
-                        chunk_z: chunk.1,
-                        primary_bit_mask: VarInt(0b1),
-                        heightmaps: nbt::Blob::new(),
-                        biomes: [VarInt(174); 1024],
-                        sections: vec![ChunkSection {
-                            block_count: 4096,
-                            palette: Palette::Direct,
-                            data: {
-                                let mut x = vec![0x200040008001; 1023];
-                                x.extend_from_slice(&vec![0x2C005800B0016; 1]);
-                                x
-                            },
-                        }],
-                        block_entities: Vec::new(),
-                    }),
-                )?;
-            }
-        } else {
-            player.view_distance = view_distance;
-        }
-        Ok(())
-    }
+    async fn set_player_on_ground(&mut self, _id: usize, _on_ground: bool) {}
+    async fn tick(&mut self, _counter: u128) {}
 }
 
-pub fn new() -> Result<LobbyWorld> {
-    Ok(LobbyWorld {
-        players: HashMap::new(),
-    })
-}
+pub fn start() -> WSender {
+    let (w_sender, w_receiver) = unbounded_channel::<WBound>();
 
-impl LobbyWorld {
-    pub fn tell<T: AsRef<str>>(&self, id: usize, message: T) -> Result<()> {
-        self.sh_send(
-            id,
-            SHBound::Packet(ClientBound::ChatMessage {
-                message: chat_parse(message),
-                position: 1,
-            }),
-        )?;
-        Ok(())
-    }
+    spawn(async move { LobbyWorld::new().await.run(w_receiver).await });
+
+    w_sender
 }

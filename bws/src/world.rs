@@ -1,4 +1,4 @@
-// pub mod lobby;
+pub mod lobby;
 pub mod login;
 
 use crate::chat_parse;

@@ -59,7 +59,7 @@ pub async fn handle_stream(socket: TcpStream) {
         {
             error!("PlayerStream dropped before the actual task ended: {}", e);
         } else {
-            warn!("Error: {}", e);
+            debug!("Error: {}", e);
         }
     }
 
@@ -301,7 +301,7 @@ async fn read_and_parse_packet(
             // add the player to the login world
             GLOBAL_STATE
                 .w_login
-                .send(ic::WBound::AddPlayer(global_id))
+                .send(ic::WBound::AddPlayer { id: global_id })
                 .context("Login world receiver lost.")?;
         }
         ServerBound::KeepAlive(_) => {

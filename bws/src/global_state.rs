@@ -8,6 +8,7 @@ use log::debug;
 use slab::Slab;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use thiserror::Error;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot;
 use tokio::sync::{Mutex, RwLock};
@@ -26,7 +27,7 @@ pub struct GlobalState {
     pub player_sample: Mutex<serde_json::Value>,
     pub max_players: Mutex<i32>,
     pub w_login: ic::WSender,
-    // pub w_lobby: ic::WSender,
+    pub w_lobby: ic::WSender,
     pub players: RwLock<Slab<Player>>,
 }
 
@@ -34,7 +35,7 @@ pub struct Player {
     // Behind an Arc and a Mutex so worlds dont have to lock
     // the whole `players` Slab with write access just to send packets to players
     // they will just clone the arc and store it themselves.
-    pub stream: Arc<Mutex<PlayerStream>>,
+    pub stream: PStream,
     pub username: String,
     pub address: SocketAddr,
     pub view_distance: Option<i8>,
@@ -47,13 +48,21 @@ pub struct PlayerStream {
     pub disconnect: Option<oneshot::Sender<()>>,
 }
 
+#[derive(Error, Debug)]
+pub enum StreamError {
+    #[error("client already disconnected")]
+    StreamError,
+}
+
 impl PlayerStream {
-    pub fn send(&mut self, packet: ClientBound) -> Result<(), ()> {
-        self.sender.send(packet).map_err(|_| ())
+    pub fn send(&mut self, packet: ClientBound) -> Result<(), StreamError> {
+        self.sender
+            .send(packet)
+            .map_err(|_| StreamError::StreamError)
     }
     /// Returns Err if the player has disconnected
     /// And None, if the player is connected, but no packets in queue
-    pub fn try_recv(&mut self) -> Result<Option<ServerBound>, ()> {
+    pub fn try_recv(&mut self) -> Result<Option<ServerBound>, StreamError> {
         // Tries executing the recv() exactly once. If there's a message in the queue it will return it
         // If not, it will also immediatelly return with a None
         let message = match unconstrained(self.receiver.recv()).now_or_never() {
@@ -63,7 +72,7 @@ impl PlayerStream {
 
         match message {
             Some(m) => Ok(Some(m)),
-            None => Err(()),
+            None => Err(StreamError::StreamError),
         }
     }
     pub fn disconnect(&mut self) {

@@ -121,7 +121,7 @@ impl LoginWorld {
                         self.handle_packet(id, packet).await;
                     }
                     Ok(None) => break 'inner, // go on to the next client
-                    Err(()) => {
+                    Err(_) => {
                         // eww, looks like someone disconnected!!
                         // time to clean this up
                         self.players.remove(&id);
@@ -146,13 +146,13 @@ impl LoginWorld {
                             // and compare to the correct hash
                             if *correct_password_hash == hash {
                                 // they match, so login successful
-                                // todo send to a lobby
-                                let _ = self.players[&id].1.lock().await.send(
-                                    ClientBound::ChatMessage {
-                                        message: chat_parse("§2§lSuccess."),
-                                        position: 0,
-                                    },
-                                );
+                                GLOBAL_STATE
+                                    .w_login
+                                    .send(WBound::MovePlayer {
+                                        id,
+                                        new_world: GLOBAL_STATE.w_lobby.clone(),
+                                    })
+                                    .unwrap();
                             } else {
                                 // they don't match
                                 let _ = self.players[&id].1.lock().await.send(
@@ -189,13 +189,13 @@ impl LoginWorld {
                                     error!("Error saving accounts data: {}", e);
                                 }
 
-                                // todo send to a lobby
-                                let _ = self.players[&id].1.lock().await.send(
-                                    ClientBound::ChatMessage {
-                                        message: chat_parse("§2§lSuccess."),
-                                        position: 0,
-                                    },
-                                );
+                                GLOBAL_STATE
+                                    .w_login
+                                    .send(WBound::MovePlayer {
+                                        id,
+                                        new_world: GLOBAL_STATE.w_lobby.clone(),
+                                    })
+                                    .unwrap();
                             }
                         }
                     }
@@ -215,7 +215,7 @@ impl LoginWorld {
             };
 
             match message {
-                WBound::AddPlayer(id) => {
+                WBound::AddPlayer { id } => {
                     let (username, stream) = match GLOBAL_STATE.players.read().await.get(id) {
                         Some(p) => (p.username.clone(), p.stream.clone()),
                         None => {
@@ -230,6 +230,16 @@ impl LoginWorld {
                         debug!("Couldn't send the greetings to a new player: {}", e);
                     }
                 }
+                WBound::MovePlayer { id, new_world } => match self.players.remove(&id) {
+                    Some(_) => {
+                        if let Err(_) = new_world.send(WBound::AddPlayer { id }) {
+                            error!("Received a request to move a player to a dead world");
+                        }
+                    }
+                    None => {
+                        error!("Received a request to move a player, but I don't even have the player.");
+                    }
+                },
             }
         }
     }
@@ -277,9 +287,9 @@ impl LoginWorld {
             debug_mode: false,
             flat: true,
         };
-        let _ = stream.send(packet);
+        stream.send(packet)?;
 
-        let _ = stream.send(ClientBound::PlayerPositionAndLook {
+        stream.send(ClientBound::PlayerPositionAndLook {
             x: 0.0,
             y: 0.0,
             z: 0.0,
@@ -287,11 +297,11 @@ impl LoginWorld {
             pitch: -20.0,
             flags: 0,
             tp_id: VarInt(0),
-        });
+        })?;
 
-        let _ = stream.send(ClientBound::SetBrand("BWS".to_string()));
+        stream.send(ClientBound::SetBrand("BWS".to_string()))?;
 
-        let _ = stream.send(ClientBound::Tags);
+        stream.send(ClientBound::Tags)?;
 
         let password = self.accounts.get(
             &GLOBAL_STATE
@@ -304,7 +314,7 @@ impl LoginWorld {
         );
 
         // declare commands
-        let _ = stream.send(ClientBound::DeclareCommands {
+        stream.send(ClientBound::DeclareCommands {
             nodes: if password.is_some() {
                 // if the user is already registered
                 // only register the /login command
@@ -345,27 +355,27 @@ impl LoginWorld {
                 ]
             },
             root: VarInt(0),
-        });
+        })?;
 
-        let _ = stream.send(ClientBound::Title(TitleAction::Reset));
+        stream.send(ClientBound::Title(TitleAction::Reset))?;
 
-        let _ = stream.send(ClientBound::Title(TitleAction::SetTitle(chat_parse(
+        stream.send(ClientBound::Title(TitleAction::SetTitle(chat_parse(
             "§bWelcome to §d§lBWS§r§b!",
-        ))));
+        ))))?;
 
-        let _ = stream.send(ClientBound::Title(TitleAction::SetDisplayTime {
+        stream.send(ClientBound::Title(TitleAction::SetDisplayTime {
             fade_in: 15,
             display: 60,
             fade_out: 15,
-        }));
+        }))?;
 
-        let _ = stream.send(ClientBound::EntitySoundEffect {
+        stream.send(ClientBound::EntitySoundEffect {
             sound_id: VarInt(482),
             category: VarInt(0),          // MASTER category
             entity_id: VarInt(id as i32), // player
             volume: 1.0,
             pitch: 1.0,
-        });
+        })?;
 
         Ok(())
     }

@@ -3,11 +3,9 @@ use tokio::{io::BufReader, net::TcpStream};
 
 // A data type that is used in the minecraft protocol
 // all info available on https://wiki.vg/index.php?title=Protocol
-pub trait DataType {
+pub trait DataType: Sized {
     fn serialize<W: Write>(&self, output: &mut W);
-    fn deserialize<R: Read>(input: &mut R) -> io::Result<Self>
-    where
-        Self: Sized;
+    fn deserialize<R: Read>(input: &mut R) -> io::Result<Self>;
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
