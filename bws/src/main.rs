@@ -21,7 +21,6 @@ pub use chat_parse::parse as chat_parse;
 use futures::select;
 use futures::FutureExt;
 use global_state::GlobalState;
-use internal_communication::SHBound;
 use lazy_static::lazy_static;
 use log::{debug, error, info, warn};
 use packets::ClientBound;
@@ -33,6 +32,7 @@ use std::time::Duration;
 use structopt::StructOpt;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 
 const SUPPORTED_PROTOCOL_VERSIONS: &[i32] = &[753, 754]; // 1.16.3+
@@ -94,21 +94,21 @@ lazy_static! {
             )),
             player_sample: Mutex::new(player_sample),
             max_players: Mutex::new(opt.max_players),
-            players: Mutex::new(Slab::new()),
-            w_login: world::start(match world::login::new() {
+            players: RwLock::new(Slab::new()),
+            w_login: match world::login::start() {
                 Ok(w) => w,
                 Err(e) => {
                     error!("Error creating login world: {}", e);
                     std::process::exit(1);
                 },
-            }),
-            w_lobby: world::start(match world::lobby::new() {
-                Ok(w) => w,
-                Err(e) => {
-                    error!("Error creating lobby world: {}", e);
-                    std::process::exit(1);
-                },
-            }),
+            },
+            // w_lobby: world::start(match world::lobby::new() {
+            //     Ok(w) => w,
+            //     Err(e) => {
+            //         error!("Error creating lobby world: {}", e);
+            //         std::process::exit(1);
+            //     },
+            // }),
             compression_treshold: opt.compression_treshold,
             port: opt.port,
         }
@@ -159,13 +159,11 @@ async fn run(join_handles: &std::sync::Mutex<Vec<JoinHandle<()>>>) -> Result<()>
 }
 
 async fn shutdown(sh_handles: &std::sync::Mutex<Vec<JoinHandle<()>>>) -> ! {
-    for player in &*GLOBAL_STATE.players.lock().await {
-        let _ = (player.1)
-            .sh_sender
-            .send(SHBound::Packet(ClientBound::PlayDisconnect(chat_parse(
-                "§4§lThe server has shutdown.",
-            ))));
-        let _ = (player.1).sh_sender.send(SHBound::Disconnect);
+    let message = chat_parse("§4§lThe server has shutdown.");
+    for player in &*GLOBAL_STATE.players.read().await {
+        let mut stream = (player.1).stream.lock().await;
+        let _ = stream.send(ClientBound::PlayDisconnect(message.clone()));
+        stream.disconnect();
     }
 
     // todo also shutdown worlds
