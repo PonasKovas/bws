@@ -102,13 +102,7 @@ lazy_static! {
                     std::process::exit(1);
                 },
             },
-            // w_lobby: world::start(match world::lobby::new() {
-            //     Ok(w) => w,
-            //     Err(e) => {
-            //         error!("Error creating lobby world: {}", e);
-            //         std::process::exit(1);
-            //     },
-            // }),
+            w_lobby: world::lobby::start(),
             compression_treshold: opt.compression_treshold,
             port: opt.port,
         }

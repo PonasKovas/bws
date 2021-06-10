@@ -14,5 +14,10 @@ pub type WReceiver = UnboundedReceiver<WBound>;
 // basically from anywhere
 #[derive(Debug)]
 pub enum WBound {
-    AddPlayer(usize), // id of the player
+    AddPlayer { id: usize },
+    // this is the only CORRECT way to move a player across worlds.
+    // Send this to world that the player currently is in.
+    // Then that world must remove the player from itself
+    // and send the above AddPlayer packet to the given new world sender
+    MovePlayer { id: usize, new_world: WSender },
 }
