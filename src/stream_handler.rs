@@ -295,7 +295,7 @@ async fn read_and_parse_packet(
             *last_keepalive_received = Instant::now();
         }
         other => {
-            if let Some(id) = *player_id {
+            if let Some(_id) = *player_id {
                 shoutput_sender
                     .send(other)
                     .context("The PlayerStream was dropped even before the actual stream handler task finished.")?;

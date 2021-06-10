@@ -48,14 +48,12 @@ pub struct PlayerStream {
 }
 
 impl PlayerStream {
-    pub fn send(&mut self, packet: ClientBound) -> Result<()> {
-        self.sender
-            .send(packet)
-            .context("The player is disconnected")
+    pub fn send(&mut self, packet: ClientBound) -> Result<(), ()> {
+        self.sender.send(packet).map_err(|_| ())
     }
     /// Returns Err if the player has disconnected
     /// And None, if the player is connected, but no packets in queue
-    pub fn try_recv(&mut self) -> Result<Option<ServerBound>> {
+    pub fn try_recv(&mut self) -> Result<Option<ServerBound>, ()> {
         // Tries executing the recv() exactly once. If there's a message in the queue it will return it
         // If not, it will also immediatelly return with a None
         let message = match unconstrained(self.receiver.recv()).now_or_never() {
@@ -65,7 +63,7 @@ impl PlayerStream {
 
         match message {
             Some(m) => Ok(Some(m)),
-            None => bail!("The player is disconnected"),
+            None => Err(()),
         }
     }
     pub fn disconnect(&mut self) {

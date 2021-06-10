@@ -62,7 +62,7 @@ pub enum ServerBound {
     // HeldItemChange(i16),                  // slot id 0-8
     // UseItem(VarInt),                      // 0 - main hand, 1 - off hand
     // PlayerDigging(VarInt, i64, i8),       // action [0-6], position, face
-    Unknown(VarInt), // the packet id of the unknown packet
+    Unknown(i32), // the packet id of the unknown packet
 }
 
 // Sent from the server to the client
@@ -214,7 +214,7 @@ impl ServerBound {
                         port: u16::deserialize(input)?,
                         next_state: VarInt::deserialize(input)?,
                     }),
-                    _ => Ok(Self::Unknown(VarInt(packet_id))),
+                    _ => Ok(Self::Unknown(packet_id)),
                 }
             }
             1 => {
@@ -222,7 +222,7 @@ impl ServerBound {
                 match packet_id {
                     0x00 => Ok(Self::StatusRequest),
                     0x01 => Ok(Self::StatusPing(i64::deserialize(input)?)),
-                    _ => Ok(Self::Unknown(VarInt(packet_id))),
+                    _ => Ok(Self::Unknown(packet_id)),
                 }
             }
             2 => {
@@ -231,7 +231,7 @@ impl ServerBound {
                     0x00 => Ok(Self::LoginStart {
                         username: String::deserialize(input)?,
                     }),
-                    _ => Ok(Self::Unknown(VarInt(packet_id))),
+                    _ => Ok(Self::Unknown(packet_id)),
                 }
             }
             3 => {
@@ -269,10 +269,10 @@ impl ServerBound {
                     0x15 => Ok(Self::PlayerMovement {
                         on_ground: bool::deserialize(input)?,
                     }),
-                    _ => Ok(Self::Unknown(VarInt(packet_id))),
+                    _ => Ok(Self::Unknown(packet_id)),
                 }
             }
-            _ => Ok(Self::Unknown(VarInt(packet_id))),
+            _ => Ok(Self::Unknown(packet_id)),
         };
 
         result
