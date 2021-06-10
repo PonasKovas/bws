@@ -476,7 +476,7 @@ impl<T: DataType, const N: usize> DataType for [T; N] {
         }
     }
     fn deserialize<R: Read>(input: &mut R) -> io::Result<Self> {
-        let mut result = [(); N].map(|_| None); // Option<T> is not Copy :/
+        let mut result = [(); N].map(|_| None); // Option<T> is not Copy
 
         for i in 0..N {
             result[i] = Some(T::deserialize(input)?);
