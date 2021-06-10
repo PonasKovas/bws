@@ -187,161 +187,132 @@ async fn read_and_parse_packet(
     )
     .await?;
 
-    Ok(match *state {
-        State::Handshake => match packet {
-            ServerBound::Handshake {
-                protocol,
-                address: _,
-                port: _,
-                next_state,
-            } => {
-                *client_protocol = protocol.0;
+    Ok(match packet {
+        ServerBound::Handshake {
+            protocol,
+            address: _,
+            port: _,
+            next_state,
+        } => {
+            *client_protocol = protocol.0;
 
-                if next_state.0 == 1 {
-                    *state = State::Status;
-                } else if next_state.0 == 2 {
-                    *state = State::Login;
-                } else {
-                    // had to choose between those two :/
-                    bail!("Bad client ({})", address);
-                }
-            }
-            _ => {
-                // you can only send the handshake packet in the handshake state
+            if next_state.0 == 1 {
+                *state = State::Status;
+            } else if next_state.0 == 2 {
+                *state = State::Login;
+            } else {
+                // wrong choice buddy
                 bail!("Bad client ({})", address);
             }
-        },
-        State::Status => match packet {
-            ServerBound::StatusPing(number) => {
-                let packet = ClientBound::StatusPong(number);
-                write_packet(socket, buffer, packet, -1).await?;
-            }
-            ServerBound::StatusRequest => {
-                let supported = GLOBAL_STATE.description.lock().await;
-                let unsupported = crate::chat_parse::parse_json(
+        }
+        ServerBound::StatusPing(number) => {
+            let packet = ClientBound::StatusPong(number);
+            write_packet(socket, buffer, packet, -1).await?;
+        }
+        ServerBound::StatusRequest => {
+            let supported = GLOBAL_STATE.description.lock().await;
+            let unsupported = crate::chat_parse::parse_json(
                             &format!("§4Your Minecraft version is §lnot supported§r§4.\n§c§lThe server §r§cis running §b§l{}§r§c.", crate::VERSION_NAME)
                         );
 
-                let packet = ClientBound::StatusResponse(
-                    to_string(&json!({
-                        "version": {
-                            "name": crate::VERSION_NAME,
-                            "protocol": client_protocol,
+            let packet = ClientBound::StatusResponse(
+                to_string(&json!({
+                    "version": {
+                        "name": crate::VERSION_NAME,
+                        "protocol": client_protocol,
+                    },
+                    "players": {
+                        "max": &*GLOBAL_STATE.max_players.lock().await,
+                        "online": -1095,
+                        "sample": &*GLOBAL_STATE.player_sample.lock().await,
+                    },
+                    "description": if crate::SUPPORTED_PROTOCOL_VERSIONS
+                        .iter()
+                        .any(|&i| i == *client_protocol) {
+                            &*supported
+                        } else {
+                            &unsupported
                         },
-                        "players": {
-                            "max": &*GLOBAL_STATE.max_players.lock().await,
-                            "online": -1095,
-                            "sample": &*GLOBAL_STATE.player_sample.lock().await,
-                        },
-                        "description": if crate::SUPPORTED_PROTOCOL_VERSIONS
-                            .iter()
-                            .any(|&i| i == *client_protocol) {
-                                &*supported
-                            } else {
-                                &unsupported
-                            },
-                        "favicon": &*GLOBAL_STATE.favicon.lock().await,
-                    }))
-                    .context("Couldn't stringify JSON in StatusResponse packet.")?,
-                );
-                write_packet(socket, buffer, packet, -1).await?;
-            }
-            _ => {
-                // wrong state buddy
+                    "favicon": &*GLOBAL_STATE.favicon.lock().await,
+                }))
+                .context("Couldn't stringify JSON in StatusResponse packet.")?,
+            );
+            write_packet(socket, buffer, packet, -1).await?;
+        }
+        ServerBound::LoginStart { username } => {
+            if player_stream.is_none() {
+                // dude did you just send the LoginStart packet twice???
                 bail!("Bad client ({})", address);
             }
-        },
-        State::Login => match packet {
-            ServerBound::LoginStart { username } => {
-                if player_stream.is_none() {
-                    // dude did you just send the LoginStart packet twice???
-                    bail!("Bad client ({})", address);
-                }
-                // check if version is supported
-                if !crate::SUPPORTED_PROTOCOL_VERSIONS
-                    .iter()
-                    .any(|&i| i == *client_protocol)
-                {
-                    let packet = ClientBound::LoginDisconnect(
+            // check if version is supported
+            if !crate::SUPPORTED_PROTOCOL_VERSIONS
+                .iter()
+                .any(|&i| i == *client_protocol)
+            {
+                let packet = ClientBound::LoginDisconnect(
                                 chat_parse(&format!("§4Your Minecraft version is §lnot supported§r§4.\n§c§lThe server §r§cis running §b§l{}§r§c.", crate::VERSION_NAME)),
                             );
-                    let _ = write_packet(socket, buffer, packet, -1).await;
-                    return Ok(());
-                }
+                let _ = write_packet(socket, buffer, packet, -1).await;
+                return Ok(());
+            }
 
-                if GLOBAL_STATE
-                    .players
-                    .read()
-                    .await
-                    .iter()
-                    .any(|(_, player)| player.username == username)
-                {
-                    let packet = ClientBound::LoginDisconnect(chat_parse(
-                        "§c§lSomeone is already playing with this username!",
-                    ));
-                    let _ = write_packet(socket, buffer, packet, -1).await;
-                    return Ok(());
-                }
+            if GLOBAL_STATE
+                .players
+                .read()
+                .await
+                .iter()
+                .any(|(_, player)| player.username == username)
+            {
+                let packet = ClientBound::LoginDisconnect(chat_parse(
+                    "§c§lSomeone is already playing with this username!",
+                ));
+                let _ = write_packet(socket, buffer, packet, -1).await;
+                return Ok(());
+            }
 
-                // set compression if non-negative
-                if GLOBAL_STATE.compression_treshold >= 0 {
-                    let packet = ClientBound::SetCompression {
-                        treshold: VarInt(GLOBAL_STATE.compression_treshold as i32),
-                    };
-                    write_packet(socket, buffer, packet, -1).await?;
-                }
-
-                // everything's alright, come in
-                let packet = ClientBound::LoginSuccess {
-                    uuid: 0,
-                    username: username.clone(),
+            // set compression if non-negative
+            if GLOBAL_STATE.compression_treshold >= 0 {
+                let packet = ClientBound::SetCompression {
+                    treshold: VarInt(GLOBAL_STATE.compression_treshold as i32),
                 };
-                write_packet(socket, buffer, packet, GLOBAL_STATE.compression_treshold).await?;
+                write_packet(socket, buffer, packet, -1).await?;
+            }
 
-                // since the keepalives are going to start being sent, reset the timeout timer
-                *last_keepalive_received = Instant::now();
+            // everything's alright, come in
+            let packet = ClientBound::LoginSuccess {
+                uuid: 0,
+                username: username.clone(),
+            };
+            write_packet(socket, buffer, packet, GLOBAL_STATE.compression_treshold).await?;
 
-                // add the player to the global_state
-                let global_id = GLOBAL_STATE.players.write().await.insert(Player {
-                    // can unwrap since check previously in this function
-                    stream: Arc::new(Mutex::new(player_stream.take().unwrap())),
-                    username: username.clone(),
-                    address: address.clone(),
-                    view_distance: None,
-                });
-                *state = State::Play(global_id);
+            // since the keepalives are going to start being sent, reset the timeout timer
+            *last_keepalive_received = Instant::now();
 
-                // add the player to the login world
-                GLOBAL_STATE
-                    .w_login
-                    .send(ic::WBound::AddPlayer(global_id))
-                    .context("Login world receiver lost.")?;
-            }
-            ServerBound::Unknown(id) => {
-                if id != 1 && id != 2 {
-                    bail!("Bad client ({})", address);
-                }
-            }
-            _ => {
-                // you can only send the above packets in this state
-                bail!("Bad client ({})", address);
-            }
-        },
-        State::Play(_global_id) => match packet {
-            ServerBound::KeepAlive(_) => {
-                // Reset the timeout timer
-                *last_keepalive_received = Instant::now();
-            }
-            other => {
-                shoutput_sender
-                    .send(other)
-                    .context("The PlayerStream was dropped even before the actual stream handler task finished.")?;
-            }
-            _ => {
-                // you can only send the above packets in this state
-                bail!("Bad client ({})", address);
-            }
-        },
+            // add the player to the global_state
+            let global_id = GLOBAL_STATE.players.write().await.insert(Player {
+                // can unwrap since check previously in this function
+                stream: Arc::new(Mutex::new(player_stream.take().unwrap())),
+                username: username.clone(),
+                address: address.clone(),
+                view_distance: None,
+            });
+            *state = State::Play(global_id);
+
+            // add the player to the login world
+            GLOBAL_STATE
+                .w_login
+                .send(ic::WBound::AddPlayer(global_id))
+                .context("Login world receiver lost.")?;
+        }
+        ServerBound::KeepAlive(_) => {
+            // Reset the timeout timer
+            *last_keepalive_received = Instant::now();
+        }
+        other => {
+            shoutput_sender.send(other).context(
+                "The PlayerStream was dropped even before the actual stream handler task finished.",
+            )?;
+        }
     })
 }
 
