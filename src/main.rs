@@ -35,6 +35,8 @@ use tokio::sync::Mutex;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 
+use crate::datatypes::StatusPlayerSampleEntry;
+
 const SUPPORTED_PROTOCOL_VERSIONS: &[i32] = &[753, 754]; // 1.16.3+
 const VERSION_NAME: &str = "1.16 BWS";
 
@@ -79,15 +81,15 @@ lazy_static! {
         };
 
         // parse the player sample to the format minecraft requires
-        let mut player_sample = json!([]);
+        let mut player_sample = Vec::new();
         for line in opt.player_sample.lines() {
-            player_sample.as_array_mut().unwrap().push(json!({
-                "name": line.to_string(),
-                "id": "00000000-0000-0000-0000-000000000000",
-            }));
+            player_sample.push(StatusPlayerSampleEntry{
+                name: line.to_string(),
+                id: "00000000-0000-0000-0000-000000000000".to_string(),
+            });
         }
         GlobalState {
-            description: Mutex::new(chat_parse::parse_json(opt.description)),
+            description: Mutex::new(chat_parse::parse(opt.description)),
             favicon: Mutex::new(format!(
                 "data:image/png;base64,{}",
                 base64::encode(favicon)

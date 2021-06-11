@@ -1,3 +1,4 @@
+use crate::datatypes::*;
 use crate::internal_communication as ic;
 use crate::packets::ClientBound;
 use crate::packets::ServerBound;
@@ -22,9 +23,9 @@ pub struct GlobalState {
     pub compression_treshold: i32,
     pub port: u16,
     // mutable
-    pub description: Mutex<serde_json::Value>,
+    pub description: Mutex<Chat>,
     pub favicon: Mutex<String>,
-    pub player_sample: Mutex<serde_json::Value>,
+    pub player_sample: Mutex<Vec<StatusPlayerSampleEntry>>,
     pub max_players: Mutex<i32>,
     pub w_login: ic::WSender,
     pub w_lobby: ic::WSender,

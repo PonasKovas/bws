@@ -68,8 +68,8 @@ pub enum ServerBound {
 // Sent from the server to the client
 #[derive(Debug, Clone)]
 pub enum ClientBound {
-    StatusResponse(String), // json
-    StatusPong(i64),        // the same random number
+    StatusResponse(StatusResponse),
+    StatusPong(i64), // the same random number
     LoginDisconnect(Chat),
     KeepAlive(i64),
     SetCompression {
@@ -183,21 +183,6 @@ pub enum ClientBound {
           // SetSlot(i8, i16, Slot), // window id, slot id, slot data
           // Statistics(Vec<(VarInt, VarInt, VarInt)>), // Category, id, value
           //
-}
-
-#[derive(Debug, Clone)]
-pub enum TitleAction {
-    SetTitle(Chat),
-    SetSubtitle(Chat),
-    SetActionBar(Chat),
-    SetDisplayTime {
-        // time in ticks
-        fade_in: i32,
-        display: i32,
-        fade_out: i32,
-    },
-    Hide,
-    Reset,
 }
 
 impl ServerBound {

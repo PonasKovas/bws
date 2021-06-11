@@ -1,3 +1,4 @@
+use serde_json::{from_reader, from_str, to_string, to_writer};
 use std::io::{self, Cursor, Read, Write};
 use tokio::{io::BufReader, net::TcpStream};
 
@@ -31,8 +32,24 @@ pub enum Palette {
     Direct,
 }
 
-#[derive(Debug, Clone)]
-pub struct Chat(pub String);
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Chat {
+    pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bold: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub italic: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub underlined: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strikethrough: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub obfuscated: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub extra: Vec<Chat>,
+}
 
 // Used in DeclareCommands packet
 #[derive(Debug, Clone)]
@@ -45,6 +62,72 @@ pub enum CommandNode {
 #[derive(Debug, Clone)]
 pub enum Parser {
     String(VarInt), // type, 0 - SINGLE_WORD, 1 - QUOTABLE_PHRASE, 2 - GREEDY_PHRASE
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct StatusResponse {
+    pub version: StatusVersion,
+    pub players: StatusPlayers,
+    pub description: Chat,
+    pub favicon: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct StatusVersion {
+    pub name: String,
+    pub protocol: i32,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct StatusPlayers {
+    pub max: i32,
+    pub online: i32,
+    pub sample: Vec<StatusPlayerSampleEntry>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct StatusPlayerSampleEntry {
+    pub name: String,
+    pub id: String,
+}
+
+#[derive(Debug, Clone)]
+pub enum TitleAction {
+    SetTitle(Chat),
+    SetSubtitle(Chat),
+    SetActionBar(Chat),
+    SetDisplayTime {
+        // time in ticks
+        fade_in: i32,
+        display: i32,
+        fade_out: i32,
+    },
+    Hide,
+    Reset,
+}
+
+impl StatusPlayerSampleEntry {
+    pub fn new(name: String) -> Self {
+        Self {
+            name,
+            id: "00000000-0000-0000-0000-000000000000".to_string(),
+        }
+    }
+}
+
+impl Chat {
+    pub fn new() -> Self {
+        Self {
+            text: "".to_string(),
+            bold: None,
+            italic: None,
+            underlined: None,
+            strikethrough: None,
+            obfuscated: None,
+            color: None,
+            extra: Vec::new(),
+        }
+    }
 }
 
 impl VarInt {
@@ -157,13 +240,12 @@ impl DataType for String {
     }
 }
 
-impl DataType for Chat {
+impl DataType for StatusResponse {
     fn serialize<W: Write>(&self, output: &mut W) {
-        // since its just a newtype for string
-        self.0.serialize(output);
+        to_string(self).unwrap().serialize(output);
     }
     fn deserialize<R: Read>(input: &mut R) -> io::Result<Self> {
-        Ok(Self(String::deserialize(input)?))
+        Ok(from_str(&String::deserialize(input)?)?)
     }
 }
 
@@ -267,6 +349,15 @@ impl DataType for ChunkSection {
     fn deserialize<R: Read>(_input: &mut R) -> io::Result<Self> {
         // not sure if the client ever sends chunk sections either
         unimplemented!();
+    }
+}
+
+impl DataType for Chat {
+    fn serialize<W: Write>(&self, output: &mut W) {
+        to_string(self).unwrap().serialize(output);
+    }
+    fn deserialize<R: Read>(input: &mut R) -> io::Result<Self> {
+        Ok(from_str(&String::deserialize(input)?)?)
     }
 }
 

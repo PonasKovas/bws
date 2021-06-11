@@ -13,6 +13,7 @@ use flate2::write::ZlibDecoder;
 use flate2::write::ZlibEncoder;
 use flate2::Compression;
 use log::{debug, error, info, warn};
+use serde_json::to_string_pretty;
 use serde_json::{json, to_string};
 use std::io::Cursor;
 use std::io::Write;
@@ -211,32 +212,30 @@ async fn read_and_parse_packet(
         }
         ServerBound::StatusRequest => {
             let supported = GLOBAL_STATE.description.lock().await;
-            let unsupported = crate::chat_parse::parse_json(
+            let unsupported = crate::chat_parse::parse(
                             &format!("§4Your Minecraft version is §lnot supported§r§4.\n§c§lThe server §r§cis running §b§l{}§r§c.", crate::VERSION_NAME)
                         );
 
-            let packet = ClientBound::StatusResponse(
-                to_string(&json!({
-                    "version": {
-                        "name": crate::VERSION_NAME,
-                        "protocol": client_protocol,
-                    },
-                    "players": {
-                        "max": &*GLOBAL_STATE.max_players.lock().await,
-                        "online": -1095,
-                        "sample": &*GLOBAL_STATE.player_sample.lock().await,
-                    },
-                    "description": if crate::SUPPORTED_PROTOCOL_VERSIONS
-                        .iter()
-                        .any(|&i| i == *client_protocol) {
-                            &*supported
-                        } else {
-                            &unsupported
-                        },
-                    "favicon": &*GLOBAL_STATE.favicon.lock().await,
-                }))
-                .context("Couldn't stringify JSON in StatusResponse packet.")?,
-            );
+            let packet = ClientBound::StatusResponse(StatusResponse {
+                version: StatusVersion {
+                    name: crate::VERSION_NAME.to_string(),
+                    protocol: *client_protocol,
+                },
+                players: StatusPlayers {
+                    max: *GLOBAL_STATE.max_players.lock().await,
+                    online: -1095,
+                    sample: GLOBAL_STATE.player_sample.lock().await.clone(),
+                },
+                description: if crate::SUPPORTED_PROTOCOL_VERSIONS
+                    .iter()
+                    .any(|&i| i == *client_protocol)
+                {
+                    supported.clone()
+                } else {
+                    unsupported
+                },
+                favicon: GLOBAL_STATE.favicon.lock().await.clone(),
+            });
             write_packet(socket, buffer, packet, -1).await?;
         }
         ServerBound::LoginStart { username } => {
