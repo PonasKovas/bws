@@ -4,12 +4,7 @@ use log::debug;
 use serde_json::{json, to_string, Value};
 
 pub fn parse<T: AsRef<str>>(input: T) -> Chat {
-    Chat(to_string(&parse_json(input)).unwrap())
-}
-
-// Converts a string with § to a json object that is used internally in minecraft
-pub fn parse_json<T: AsRef<str>>(input: T) -> Value {
-    let mut result = json!({});
+    let mut result = Chat::new();
     let mut innermost = &mut result;
     let mut escaping = false;
     let mut modifying = false;
@@ -21,107 +16,95 @@ pub fn parse_json<T: AsRef<str>>(input: T) -> Value {
             } else if character == '§' {
                 modifying = true;
             } else {
-                if let Some(Value::String(s)) = innermost.get_mut("text") {
-                    s.push(character);
-                } else {
-                    innermost["text"] = json!(character.to_string());
-                }
+                innermost.text.push(character);
             }
         } else {
             if escaping {
-                if let Some(Value::String(s)) = innermost.get_mut("text") {
-                    s.push(character);
-                } else {
-                    innermost["text"] = json!(character.to_string());
-                }
+                innermost.text.push(character);
                 escaping = false;
             } else if modifying {
-                if innermost.get("text").is_some() {
-                    innermost["extra"] = json!([{}]);
-                    innermost = &mut innermost["extra"][0];
+                if innermost.text.len() > 0 {
+                    innermost.extra.push(Chat::new());
+                    innermost = &mut innermost.extra[0];
                 }
 
                 match character {
                     'l' => {
-                        innermost["bold"] = json!(true);
+                        innermost.bold = Some(true);
                     }
                     'k' => {
-                        innermost["obfuscated"] = json!(true);
+                        innermost.obfuscated = Some(true);
                     }
                     'm' => {
-                        innermost["strikethrough"] = json!(true);
+                        innermost.strikethrough = Some(true);
                     }
                     'n' => {
-                        innermost["underlined"] = json!(true);
+                        innermost.underlined = Some(true);
                     }
                     'o' => {
-                        innermost["italic"] = json!(true);
+                        innermost.italic = Some(true);
                     }
                     'r' => {
-                        innermost["bold"] = json!(false);
-                        innermost["obfuscated"] = json!(false);
-                        innermost["strikethrough"] = json!(false);
-                        innermost["underlined"] = json!(false);
-                        innermost["italic"] = json!(false);
-                        innermost["color"] = json!("reset");
+                        innermost.bold = Some(false);
+                        innermost.obfuscated = Some(false);
+                        innermost.strikethrough = Some(false);
+                        innermost.underlined = Some(false);
+                        innermost.italic = Some(false);
+                        innermost.color = Some("reset".to_string());
                     }
                     '0' => {
-                        innermost["color"] = json!("black");
+                        innermost.color = Some("black".to_string());
                     }
                     '1' => {
-                        innermost["color"] = json!("dark_blue");
+                        innermost.color = Some("dark_blue".to_string());
                     }
                     '2' => {
-                        innermost["color"] = json!("dark_green");
+                        innermost.color = Some("dark_green".to_string());
                     }
                     '3' => {
-                        innermost["color"] = json!("dark_aqua");
+                        innermost.color = Some("dark_aqua".to_string());
                     }
                     '4' => {
-                        innermost["color"] = json!("dark_red");
+                        innermost.color = Some("dark_red".to_string());
                     }
                     '5' => {
-                        innermost["color"] = json!("dark_purple");
+                        innermost.color = Some("dark_purple".to_string());
                     }
                     '6' => {
-                        innermost["color"] = json!("gold");
+                        innermost.color = Some("gold".to_string());
                     }
                     '7' => {
-                        innermost["color"] = json!("gray");
+                        innermost.color = Some("gray".to_string());
                     }
                     '8' => {
-                        innermost["color"] = json!("dark_gray");
+                        innermost.color = Some("dark_gray".to_string());
                     }
                     '9' => {
-                        innermost["color"] = json!("blue");
+                        innermost.color = Some("blue".to_string());
                     }
                     'a' => {
-                        innermost["color"] = json!("green");
+                        innermost.color = Some("green".to_string());
                     }
                     'b' => {
-                        innermost["color"] = json!("aqua");
+                        innermost.color = Some("aqua".to_string());
                     }
                     'c' => {
-                        innermost["color"] = json!("red");
+                        innermost.color = Some("red".to_string());
                     }
                     'd' => {
-                        innermost["color"] = json!("light_purple");
+                        innermost.color = Some("light_purple".to_string());
                     }
                     'e' => {
-                        innermost["color"] = json!("yellow");
+                        innermost.color = Some("yellow".to_string());
                     }
                     'f' => {
-                        innermost["color"] = json!("white");
+                        innermost.color = Some("white".to_string());
                     }
                     _ => {}
                 }
                 modifying = false;
             }
         }
-    }
-
-    if result.get("text").is_none() {
-        result["text"] = json!("");
     }
 
     result
