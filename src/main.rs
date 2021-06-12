@@ -13,6 +13,7 @@ mod global_state;
 mod internal_communication;
 #[allow(dead_code)]
 mod packets;
+mod protocol;
 mod stream_handler;
 mod world;
 
@@ -36,6 +37,9 @@ use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 
 use crate::datatypes::StatusPlayerSampleEntry;
+use crate::datatypes::StatusPlayers;
+use crate::datatypes::StatusResponse;
+use crate::datatypes::StatusVersion;
 
 const SUPPORTED_PROTOCOL_VERSIONS: &[i32] = &[753, 754]; // 1.16.3+
 const VERSION_NAME: &str = "1.16 BWS";
