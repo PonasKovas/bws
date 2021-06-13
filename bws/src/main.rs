@@ -13,7 +13,6 @@ mod global_state;
 mod internal_communication;
 #[allow(dead_code)]
 mod packets;
-mod protocol;
 mod stream_handler;
 mod world;
 
@@ -122,19 +121,17 @@ async fn main() -> Result<()> {
         .parse_default_env()
         .init();
 
+    use protocol::{Deserializable, Serializable};
+    let x = protocol::datatypes::Something {
+        first: protocol::datatypes::VarInt(1),
+        second: protocol::datatypes::VarInt(2),
+    };
     let mut data = Vec::new();
-    protocol::serializer::to_writer(
-        &mut data,
-        &protocol::packets::PlayClientBound::Tags {
-            blocks: Vec::new(),
-            items: Vec::new(),
-            fluids: Vec::new(),
-            entities: Vec::new(),
-        }
-        .cb(),
-    )
-    .unwrap();
-    info!("{:?}", data);
+    x.to_writer(&mut data).unwrap();
+    println!("{:?}", &data);
+    let mut data = std::io::Cursor::new(data);
+    let y = protocol::datatypes::Something::from_reader(&mut data).unwrap();
+    println!("{}, {}", y.first.0, y.second.0);
 
     return Ok(());
 

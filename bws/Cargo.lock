@@ -83,6 +83,7 @@ dependencies = [
  "hematite-nbt",
  "lazy_static",
  "log",
+ "protocol",
  "serde",
  "serde_json",
  "sha2",
@@ -568,6 +569,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f0d8caf72986c1a598726adc988bb5984792ef84f5ee5aa50209145ee8077038"
 dependencies = [
  "unicode-xid",
+]
+
+[[package]]
+name = "protocol"
+version = "0.1.0"
+dependencies = [
+ "protocol-derive",
+]
+
+[[package]]
+name = "protocol-derive"
+version = "0.1.0"
+dependencies = [
+ "quote",
+ "syn",
 ]
 
 [[package]]

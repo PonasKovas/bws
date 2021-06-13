@@ -83,11 +83,7 @@ impl<'a, W: Write> Serializer for &'a mut MinecraftProtocolSerializer<W> {
         Ok(self.output.write_all(&v.to_be_bytes())?)
     }
     fn serialize_char(self, _v: char) -> Result<(), Error> {
-        // This format does not support chars
-        Err(io::Error::new(
-            io::ErrorKind::Other,
-            "Minecraft Protocol does not support serializing chars.",
-        ))?
+        Err(Error::custom("chars not supported"))
     }
     fn serialize_str(self, v: &str) -> Result<(), Error> {
         // length of the string as a varint
