@@ -122,6 +122,22 @@ async fn main() -> Result<()> {
         .parse_default_env()
         .init();
 
+    let mut data = Vec::new();
+    protocol::serializer::to_writer(
+        &mut data,
+        &protocol::packets::PlayClientBound::Tags {
+            blocks: Vec::new(),
+            items: Vec::new(),
+            fluids: Vec::new(),
+            entities: Vec::new(),
+        }
+        .cb(),
+    )
+    .unwrap();
+    info!("{:?}", data);
+
+    return Ok(());
+
     lazy_static::initialize(&GLOBAL_STATE);
 
     let join_handles = Arc::new(std::sync::Mutex::new(Vec::new()));
