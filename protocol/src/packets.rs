@@ -7,7 +7,7 @@ use std::{
     io::{self, Cursor, Write},
 };
 
-// Sent from the server to the client
+/// Sent from the server to the client
 #[derive(Debug, Clone)]
 pub enum ClientBound {
     Handshake(HandshakeClientBound),
@@ -16,14 +16,39 @@ pub enum ClientBound {
     Play(PlayClientBound),
 }
 
+/// Sent from the client to the server
+#[derive(Debug, Clone)]
+pub enum ServerBound {
+    Handshake(HandshakeServerBound),
+    Status(StatusServerBound),
+    Login(LoginServerBound),
+    Play(PlayServerBound),
+}
+
 // No packets are sent from the server in the HandShake state
 #[derive(Serialize, Debug, Clone)]
 pub enum HandshakeClientBound {}
 
 #[derive(Serialize, Debug, Clone)]
+pub enum HandshakeServerBound {
+    Handshake {
+        protocol: VarInt,
+        server_address: String,
+        server_port: u16,
+        next_state: NextState,
+    },
+}
+
+#[derive(Serialize, Debug, Clone)]
 pub enum StatusClientBound {
     Response(StatusResponse),
     Pong(i64),
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub enum StatusServerBound {
+    Request,
+    Ping(i64),
 }
 
 #[derive(Serialize, Debug, Clone)]
@@ -46,6 +71,23 @@ pub enum LoginClientBound {
         message_id: VarInt,
         channel: String,
         // the client figures out the length based on the packet size
+        data: Box<[u8]>,
+    },
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub enum LoginServerBound {
+    LoginStart {
+        username: String,
+    },
+    EncryptionResponse {
+        shared_secret: Vec<u8>,
+        verify_token: Vec<u8>,
+    },
+    PluginResponse {
+        message_id: VarInt,
+        successful: bool,
+        // the server figures out the length based on the packet size
         data: Box<[u8]>,
     },
 }
@@ -246,6 +288,46 @@ pub enum PlayClientBound {
         items: Vec<Tags>,
         fluids: Vec<Tags>,
         entities: Vec<Tags>,
+    },
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub enum PlayServerBound {
+    TeleportConfirm {
+        teleport_id: VarInt,
+    },
+    QueryBlockNbt, // todo
+    SetDifficulty(Difficulty),
+    ChatMessage(String),
+    ClientStatus(ClientStatusAction),
+    ClientSettings {
+        locale: String,
+        view_distance: i8,
+        chat_mode: ChatMode,
+        chat_colors: bool,
+        displayed_skin_parts: SkinParts,
+        main_hand: MainHand,
+    },
+    TabComplete {
+        transaction_id: VarInt,
+        text: String,
+    },
+    WindowConfirmation {
+        window_id: i8,
+        action_number: i16,
+        accepted: bool,
+    },
+    ClickWindowButton {
+        window_id: i8,
+        button_id: i8,
+    },
+    ClickWindow, // todo
+    CloseWindow {
+        window_id: i8,
+    },
+    PluginMessage {
+        channel: String,
+        data: Box<[u8]>,
     },
 }
 

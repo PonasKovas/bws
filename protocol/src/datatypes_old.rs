@@ -51,7 +51,6 @@ pub struct Chat {
 }
 
 // Used in DeclareCommands packet
-// todo make these enum structs
 #[derive(Debug, Clone)]
 pub enum CommandNode {
     Root {
@@ -89,6 +88,19 @@ bitflags! {
         const RELATIVE_Z = 0x04;
         const RELATIVE_YAW = 0x08; // i have possibly mixed up yaw and pitch here
         const RELATIVE_PITCH = 0x10;
+    }
+}
+
+bitflags! {
+    #[derive(Serialize)]
+    pub struct SkinParts: u8 {
+        const CAPE = 0x01;
+        const JACKET = 0x02;
+        const LEFT_SLEEVE = 0x04;
+        const RIGHT_SLEEVE = 0x08;
+        const LEFT_PANTS = 0x10;
+        const RIGHT_PANTS = 0x20;
+        const HAT = 0x40;
     }
 }
 
@@ -132,10 +144,17 @@ pub enum StringParserType {
     GreedyPhrase,
 }
 
+#[derive(Serialize, Debug, Clone)]
+pub enum NextState {
+    Status = 1,
+    Login,
+}
+
 #[derive(Shrinkwrap, Debug, Clone)]
 #[shrinkwrap(mutable)]
 pub struct Arr<T: Serialize, const N: usize>(pub [T; N]);
 
+/// Array with it's length prefixed as a VarInt
 #[derive(Shrinkwrap, Debug, Clone)]
 #[shrinkwrap(mutable)]
 pub struct ArrWithLen<T: Serialize, const N: usize>(pub [T; N]);
@@ -182,6 +201,25 @@ pub enum Difficulty {
     Easy,
     Normal,
     Hard,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub enum ClientStatusAction {
+    PerformRespawn = 0,
+    RequestStats,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub enum ChatMode {
+    Enabled = 0,
+    CommandsOnly,
+    Hidden,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub enum MainHand {
+    Left = 0,
+    Right,
 }
 
 #[derive(Debug, Clone, Serialize)]
