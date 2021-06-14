@@ -112,6 +112,7 @@ async fn main() -> Result<()> {
         .parse_default_env()
         .init();
 
+    // return Ok(());
     lazy_static::initialize(&GLOBAL_STATE);
 
     let join_handles = Arc::new(std::sync::Mutex::new(Vec::new()));

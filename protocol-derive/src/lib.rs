@@ -24,7 +24,10 @@ pub fn serializable(_attr: TokenStream, mut item: TokenStream) -> TokenStream {
                 }));
             }
             Fields::Unnamed(fields) => {
-                let field_indices = fields.unnamed.iter().enumerate().map(|f| f.0);
+                let field_indices = fields.unnamed.iter().enumerate().map(|f| syn::Index {
+                    index: f.0 as u32,
+                    span: quote::__private::Span::call_site(),
+                });
                 item.extend(TokenStream::from(quote! {
                     impl Serializable for #name {
                         fn to_writer<W: ::std::io::Write>(&self, output: &mut W) -> ::std::io::Result<()> {
