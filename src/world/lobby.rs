@@ -1,11 +1,8 @@
 use crate::chat_parse;
-use crate::datatypes::*;
 use crate::global_state::PStream;
 use crate::internal_communication::WBound;
 use crate::internal_communication::WReceiver;
 use crate::internal_communication::WSender;
-use crate::packets::ClientBound;
-use crate::packets::ServerBound;
 use crate::GLOBAL_STATE;
 use anyhow::bail;
 use anyhow::Context;
@@ -13,6 +10,8 @@ use anyhow::Result;
 use futures::executor::block_on;
 use futures::FutureExt;
 use log::{debug, error, info, warn};
+use protocol::datatypes::*;
+use protocol::packets::*;
 use sha2::{Digest, Sha256};
 use slab::Slab;
 use std::cmp::min;
@@ -148,50 +147,53 @@ impl LobbyWorld {
             dimension.insert("has_ceiling".to_string(), Byte(0)).unwrap();
         };
 
-        stream.send(ClientBound::Respawn {
-            dimension,
-            world_name: "lobby".to_string(),
+        stream.send(PlayClientBound::Respawn {
+            dimension: Nbt(dimension),
+            world_name: "lobby".into(),
             hashed_seed: 0,
-            gamemode: 1,
-            previous_gamemode: 3,
-            debug_mode: false,
+            gamemode: Gamemode::Creative,
+            previous_gamemode: Gamemode::Spectator,
+            debug: false,
             flat: true,
             copy_metadata: false,
         })?;
 
-        stream.send(ClientBound::PlayerPositionAndLook {
+        stream.send(PlayClientBound::PlayerPositionAndLook {
             x: 0.0,
             y: 20.0,
             z: 0.0,
             yaw: 0.0,
             pitch: 0.0,
-            flags: 0,
-            tp_id: VarInt(0),
+            flags: PositionAndLookFlags::empty(),
+            id: VarInt(0),
         })?;
 
-        stream.send(ClientBound::SetBrand("BWS".to_string()))?;
+        stream.send(PlayClientBound::PluginMessage {
+            channel: "minecraft:brand".into(),
+            data: "\x03BWS".to_owned().into_bytes().into_boxed_slice(),
+        })?;
 
-        stream.send(ClientBound::Title(TitleAction::Reset))?;
+        stream.send(PlayClientBound::Title(TitleAction::Reset))?;
 
-        stream.send(ClientBound::Title(TitleAction::SetTitle(chat_parse(
+        stream.send(PlayClientBound::Title(TitleAction::SetTitle(chat_parse(
             "§aLogged in§7!",
         ))))?;
 
-        stream.send(ClientBound::Title(TitleAction::SetSubtitle(chat_parse(
-            "§bhave fun§7!",
-        ))))?;
+        stream.send(PlayClientBound::Title(TitleAction::SetSubtitle(
+            chat_parse("§bhave fun§7!"),
+        )))?;
 
-        stream.send(ClientBound::Title(TitleAction::SetActionBar(chat_parse(
-            "",
-        ))))?;
+        stream.send(PlayClientBound::Title(TitleAction::SetActionBar(
+            chat_parse(""),
+        )))?;
 
-        stream.send(ClientBound::Title(TitleAction::SetDisplayTime {
+        stream.send(PlayClientBound::Title(TitleAction::SetDisplayTime {
             fade_in: 15,
             display: 20,
             fade_out: 15,
         }))?;
 
-        stream.send(ClientBound::UpdateViewPosition {
+        stream.send(PlayClientBound::UpdateViewPosition {
             chunk_x: VarInt(0),
             chunk_z: VarInt(0),
         })?;
@@ -209,22 +211,24 @@ impl LobbyWorld {
 
         for z in -c..c {
             for x in -c..c {
-                stream.send(ClientBound::ChunkData {
+                stream.send(PlayClientBound::ChunkData {
                     chunk_x: x as i32,
                     chunk_z: z as i32,
-                    primary_bit_mask: VarInt(0b1),
-                    heightmaps: nbt::Blob::new(),
-                    biomes: [VarInt(174); 1024],
-                    sections: vec![ChunkSection {
-                        block_count: 4096,
-                        palette: Palette::Direct,
-                        data: {
-                            let mut x = vec![0x200040008001; 1023];
-                            x.extend_from_slice(&vec![0x2C005800B0016; 1]);
-                            x
-                        },
-                    }],
-                    block_entities: Vec::new(),
+                    chunk: Chunk::Full {
+                        primary_bitmask: VarInt(0b1),
+                        heightmaps: Nbt(nbt::Blob::new()),
+                        biomes: ArrWithLen([VarInt(174); 1024]),
+                        sections: ChunkSections(vec![ChunkSection {
+                            block_count: 4096,
+                            palette: Palette::Direct,
+                            data: {
+                                let mut x = vec![0x200040008001; 1023];
+                                x.extend_from_slice(&vec![0x2C005800B0016; 1]);
+                                x
+                            },
+                        }]),
+                        block_entities: Vec::new(),
+                    },
                 })?;
             }
         }
@@ -253,38 +257,44 @@ impl LobbyWorld {
             }
         }
     }
-    async fn handle_packet<'a>(&mut self, id: usize, packet: ServerBound) {
+    async fn handle_packet<'a>(&mut self, id: usize, packet: PlayServerBound) {
         match packet {
-            ServerBound::ChatMessage(message) => {
+            PlayServerBound::ChatMessage(message) => {
                 let _ = self.players[&id]
                     .stream
                     .lock()
                     .await
-                    .send(ClientBound::ChatMessage {
+                    .send(PlayClientBound::ChatMessage {
                         message: chat_parse(format!(
                             "§a§l{}: §r§f{}",
                             self.players[&id].username, message
                         )),
-                        position: 0,
+                        position: ChatPosition::Chat,
+                        sender: 0,
                     });
             }
-            ServerBound::PlayerPosition { x, y, z, on_ground } => {
-                let _ = self.set_player_position(id, (x, y, z)).await;
+            PlayServerBound::PlayerPosition {
+                x,
+                feet_y,
+                z,
+                on_ground,
+            } => {
+                let _ = self.set_player_position(id, (x, feet_y, z)).await;
                 self.set_player_on_ground(id, on_ground).await;
             }
-            ServerBound::PlayerPositionAndRotation {
+            PlayServerBound::PlayerPositionAndRotation {
                 x,
-                y,
+                feet_y,
                 z,
                 yaw,
                 pitch,
                 on_ground,
             } => {
-                let _ = self.set_player_position(id, (x, y, z)).await;
+                let _ = self.set_player_position(id, (x, feet_y, z)).await;
                 self.set_player_rotation(id, (yaw, pitch)).await;
                 self.set_player_on_ground(id, on_ground).await;
             }
-            ServerBound::PlayerRotation {
+            PlayServerBound::PlayerRotation {
                 yaw,
                 pitch,
                 on_ground,
@@ -292,7 +302,7 @@ impl LobbyWorld {
                 self.set_player_rotation(id, (yaw, pitch)).await;
                 self.set_player_on_ground(id, on_ground).await;
             }
-            ServerBound::PlayerMovement { on_ground } => {
+            PlayServerBound::PlayerMovement { on_ground } => {
                 self.set_player_on_ground(id, on_ground).await;
             }
             _ => {}
@@ -325,7 +335,7 @@ impl LobbyWorld {
                 .stream
                 .lock()
                 .await
-                .send(ClientBound::UpdateViewPosition {
+                .send(PlayClientBound::UpdateViewPosition {
                     chunk_x: VarInt(new_chunks.0 as i32),
                     chunk_z: VarInt(new_chunks.1 as i32),
                 })?;
@@ -368,22 +378,24 @@ impl LobbyWorld {
                     .stream
                     .lock()
                     .await
-                    .send(ClientBound::ChunkData {
+                    .send(PlayClientBound::ChunkData {
                         chunk_x: chunk.0,
                         chunk_z: chunk.1,
-                        primary_bit_mask: VarInt(0b1),
-                        heightmaps: nbt::Blob::new(),
-                        biomes: [VarInt(174); 1024],
-                        sections: vec![ChunkSection {
-                            block_count: 4096,
-                            palette: Palette::Direct,
-                            data: {
-                                let mut x = vec![0x200040008001; 1023];
-                                x.extend_from_slice(&vec![0x2C005800B0016; 1]);
-                                x
-                            },
-                        }],
-                        block_entities: Vec::new(),
+                        chunk: Chunk::Full {
+                            primary_bitmask: VarInt(0b1),
+                            heightmaps: Nbt(nbt::Blob::new()),
+                            biomes: ArrWithLen([VarInt(174); 1024]),
+                            sections: ChunkSections(vec![ChunkSection {
+                                block_count: 4096,
+                                palette: Palette::Direct,
+                                data: {
+                                    let mut x = vec![0x200040008001; 1023];
+                                    x.extend_from_slice(&vec![0x2C005800B0016; 1]);
+                                    x
+                                },
+                            }]),
+                            block_entities: Vec::new(),
+                        },
                     })?;
             }
         }

@@ -253,7 +253,7 @@ async fn read_and_parse_packet(
             let packet = StatusClientBound::Response(StatusResponse {
                 json: StatusResponseJson {
                     version: StatusVersion {
-                        name: crate::VERSION_NAME.to_string(),
+                        name: crate::VERSION_NAME.into(),
                         protocol: *client_protocol,
                     },
                     players: StatusPlayers {
@@ -269,7 +269,7 @@ async fn read_and_parse_packet(
                     } else {
                         unsupported
                     },
-                    favicon: GLOBAL_STATE.favicon.lock().await.clone(),
+                    favicon: GLOBAL_STATE.favicon.lock().await.to_string().into(),
                 },
             });
             write_packet(socket, buffer, packet.cb()).await?;

@@ -46,8 +46,11 @@ impl Serializable for ChunkSections {
         Ok(())
     }
 }
-
-// todo deserialize ChunkSections
+impl Deserializable for ChunkSections {
+    fn from_reader<R: Read>(input: &mut R) -> Result<Self> {
+        todo!()
+    }
+}
 
 impl Serializable for CommandNode {
     fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
@@ -114,7 +117,11 @@ impl Serializable for CommandNode {
         Ok(())
     }
 }
-// todo deserialize for CommandNode
+impl Deserializable for CommandNode {
+    fn from_reader<R: Read>(input: &mut R) -> Result<Self> {
+        todo!()
+    }
+}
 
 impl Serializable for Parser {
     fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {

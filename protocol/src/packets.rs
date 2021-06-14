@@ -93,7 +93,7 @@ pub enum LoginServerBound {
     },
 }
 
-// #[deserializable]
+#[deserializable]
 #[serializable]
 #[derive(Debug, Clone)]
 pub enum PlayClientBound {
@@ -158,13 +158,7 @@ pub enum PlayClientBound {
     ChunkData {
         chunk_x: i32,
         chunk_z: i32,
-        // bits 0-15, if 1 then the chunk section will be sent in this packet
-        primary_bitmask: VarInt,
-        heightmaps: Nbt,
-        // 4x4x4 sections in the entire chunk (16x256x16),
-        biomes: ArrWithLen<VarInt, 1024>,
-        sections: ChunkSections,
-        block_entities: Vec<Nbt>,
+        chunk: Chunk,
     },
     Effect,      // todo
     Particle,    // todo
@@ -287,10 +281,10 @@ pub enum PlayClientBound {
     EntityEffect,              // todo
     DeclareRecipes,            // todo
     Tags {
-        blocks: Vec<Tags>,
-        items: Vec<Tags>,
-        fluids: Vec<Tags>,
-        entities: Vec<Tags>,
+        blocks: MaybeStatic<Vec<Tags>>,
+        items: MaybeStatic<Vec<Tags>>,
+        fluids: MaybeStatic<Vec<Tags>>,
+        entities: MaybeStatic<Vec<Tags>>,
     },
 }
 
