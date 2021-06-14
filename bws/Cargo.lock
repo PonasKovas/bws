@@ -575,7 +575,12 @@ dependencies = [
 name = "protocol"
 version = "0.1.0"
 dependencies = [
+ "bitflags",
+ "hematite-nbt",
  "protocol-derive",
+ "serde",
+ "serde_json",
+ "shrinkwraprs",
 ]
 
 [[package]]

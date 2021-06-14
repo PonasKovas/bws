@@ -1,16 +1,10 @@
 use super::datatypes::*;
-use crate::world;
-use serde::{Deserialize, Serialize};
-use std::{
-    env::Vars,
-    hash,
-    io::{self, Cursor, Write},
-};
+use super::{deserializable, serializable, Deserializable, Serializable};
+use std::io::{self, Cursor, Write};
 
 /// Sent from the server to the client
 #[derive(Debug, Clone)]
 pub enum ClientBound {
-    Handshake(HandshakeClientBound),
     Status(StatusClientBound),
     Login(LoginClientBound),
     Play(PlayClientBound),
@@ -25,11 +19,9 @@ pub enum ServerBound {
     Play(PlayServerBound),
 }
 
-// No packets are sent from the server in the HandShake state
-#[derive(Serialize, Debug, Clone)]
-pub enum HandshakeClientBound {}
-
-#[derive(Serialize, Debug, Clone)]
+#[deserializable]
+#[serializable]
+#[derive(Debug, Clone)]
 pub enum HandshakeServerBound {
     Handshake {
         protocol: VarInt,
@@ -39,19 +31,25 @@ pub enum HandshakeServerBound {
     },
 }
 
-#[derive(Serialize, Debug, Clone)]
+#[deserializable]
+#[serializable]
+#[derive(Debug, Clone)]
 pub enum StatusClientBound {
     Response(StatusResponse),
     Pong(i64),
 }
 
-#[derive(Serialize, Debug, Clone)]
+#[deserializable]
+#[serializable]
+#[derive(Debug, Clone)]
 pub enum StatusServerBound {
     Request,
     Ping(i64),
 }
 
-#[derive(Serialize, Debug, Clone)]
+#[deserializable]
+#[serializable]
+#[derive(Debug, Clone)]
 pub enum LoginClientBound {
     Disconnect(Chat),
     EncryptionRequest {
@@ -75,7 +73,9 @@ pub enum LoginClientBound {
     },
 }
 
-#[derive(Serialize, Debug, Clone)]
+#[deserializable]
+#[serializable]
+#[derive(Debug, Clone)]
 pub enum LoginServerBound {
     LoginStart {
         username: String,
@@ -92,7 +92,9 @@ pub enum LoginServerBound {
     },
 }
 
-#[derive(Serialize, Debug, Clone)]
+// #[deserializable]
+#[serializable]
+#[derive(Debug, Clone)]
 pub enum PlayClientBound {
     SpawnEntity {
         entity_id: VarInt,
@@ -291,7 +293,9 @@ pub enum PlayClientBound {
     },
 }
 
-#[derive(Serialize, Debug, Clone)]
+#[deserializable]
+#[serializable]
+#[derive(Debug, Clone)]
 pub enum PlayServerBound {
     TeleportConfirm {
         teleport_id: VarInt,
@@ -347,13 +351,44 @@ impl PlayClientBound {
     }
 }
 
-impl Serialize for ClientBound {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+impl Serializable for ClientBound {
+    fn to_writer<W: Write>(&self, output: &mut W) -> io::Result<()> {
         match self {
-            Self::Handshake(packet) => packet.serialize(serializer),
-            Self::Status(packet) => packet.serialize(serializer),
-            Self::Login(packet) => packet.serialize(serializer),
-            Self::Play(packet) => packet.serialize(serializer),
+            Self::Status(packet) => packet.to_writer(output),
+            Self::Login(packet) => packet.to_writer(output),
+            Self::Play(packet) => packet.to_writer(output),
+        }
+    }
+}
+
+impl HandshakeServerBound {
+    pub fn sb(self) -> ServerBound {
+        ServerBound::Handshake(self)
+    }
+}
+impl StatusServerBound {
+    pub fn sb(self) -> ServerBound {
+        ServerBound::Status(self)
+    }
+}
+impl LoginServerBound {
+    pub fn sb(self) -> ServerBound {
+        ServerBound::Login(self)
+    }
+}
+impl PlayServerBound {
+    pub fn sb(self) -> ServerBound {
+        ServerBound::Play(self)
+    }
+}
+
+impl Serializable for ServerBound {
+    fn to_writer<W: Write>(&self, output: &mut W) -> io::Result<()> {
+        match self {
+            Self::Handshake(packet) => packet.to_writer(output),
+            Self::Status(packet) => packet.to_writer(output),
+            Self::Login(packet) => packet.to_writer(output),
+            Self::Play(packet) => packet.to_writer(output),
         }
     }
 }
