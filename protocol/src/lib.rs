@@ -1,4 +1,7 @@
+#![feature(array_map)]
+
 pub mod datatypes;
+pub mod packets;
 
 pub use protocol_derive::{deserializable, serializable};
 use std::io::{Read, Result, Write};

@@ -45,10 +45,17 @@ pub fn serializable(_attr: TokenStream, mut item: TokenStream) -> TokenStream {
             }
         },
         Data::Enum(dataenum) => {
-            let variants = dataenum.variants.iter().map(|v| &v.ident);
+            let mut variants: Vec<_> = dataenum
+                .variants
+                .iter()
+                .map(|v| {
+                    let id = &v.ident;
+                    quote! {#id}
+                })
+                .collect();
             let mut implementations = Vec::new();
             let mut discriminant = 0;
-            for variant in &dataenum.variants {
+            for (i, variant) in dataenum.variants.iter().enumerate() {
                 if let Some((
                     _,
                     syn::Expr::Lit(syn::ExprLit {
@@ -62,20 +69,38 @@ pub fn serializable(_attr: TokenStream, mut item: TokenStream) -> TokenStream {
                 match &variant.fields {
                     Fields::Named(fields) => {
                         let field_names = fields.named.iter().map(|f| &f.ident);
+                        variants[i].extend(quote! {
+                            {
+                                #(#field_names,)*
+                            }
+                        });
+                        let field_names = fields.named.iter().map(|f| &f.ident);
                         implementations.push(quote! {
                             Serializable::to_writer(&VarInt(#discriminant), &mut *output)?;
-                            #(Serializable::to_writer(&self.#field_names, &mut *output)?;)*
+                            #(Serializable::to_writer(#field_names, &mut *output)?;)*
                         });
                     }
                     Fields::Unnamed(fields) => {
-                        let field_indices = fields
-                            .unnamed
-                            .iter()
-                            .enumerate()
-                            .map(|f| syn::Index::from(f.0));
+                        let field_names = fields.unnamed.iter().enumerate().map(|(i, _)| {
+                            syn::Ident::new(
+                                &format!("__field{}", i),
+                                quote::__private::Span::call_site(),
+                            )
+                        });
+                        variants[i].extend(quote! {
+                            (
+                                #(#field_names,)*
+                            )
+                        });
+                        let field_names = fields.unnamed.iter().enumerate().map(|(i, _)| {
+                            syn::Ident::new(
+                                &format!("__field{}", i),
+                                quote::__private::Span::call_site(),
+                            )
+                        });
                         implementations.push(quote! {
                             Serializable::to_writer(&VarInt(#discriminant), &mut *output)?;
-                            #(Serializable::to_writer(&self.#field_indices, &mut *output)?;)*
+                            #(Serializable::to_writer(#field_names, &mut *output)?;)*
                         });
                     }
                     Fields::Unit => {
@@ -93,7 +118,7 @@ pub fn serializable(_attr: TokenStream, mut item: TokenStream) -> TokenStream {
                         match self {
                             #(Self::#variants => {
                                 #implementations
-                            })*
+                            },)*
                         }
                         Ok(())
                     }

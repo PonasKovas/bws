@@ -121,20 +121,6 @@ async fn main() -> Result<()> {
         .parse_default_env()
         .init();
 
-    use protocol::{Deserializable, Serializable};
-    let x = protocol::datatypes::Something {
-        first: protocol::datatypes::VarInt(1),
-        second: protocol::datatypes::VarInt(2),
-    };
-    let mut data = Vec::new();
-    x.to_writer(&mut data).unwrap();
-    println!("{:?}", &data);
-    let mut data = std::io::Cursor::new(data);
-    let y = protocol::datatypes::Something::from_reader(&mut data).unwrap();
-    println!("{}, {}", y.first.0, y.second.0);
-
-    return Ok(());
-
     lazy_static::initialize(&GLOBAL_STATE);
 
     let join_handles = Arc::new(std::sync::Mutex::new(Vec::new()));
