@@ -9,6 +9,7 @@ use anyhow::bail;
 use anyhow::Context;
 use anyhow::Result;
 use futures::future::FutureExt;
+use lazy_static::lazy_static;
 use log::{debug, error, info, warn};
 use protocol::datatypes::*;
 use protocol::packets::*;
@@ -33,6 +34,49 @@ use tokio::time::sleep;
 use tokio::time::Instant;
 
 const ACCOUNTS_FILE: &str = "accounts.bwsdata";
+
+lazy_static! {
+    static ref TAGS: [&'static [u8]; 4] = {
+        use protocol::{Deserializable, Serializable};
+
+        let mut all_tags =
+            std::io::Cursor::new([&[0x5Bu8][..], &incl!("assets/raw/tags.bin")[..]].concat());
+
+        let tags = PlayClientBound::from_reader(&mut all_tags).unwrap();
+        if let PlayClientBound::Tags {
+            blocks,
+            items,
+            fluids,
+            entities,
+        } = tags
+        {
+            [
+                {
+                    let mut data = Vec::new();
+                    blocks.to_writer(&mut data).unwrap();
+                    data.leak()
+                },
+                {
+                    let mut data = Vec::new();
+                    items.to_writer(&mut data).unwrap();
+                    data.leak()
+                },
+                {
+                    let mut data = Vec::new();
+                    fluids.to_writer(&mut data).unwrap();
+                    data.leak()
+                },
+                {
+                    let mut data = Vec::new();
+                    entities.to_writer(&mut data).unwrap();
+                    data.leak()
+                },
+            ]
+        } else {
+            panic!("the raw tags packet incorrectly parsed as {:?}", tags);
+        }
+    };
+}
 
 pub struct LoginWorld {
     players: HashMap<usize, (String, PStream)>, // username and stream
@@ -305,10 +349,15 @@ impl LoginWorld {
 
         stream.send(PlayClientBound::PluginMessage {
             channel: "minecraft:brand".into(),
-            data: "BWS".to_owned().into_bytes().into_boxed_slice(),
+            data: "\x03BWS".to_owned().into_bytes().into_boxed_slice(),
         })?;
 
-        // stream.send(PlayClientBound::Tags)?;
+        stream.send(PlayClientBound::Tags {
+            blocks: MaybeStatic::Static(TAGS[0]),
+            items: MaybeStatic::Static(TAGS[1]),
+            fluids: MaybeStatic::Static(TAGS[2]),
+            entities: MaybeStatic::Static(TAGS[3]),
+        })?;
 
         let password = self.accounts.get(
             &GLOBAL_STATE
@@ -333,13 +382,13 @@ impl LoginWorld {
                         executable: false,
                         children: vec![VarInt(2)],
                         redirect: None,
-                        name: "login".to_string(),
+                        name: "login".into(),
                     },
                     CommandNode::Argument {
                         executable: true,
                         children: Vec::new(),
                         redirect: None,
-                        name: "password".to_string(),
+                        name: "password".into(),
                         parser: Parser::String(StringParserType::SingleWord),
                         suggestions: None,
                     },
@@ -355,13 +404,13 @@ impl LoginWorld {
                         executable: false,
                         children: vec![VarInt(2)],
                         redirect: None,
-                        name: "register".to_string(),
+                        name: "register".into(),
                     },
                     CommandNode::Argument {
                         executable: false,
                         children: vec![VarInt(3)],
                         redirect: None,
-                        name: "password".to_string(),
+                        name: "password".into(),
                         parser: Parser::String(StringParserType::SingleWord),
                         suggestions: None,
                     },
@@ -435,6 +484,8 @@ impl LoginWorld {
 }
 
 pub fn start() -> Result<WSender> {
+    lazy_static::initialize(&TAGS);
+
     let (w_sender, w_receiver) = unbounded_channel::<WBound>();
 
     let mut world = LoginWorld::new()?;

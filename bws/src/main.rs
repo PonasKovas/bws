@@ -77,10 +77,7 @@ lazy_static! {
         // parse the player sample to the format minecraft requires
         let mut player_sample = Vec::new();
         for line in opt.player_sample.lines() {
-            player_sample.push(StatusPlayerSampleEntry{
-                name: line.to_string(),
-                id: "00000000-0000-0000-0000-000000000000".to_string(),
-            });
+            player_sample.push(StatusPlayerSampleEntry::new(line.to_owned().into()));
         }
         GlobalState {
             description: Mutex::new(chat_parse(opt.description)),
@@ -98,7 +95,7 @@ lazy_static! {
                     std::process::exit(1);
                 },
             },
-            w_lobby: tokio::sync::mpsc::unbounded_channel().0,//world::lobby::start(),
+            w_lobby: world::lobby::start(),
             compression_treshold: opt.compression_treshold,
             port: opt.port,
         }

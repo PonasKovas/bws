@@ -5,9 +5,10 @@ use super::{deserializable, serializable};
 use super::{Deserializable, Serializable};
 use bitflags::bitflags;
 use shrinkwraprs::Shrinkwrap;
+use std::borrow::Cow;
 use std::io::Cursor;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct VarInt(pub i32);
 
 impl VarInt {
@@ -77,6 +78,30 @@ pub enum WorldBorderAction {
     SetWarningBlocks(VarInt),
 }
 
+// no need for manual Serialization and Deserialization implementation since the first field
+// `full_chunk` is a bool and the VarInt enum equivalent of 0 is false, 1 is true so this works
+#[deserializable]
+#[serializable]
+#[derive(Debug, Clone)]
+pub enum Chunk {
+    Partial {
+        // bits 0-15, if 1 then the chunk section will be sent in this packet
+        primary_bitmask: VarInt,
+        heightmaps: Nbt,
+        sections: ChunkSections,
+        block_entities: Vec<Nbt>,
+    },
+    Full {
+        // bits 0-15, if 1 then the chunk section will be sent in this packet
+        primary_bitmask: VarInt,
+        heightmaps: Nbt,
+        // 4x4x4 sections in the entire chunk (16x256x16),
+        biomes: ArrWithLen<VarInt, 1024>,
+        sections: ChunkSections,
+        block_entities: Vec<Nbt>,
+    },
+}
+
 #[deserializable]
 #[serializable]
 #[derive(Debug, Clone)]
@@ -98,12 +123,12 @@ pub enum TitleAction {
 #[serializable]
 #[derive(Debug, Clone)]
 pub struct Tags {
-    name: String,
-    entries: Vec<VarInt>,
+    pub name: Cow<'static, str>,
+    pub entries: Vec<VarInt>,
 }
 
 #[derive(Debug, Clone)]
-pub struct ChunkSections(Vec<ChunkSection>);
+pub struct ChunkSections(pub Vec<ChunkSection>);
 
 #[derive(Debug, Clone)]
 pub struct ChunkSection {
@@ -129,15 +154,15 @@ pub enum CommandNode {
         executable: bool,
         children: Vec<VarInt>,
         redirect: Option<VarInt>,
-        name: String,
+        name: Cow<'static, str>,
     },
     Argument {
         executable: bool,
         children: Vec<VarInt>,
         redirect: Option<VarInt>,
-        name: String,
+        name: Cow<'static, str>,
         parser: Parser,
-        suggestions: Option<String>,
+        suggestions: Option<Cow<'static, str>>,
     },
 }
 
@@ -279,12 +304,12 @@ pub struct StatusResponseJson {
     pub version: StatusVersion,
     pub players: StatusPlayers,
     pub description: Chat,
-    pub favicon: String,
+    pub favicon: Cow<'static, str>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct StatusVersion {
-    pub name: String,
+    pub name: Cow<'static, str>,
     pub protocol: i32,
 }
 
@@ -297,15 +322,15 @@ pub struct StatusPlayers {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct StatusPlayerSampleEntry {
-    pub name: String,
-    pub id: String,
+    pub name: Cow<'static, str>,
+    pub id: Cow<'static, str>,
 }
 
 impl StatusPlayerSampleEntry {
-    pub fn new(name: String) -> Self {
+    pub fn new(name: Cow<'static, str>) -> Self {
         Self {
             name,
-            id: "00000000-0000-0000-0000-000000000000".to_string(),
+            id: "00000000-0000-0000-0000-000000000000".into(),
         }
     }
 }
