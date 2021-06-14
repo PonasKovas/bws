@@ -1,5 +1,6 @@
 use super::*;
 use super::{Deserializable, Serializable};
+use std::borrow::Cow;
 use std::io::{self, Cursor, ErrorKind, Read, Result, Write};
 
 impl Serializable for ChunkSections {
@@ -213,11 +214,23 @@ impl Deserializable for VarInt {
     }
 }
 
-impl<'a> Serializable for &'a str {
+impl<T: Serializable + ToOwned + ?Sized> Serializable for Cow<'static, T> {
     fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
-        VarInt(self.len() as i32).to_writer(&mut *output)?;
+        (**self).to_writer(output)
+    }
+}
+impl<T: ToOwned + ?Sized> Deserializable for Cow<'static, T>
+where
+    <T as ToOwned>::Owned: Deserializable,
+{
+    fn from_reader<R: Read>(input: &mut R) -> Result<Self> {
+        Ok(Cow::Owned(<T as ToOwned>::Owned::from_reader(input)?))
+    }
+}
 
-        output.write_all(self.as_bytes())
+impl Serializable for str {
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
+        self.as_bytes().to_writer(output)
     }
 }
 impl Serializable for String {

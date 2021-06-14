@@ -17,7 +17,7 @@ impl VarInt {
     }
 }
 
-// A newtype around an array except that when serializing/deserializing it has a fixed length as a prefix
+// A newtype around an array except that when serializing/deserializing it has the fixed length as a prefix
 #[derive(Shrinkwrap, Debug, Clone)]
 #[shrinkwrap(mutable)]
 pub struct ArrWithLen<T, const N: usize>(pub [T; N]);
@@ -127,7 +127,7 @@ pub enum Parser {
 
 #[deserializable]
 #[serializable]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum StringParserType {
     SingleWord = 0,
     QuotablePhrase,
@@ -172,7 +172,7 @@ bitflags! {
 
 #[deserializable]
 #[serializable]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum NextState {
     Status = 1,
     Login,
@@ -180,7 +180,7 @@ pub enum NextState {
 
 #[deserializable]
 #[serializable]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum Difficulty {
     Peaceful = 0,
     Easy,
@@ -190,7 +190,7 @@ pub enum Difficulty {
 
 #[deserializable]
 #[serializable]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum ClientStatusAction {
     PerformRespawn = 0,
     RequestStats,
@@ -198,7 +198,7 @@ pub enum ClientStatusAction {
 
 #[deserializable]
 #[serializable]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum ChatMode {
     Enabled = 0,
     CommandsOnly,
@@ -207,7 +207,7 @@ pub enum ChatMode {
 
 #[deserializable]
 #[serializable]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum MainHand {
     Left = 0,
     Right,
@@ -215,7 +215,7 @@ pub enum MainHand {
 
 #[deserializable]
 #[serializable]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum ChatPosition {
     Chat = 0,
     System,
@@ -224,7 +224,7 @@ pub enum ChatPosition {
 
 #[deserializable]
 #[serializable]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum Gamemode {
     Survival = 0,
     Creative,
@@ -234,7 +234,7 @@ pub enum Gamemode {
 
 #[deserializable]
 #[serializable]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum SoundCategory {
     Master = 0,
     Music,

@@ -1,18 +1,17 @@
 use crate::chat_parse;
-use crate::datatypes::*;
 use crate::global_state::PStream;
 use crate::global_state::PlayerStream;
 use crate::internal_communication::WBound;
 use crate::internal_communication::WReceiver;
 use crate::internal_communication::WSender;
-use crate::packets::ClientBound;
-use crate::packets::ServerBound;
 use crate::GLOBAL_STATE;
 use anyhow::bail;
 use anyhow::Context;
 use anyhow::Result;
 use futures::future::FutureExt;
 use log::{debug, error, info, warn};
+use protocol::datatypes::*;
+use protocol::packets::*;
 use sha2::{Digest, Sha256};
 use slab::Slab;
 use std::collections::HashMap;
@@ -45,6 +44,7 @@ impl LoginWorld {
     // might fail since this interacts with the filesystem for the accounts data
     pub fn new() -> Result<Self> {
         // sadly this has to be sync
+        // Edit: but I already forgot why and I'm beginning to think that maybe it doesn't
         use std::fs::File;
         use std::io::BufReader;
         // read the accounts data
@@ -131,9 +131,9 @@ impl LoginWorld {
             }
         }
     }
-    async fn handle_packet<'a>(&mut self, id: usize, packet: ServerBound) {
+    async fn handle_packet<'a>(&mut self, id: usize, packet: PlayServerBound) {
         match packet {
-            ServerBound::ChatMessage(message) => {
+            PlayServerBound::ChatMessage(message) => {
                 // this world only parses commands
                 if message.starts_with("/login ") {
                     // make sure the player is already registered
@@ -156,9 +156,10 @@ impl LoginWorld {
                             } else {
                                 // they don't match
                                 let _ = self.players[&id].1.lock().await.send(
-                                    ClientBound::ChatMessage {
+                                    PlayClientBound::ChatMessage {
                                         message: chat_parse("§4§lIncorrect password!"),
-                                        position: 0,
+                                        position: ChatPosition::Chat,
+                                        sender: 0,
                                     },
                                 );
                             }
@@ -171,11 +172,12 @@ impl LoginWorld {
                             if let Some(second_password) = iterator.next() {
                                 if first_password != second_password {
                                     let _ = self.players[&id].1.lock().await.send(
-                                        ClientBound::ChatMessage {
+                                        PlayClientBound::ChatMessage {
                                             message: chat_parse(
                                                 "§cThe passwords do not match, try again.",
                                             ),
-                                            position: 0,
+                                            position: ChatPosition::Chat,
+                                            sender: 0,
                                         },
                                     );
                                 }
@@ -271,14 +273,15 @@ impl LoginWorld {
             dimension.insert("has_ceiling".to_string(), Byte(0)).unwrap();
         };
 
-        let packet = ClientBound::JoinGame {
+        let packet = PlayClientBound::JoinGame {
             eid: id as i32,
             hardcore: false,
-            gamemode: 3,
-            previous_gamemode: -1,
+            gamemode: Gamemode::Spectator,
+            previous_gamemode: Gamemode::Spectator,
             world_names: vec![],
-            dimension,
-            world_name: "authentication".to_string(),
+            dimension_codec: Nbt(nbt::Blob::new()), // todo
+            dimension: Nbt(dimension),
+            world_name: "authentication".into(),
             hashed_seed: 0,
             max_players: VarInt(20),
             view_distance: VarInt(8),
@@ -289,19 +292,22 @@ impl LoginWorld {
         };
         stream.send(packet)?;
 
-        stream.send(ClientBound::PlayerPositionAndLook {
+        stream.send(PlayClientBound::PlayerPositionAndLook {
             x: 0.0,
             y: 0.0,
             z: 0.0,
             yaw: 0.0,
             pitch: -20.0,
-            flags: 0,
-            tp_id: VarInt(0),
+            flags: PositionAndLookFlags::empty(),
+            id: VarInt(0),
         })?;
 
-        stream.send(ClientBound::SetBrand("BWS".to_string()))?;
+        stream.send(PlayClientBound::PluginMessage {
+            channel: "minecraft:brand".into(),
+            data: "BWS".to_owned().into_bytes().into_boxed_slice(),
+        })?;
 
-        stream.send(ClientBound::Tags)?;
+        // stream.send(PlayClientBound::Tags)?;
 
         let password = self.accounts.get(
             &GLOBAL_STATE
@@ -314,64 +320,70 @@ impl LoginWorld {
         );
 
         // declare commands
-        stream.send(ClientBound::DeclareCommands {
+        stream.send(PlayClientBound::DeclareCommands {
             nodes: if password.is_some() {
                 // if the user is already registered
                 // only register the /login command
                 vec![
-                    CommandNode::Root(vec![VarInt(1)]),
-                    CommandNode::Literal(false, vec![VarInt(2)], None, "login".to_string()),
-                    CommandNode::Argument(
-                        true,
-                        Vec::new(),
-                        None,
-                        "password".to_string(),
-                        Parser::String(VarInt(0)),
-                        false,
-                    ),
+                    CommandNode::Root {
+                        children: vec![VarInt(1)],
+                    },
+                    CommandNode::Literal {
+                        executable: false,
+                        children: vec![VarInt(2)],
+                        redirect: None,
+                        name: "login".to_string(),
+                    },
+                    CommandNode::Argument {
+                        executable: true,
+                        children: Vec::new(),
+                        redirect: None,
+                        name: "password".to_string(),
+                        parser: Parser::String(StringParserType::SingleWord),
+                        suggestions: None,
+                    },
                 ]
             } else {
                 // and if the user is not registered yet
                 // only register the /register command
                 vec![
-                    CommandNode::Root(vec![VarInt(1)]),
-                    CommandNode::Literal(false, vec![VarInt(2)], None, "register".to_string()),
-                    CommandNode::Argument(
-                        false,
-                        vec![VarInt(3)],
-                        None,
-                        "password".to_string(),
-                        Parser::String(VarInt(0)),
-                        false,
-                    ),
-                    CommandNode::Argument(
-                        true,
-                        Vec::new(),
-                        None,
-                        "password".to_string(),
-                        Parser::String(VarInt(0)),
-                        false,
-                    ),
+                    CommandNode::Root {
+                        children: vec![VarInt(1)],
+                    },
+                    CommandNode::Literal {
+                        executable: false,
+                        children: vec![VarInt(2)],
+                        redirect: None,
+                        name: "register".to_string(),
+                    },
+                    CommandNode::Argument {
+                        executable: false,
+                        children: vec![VarInt(3)],
+                        redirect: None,
+                        name: "password".to_string(),
+                        parser: Parser::String(StringParserType::SingleWord),
+                        suggestions: None,
+                    },
                 ]
             },
             root: VarInt(0),
         })?;
 
-        stream.send(ClientBound::Title(TitleAction::Reset))?;
+        stream.send(PlayClientBound::Title(TitleAction::Reset))?;
 
-        stream.send(ClientBound::Title(TitleAction::SetTitle(chat_parse(
+        stream.send(PlayClientBound::Title(TitleAction::SetTitle(chat_parse(
             "§bWelcome to §d§lBWS§r§b!",
         ))))?;
 
-        stream.send(ClientBound::Title(TitleAction::SetDisplayTime {
+        stream.send(PlayClientBound::Title(TitleAction::SetDisplayTime {
             fade_in: 15,
             display: 60,
             fade_out: 15,
         }))?;
 
-        stream.send(ClientBound::EntitySoundEffect {
+        stream.send(PlayClientBound::EntitySoundEffect {
             sound_id: VarInt(482),
-            category: VarInt(0),          // MASTER category
+            category: SoundCategory::Master,
             entity_id: VarInt(id as i32), // player
             volume: 1.0,
             pitch: 1.0,
@@ -408,13 +420,14 @@ impl LoginWorld {
                 // if this returns Err, that would mean that the player is already disconnected
                 // and the disconnected clients will be cleaned on the part where we try to read
                 // from them so we can just ignore this error.
-                let _ = player
-                    .1
-                    .lock()
-                    .await
-                    .send(ClientBound::Title(TitleAction::SetActionBar(
-                        subtitle.clone(),
-                    )));
+                let _ =
+                    player
+                        .1
+                        .lock()
+                        .await
+                        .send(PlayClientBound::Title(TitleAction::SetActionBar(
+                            subtitle.clone(),
+                        )));
             }
         }
     }

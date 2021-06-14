@@ -1,12 +1,12 @@
 use std::net::SocketAddr;
 
-use crate::packets::{ClientBound, ServerBound};
+use protocol::packets::{PlayClientBound, PlayServerBound};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
-pub type SHInputSender = UnboundedSender<ClientBound>;
-pub type SHInputReceiver = UnboundedReceiver<ClientBound>;
-pub type SHOutputSender = UnboundedSender<ServerBound>;
-pub type SHOutputReceiver = UnboundedReceiver<ServerBound>;
+pub type SHInputSender = UnboundedSender<PlayClientBound>;
+pub type SHInputReceiver = UnboundedReceiver<PlayClientBound>;
+pub type SHOutputSender = UnboundedSender<PlayServerBound>;
+pub type SHOutputReceiver = UnboundedReceiver<PlayServerBound>;
 pub type WSender = UnboundedSender<WBound>;
 pub type WReceiver = UnboundedReceiver<WBound>;
 

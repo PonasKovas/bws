@@ -1,11 +1,10 @@
-use crate::datatypes::*;
 use crate::internal_communication as ic;
-use crate::packets::ClientBound;
-use crate::packets::ServerBound;
 use anyhow::bail;
 use anyhow::{Context, Result};
 use futures::FutureExt;
 use log::debug;
+use protocol::datatypes::*;
+use protocol::packets::*;
 use slab::Slab;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -56,14 +55,14 @@ pub enum StreamError {
 }
 
 impl PlayerStream {
-    pub fn send(&mut self, packet: ClientBound) -> Result<(), StreamError> {
+    pub fn send(&mut self, packet: PlayClientBound) -> Result<(), StreamError> {
         self.sender
             .send(packet)
             .map_err(|_| StreamError::StreamError)
     }
     /// Returns Err if the player has disconnected
     /// And None, if the player is connected, but no packets in queue
-    pub fn try_recv(&mut self) -> Result<Option<ServerBound>, StreamError> {
+    pub fn try_recv(&mut self) -> Result<Option<PlayServerBound>, StreamError> {
         // Tries executing the recv() exactly once. If there's a message in the queue it will return it
         // If not, it will also immediatelly return with a None
         let message = match unconstrained(self.receiver.recv()).now_or_never() {
