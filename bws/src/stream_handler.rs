@@ -344,6 +344,7 @@ async fn read_and_parse_packet(
             *last_keepalive_received = Instant::now();
         }
         ServerBound::Play(other) => {
+            debug!("received {:?}", &other);
             shoutput_sender.send(other).context(
                 "The PlayerStream was dropped even before the actual stream handler task finished.",
             )?;

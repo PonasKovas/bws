@@ -5,7 +5,7 @@ use super::{deserializable, serializable};
 use super::{Deserializable, Serializable};
 use bitflags::bitflags;
 use shrinkwraprs::Shrinkwrap;
-use std::io::{Read, Result, Write};
+use std::io::Cursor;
 
 #[derive(Debug, Clone)]
 pub struct VarInt(pub i32);
@@ -25,6 +25,27 @@ pub struct ArrWithLen<T, const N: usize>(pub [T; N]);
 #[derive(Shrinkwrap, Debug, Clone)]
 #[shrinkwrap(mutable)]
 pub struct Nbt(pub nbt::Blob);
+
+/// Maybe static. Helps save resources when sending the same fixed data to many clients,
+/// because you don't have to clone the data for each one of them, you just serialize a static byte slice
+/// Note that the static variant contains ALREADY SERIALIZED bytes
+/// Use with caution, nothing's going to stop you from sending invalid datatypes.
+#[derive(Debug, Clone)]
+pub enum MaybeStatic<T> {
+    Static(&'static [u8]),
+    Owned(T),
+}
+
+impl<T: Deserializable> MaybeStatic<T> {
+    pub fn into_owned(self: MaybeStatic<T>) -> T {
+        match self {
+            MaybeStatic::Static(bytes) => {
+                T::from_reader(&mut Cursor::<Vec<u8>>::new(bytes.into())).unwrap()
+            }
+            MaybeStatic::Owned(item) => item,
+        }
+    }
+}
 
 #[deserializable]
 #[serializable]

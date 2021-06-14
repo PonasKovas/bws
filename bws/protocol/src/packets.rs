@@ -1,7 +1,7 @@
 use super::datatypes::*;
 use super::{deserializable, serializable, Deserializable, Serializable};
 use std::borrow::Cow;
-use std::io::{self, Cursor, Write};
+use std::io::{self, Write};
 
 /// Sent from the server to the client
 #[derive(Debug, Clone)]
@@ -176,7 +176,7 @@ pub enum PlayClientBound {
         gamemode: Gamemode,
         previous_gamemode: Gamemode,
         world_names: Vec<Cow<'static, str>>,
-        dimension_codec: Nbt,
+        dimension_codec: MaybeStatic<Nbt>,
         dimension: Nbt,
         world_name: Cow<'static, str>,
         hashed_seed: i64,

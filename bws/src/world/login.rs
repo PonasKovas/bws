@@ -14,6 +14,7 @@ use protocol::datatypes::*;
 use protocol::packets::*;
 use sha2::{Digest, Sha256};
 use slab::Slab;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::env::Vars;
 use std::io::BufRead;
@@ -158,7 +159,7 @@ impl LoginWorld {
                                 let _ = self.players[&id].1.lock().await.send(
                                     PlayClientBound::ChatMessage {
                                         message: chat_parse("§4§lIncorrect password!"),
-                                        position: ChatPosition::Chat,
+                                        position: ChatPosition::System,
                                         sender: 0,
                                     },
                                 );
@@ -176,7 +177,7 @@ impl LoginWorld {
                                             message: chat_parse(
                                                 "§cThe passwords do not match, try again.",
                                             ),
-                                            position: ChatPosition::Chat,
+                                            position: ChatPosition::System,
                                             sender: 0,
                                         },
                                     );
@@ -279,7 +280,7 @@ impl LoginWorld {
             gamemode: Gamemode::Spectator,
             previous_gamemode: Gamemode::Spectator,
             world_names: vec![],
-            dimension_codec: Nbt(nbt::Blob::new()), // todo
+            dimension_codec: MaybeStatic::Static(incl!("assets/nbt/dimension_codec.nbt")),
             dimension: Nbt(dimension),
             world_name: "authentication".into(),
             hashed_seed: 0,

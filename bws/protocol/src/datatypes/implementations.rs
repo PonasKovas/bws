@@ -53,7 +53,7 @@ impl Serializable for CommandNode {
     fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
         match self {
             CommandNode::Root { children } => {
-                let mut flags = 0;
+                let mut flags = 0u8; // todo bitflags
                 flags |= 0; // root type
                 flags.to_writer(&mut *output)?;
                 children.to_writer(&mut *output)?;
@@ -64,7 +64,7 @@ impl Serializable for CommandNode {
                 redirect,
                 name,
             } => {
-                let mut flags = 0;
+                let mut flags = 0u8;
                 flags |= 1; // literal type
                 if *executable {
                     flags |= 0x04;
@@ -87,7 +87,7 @@ impl Serializable for CommandNode {
                 parser,
                 suggestions,
             } => {
-                let mut flags = 0;
+                let mut flags = 0u8;
                 flags |= 2; // argument type
                 if *executable {
                     flags |= 0x04;
@@ -266,11 +266,11 @@ impl<T: Deserializable> Deserializable for Vec<T> {
     }
 }
 
-impl<'a, T: Serializable> Serializable for &'a [T] {
+impl<T: Serializable> Serializable for [T] {
     fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
         VarInt(self.len() as i32).to_writer(&mut *output)?;
 
-        for e in *self {
+        for e in self {
             e.to_writer(&mut *output)?;
         }
 
@@ -292,7 +292,7 @@ impl<T: Deserializable> Deserializable for Box<[T]> {
     fn from_reader<R: Read>(input: &mut R) -> Result<Self> {
         let bytes_per_element = std::mem::size_of::<T>();
 
-        let mut buf: Vec<u8> = Vec::with_capacity(bytes_per_element);
+        let mut buf: Vec<u8> = vec![0; bytes_per_element];
         let mut res = Vec::new();
 
         'outer: loop {
@@ -304,6 +304,7 @@ impl<T: Deserializable> Deserializable for Box<[T]> {
                             break 'outer;
                         }
                     }
+                    // this means we got an EOF or another error mid-reading an element
                     return Err(e);
                 }
             }
@@ -356,6 +357,25 @@ impl<T: Deserializable, const N: usize> Deserializable for ArrWithLen<T, N> {
         } else {
             Ok(Self(<[T; N]>::from_reader(&mut *input)?))
         }
+    }
+}
+
+impl<T: Serializable> Serializable for MaybeStatic<T> {
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
+        match self {
+            MaybeStatic::Static(bytes) => {
+                output.write_all(bytes)?;
+            }
+            MaybeStatic::Owned(item) => {
+                item.to_writer(output)?;
+            }
+        }
+        Ok(())
+    }
+}
+impl<T: Deserializable> Deserializable for MaybeStatic<T> {
+    fn from_reader<R: Read>(input: &mut R) -> Result<Self> {
+        Ok(MaybeStatic::Owned(T::from_reader(input)?))
     }
 }
 
