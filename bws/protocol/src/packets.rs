@@ -1,5 +1,6 @@
 use super::datatypes::*;
 use super::{deserializable, serializable, Deserializable, Serializable};
+use std::borrow::Cow;
 use std::io::{self, Cursor, Write};
 
 /// Sent from the server to the client
@@ -25,7 +26,7 @@ pub enum ServerBound {
 pub enum HandshakeServerBound {
     Handshake {
         protocol: VarInt,
-        server_address: String,
+        server_address: Cow<'static, str>,
         server_port: u16,
         next_state: NextState,
     },
@@ -54,20 +55,20 @@ pub enum LoginClientBound {
     Disconnect(Chat),
     EncryptionRequest {
         // Up to 20 characters
-        server_id: String,
+        server_id: Cow<'static, str>,
         public_key: Vec<u8>,
         verify_token: Vec<u8>,
     },
     LoginSuccess {
         uuid: u128,
-        username: String,
+        username: Cow<'static, str>,
     },
     SetCompression {
         treshold: VarInt,
     },
     PluginRequest {
         message_id: VarInt,
-        channel: String,
+        channel: Cow<'static, str>,
         // the client figures out the length based on the packet size
         data: Box<[u8]>,
     },
@@ -78,7 +79,7 @@ pub enum LoginClientBound {
 #[derive(Debug, Clone)]
 pub enum LoginServerBound {
     LoginStart {
-        username: String,
+        username: Cow<'static, str>,
     },
     EncryptionResponse {
         shared_secret: Vec<u8>,
@@ -143,7 +144,7 @@ pub enum PlayClientBound {
     SetSlot,            // todo
     SetCooldown,        // todo
     PluginMessage {
-        channel: String,
+        channel: Cow<'static, str>,
         data: Box<[u8]>,
     },
     NamedSoundEffect, // todo
@@ -174,10 +175,10 @@ pub enum PlayClientBound {
         hardcore: bool,
         gamemode: Gamemode,
         previous_gamemode: Gamemode,
-        world_names: Vec<String>,
+        world_names: Vec<Cow<'static, str>>,
         dimension_codec: Nbt,
         dimension: Nbt,
-        world_name: String,
+        world_name: Cow<'static, str>,
         hashed_seed: i64,
         // doesn't do anything
         max_players: VarInt,
@@ -224,7 +225,7 @@ pub enum PlayClientBound {
     ResourcePackSend,   // todo
     Respawn {
         dimension: Nbt,
-        world_name: String,
+        world_name: Cow<'static, str>,
         hashed_seed: i64,
         gamemode: Gamemode,
         previous_gamemode: Gamemode,
@@ -302,10 +303,10 @@ pub enum PlayServerBound {
     },
     QueryBlockNbt, // todo
     SetDifficulty(Difficulty),
-    ChatMessage(String),
+    ChatMessage(Cow<'static, str>),
     ClientStatus(ClientStatusAction),
     ClientSettings {
-        locale: String,
+        locale: Cow<'static, str>,
         view_distance: i8,
         chat_mode: ChatMode,
         chat_colors: bool,
@@ -314,7 +315,7 @@ pub enum PlayServerBound {
     },
     TabComplete {
         transaction_id: VarInt,
-        text: String,
+        text: Cow<'static, str>,
     },
     WindowConfirmation {
         window_id: i8,
@@ -330,9 +331,68 @@ pub enum PlayServerBound {
         window_id: i8,
     },
     PluginMessage {
-        channel: String,
+        channel: Cow<'static, str>,
         data: Box<[u8]>,
     },
+    EditBook,          // todo
+    QueryEntityNbt,    // todo
+    InteractEntity,    // todo
+    GenerateStructure, // todo
+    KeepAlive(i64),
+    LockDifficulty, // todo
+    PlayerPosition {
+        x: f64,
+        feet_y: f64,
+        z: f64,
+        on_ground: bool,
+    },
+    PlayerPositionAndRotation {
+        x: f64,
+        feet_y: f64,
+        z: f64,
+        yaw: f32,
+        pitch: f32,
+        on_ground: bool,
+    },
+    PlayerRotation {
+        yaw: f32,
+        pitch: f32,
+        on_ground: bool,
+    },
+    PlayerMovement {
+        on_ground: bool,
+    },
+    VehicleMovement,    // todo
+    SteerBoat,          // todo
+    PickItem,           // todo
+    CraftRecipeRequest, // todo
+    PlayerAbilites {
+        flags: PlayerAbilities, // but the client changes only FLYING
+    },
+    PlayerDigging, // todo
+    EntityAction,  // todo
+    SteerVehicle,  // todo
+    Pong {
+        id: i32,
+    },
+    SetRecipeBookStatus,        // todo
+    SetDisplayedRecipe,         // todo
+    NameItem,                   // todo
+    ResourcePackStatus,         // todo
+    AdvancementTab,             // todo
+    SelectTrade,                // todo
+    SetBeaconEffect,            // todo
+    HeldItemChange,             // todo
+    UpdateCommandBlock,         // todo
+    UpdateCommandBlockMinecart, // todo
+    CreativeInventoryAction,    // todo
+    UpdateJigsawBlock,          // todo
+    UpdateStructureBlock,       // todo
+    UpdateSign,                 // todo
+    Animation,                  // todo
+    Spectate,                   // todo
+    PlayerBlockPlacement,       // todo
+    UseItem,                    // todo
 }
 
 impl StatusClientBound {

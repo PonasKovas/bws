@@ -5,25 +5,21 @@
 
 #[macro_use]
 mod incl_macro;
-mod chat_parse;
 mod clone_all;
-#[allow(dead_code)]
-mod datatypes;
 mod global_state;
 mod internal_communication;
-#[allow(dead_code)]
-mod packets;
 mod stream_handler;
 mod world;
 
 use anyhow::{Context, Result};
-pub use chat_parse::parse as chat_parse;
 use futures::select;
 use futures::FutureExt;
 use global_state::GlobalState;
 use lazy_static::lazy_static;
 use log::{debug, error, info, warn};
-use packets::ClientBound;
+use protocol::datatypes::chat_parse::parse as chat_parse;
+use protocol::datatypes::StatusPlayerSampleEntry;
+use protocol::packets::PlayClientBound;
 use serde_json::json;
 use slab::Slab;
 use std::path::PathBuf;
@@ -34,11 +30,6 @@ use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
-
-use crate::datatypes::StatusPlayerSampleEntry;
-use crate::datatypes::StatusPlayers;
-use crate::datatypes::StatusResponse;
-use crate::datatypes::StatusVersion;
 
 const SUPPORTED_PROTOCOL_VERSIONS: &[i32] = &[753, 754]; // 1.16.3+
 const VERSION_NAME: &str = "1.16 BWS";
@@ -92,7 +83,7 @@ lazy_static! {
             });
         }
         GlobalState {
-            description: Mutex::new(chat_parse::parse(opt.description)),
+            description: Mutex::new(chat_parse(opt.description)),
             favicon: Mutex::new(format!(
                 "data:image/png;base64,{}",
                 base64::encode(favicon)
@@ -107,7 +98,7 @@ lazy_static! {
                     std::process::exit(1);
                 },
             },
-            w_lobby: world::lobby::start(),
+            w_lobby: tokio::sync::mpsc::unbounded_channel().0,//world::lobby::start(),
             compression_treshold: opt.compression_treshold,
             port: opt.port,
         }
@@ -161,7 +152,7 @@ async fn shutdown(sh_handles: &std::sync::Mutex<Vec<JoinHandle<()>>>) -> ! {
     let message = chat_parse("§4§lThe server has shutdown.");
     for player in &*GLOBAL_STATE.players.read().await {
         let mut stream = (player.1).stream.lock().await;
-        let _ = stream.send(ClientBound::PlayDisconnect(message.clone()));
+        let _ = stream.send(PlayClientBound::Disconnect(message.clone()));
         stream.disconnect();
     }
 
