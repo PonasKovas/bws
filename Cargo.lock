@@ -80,10 +80,10 @@ dependencies = [
  "env_logger",
  "flate2",
  "futures 0.3.8",
- "hematite-nbt",
  "lazy_static",
  "log",
  "protocol",
+ "quartz_nbt",
  "serde",
  "serde_json",
  "sha2",
@@ -330,18 +330,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hematite-nbt"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b488b074f8567cb2c968c9f834817e9f55195e25d680d71047c20c2ebadf6670"
-dependencies = [
- "byteorder",
- "cesu8",
- "flate2",
- "serde",
-]
-
-[[package]]
 name = "hermit-abi"
 version = "0.1.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -576,8 +564,8 @@ name = "protocol"
 version = "0.1.0"
 dependencies = [
  "bitflags",
- "hematite-nbt",
  "protocol-derive",
+ "quartz_nbt",
  "serde",
  "serde_json",
  "shrinkwraprs",
@@ -589,6 +577,17 @@ version = "0.1.0"
 dependencies = [
  "quote",
  "syn",
+]
+
+[[package]]
+name = "quartz_nbt"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d9e12be4534d04f84f09abf2c69f29449e1fe78d9045b7f83adeace7e97217d"
+dependencies = [
+ "byteorder",
+ "cesu8",
+ "flate2",
 ]
 
 [[package]]

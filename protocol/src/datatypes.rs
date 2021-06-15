@@ -25,7 +25,7 @@ pub struct ArrWithLen<T, const N: usize>(pub [T; N]);
 
 #[derive(Shrinkwrap, Debug, Clone)]
 #[shrinkwrap(mutable)]
-pub struct Nbt(pub nbt::Blob);
+pub struct Nbt(pub quartz_nbt::NbtCompound);
 
 /// Maybe static. Helps save resources when sending the same fixed data to many clients,
 /// because you don't have to clone the data for each one of them, you just serialize a static byte slice

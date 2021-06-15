@@ -36,45 +36,111 @@ use tokio::time::Instant;
 const ACCOUNTS_FILE: &str = "accounts.bwsdata";
 
 lazy_static! {
+    static ref DIMENSION_CODEC: &'static [u8] = {
+        let mut data = Vec::new();
+        let nbt = quartz_nbt::NbtCompound::from_snbt(&match std::fs::read_to_string(
+            "assets/dimension_codec.snbt",
+        ) {
+            Ok(s) => s,
+            Err(e) => {
+                error!("Error reading `assets/dimension_codec.snbt`: {}", e);
+                std::process::exit(1);
+            }
+        })
+        .unwrap();
+        quartz_nbt::write::write_nbt_uncompressed(&mut data, "", &nbt).unwrap();
+        data.leak()
+    };
     static ref TAGS: [&'static [u8]; 4] = {
-        use protocol::{Deserializable, Serializable};
+        use protocol::{datatypes::VarInt, Serializable};
 
-        let mut all_tags =
-            std::io::Cursor::new([&[0x5Bu8][..], &incl!("assets/raw/tags.bin")[..]].concat());
-
-        let tags = PlayClientBound::from_reader(&mut all_tags).unwrap();
-        if let PlayClientBound::Tags {
-            blocks,
-            items,
-            fluids,
-            entities,
-        } = tags
-        {
-            [
-                {
-                    let mut data = Vec::new();
-                    blocks.to_writer(&mut data).unwrap();
-                    data.leak()
-                },
-                {
-                    let mut data = Vec::new();
-                    items.to_writer(&mut data).unwrap();
-                    data.leak()
-                },
-                {
-                    let mut data = Vec::new();
-                    fluids.to_writer(&mut data).unwrap();
-                    data.leak()
-                },
-                {
-                    let mut data = Vec::new();
-                    entities.to_writer(&mut data).unwrap();
-                    data.leak()
-                },
-            ]
-        } else {
-            panic!("the raw tags packet incorrectly parsed as {:?}", tags);
+        #[allow(non_snake_case)]
+        #[derive(serde::Deserialize)]
+        struct AllTags {
+            blockTags: Vec<Tags>,
+            itemTags: Vec<Tags>,
+            fluidTags: Vec<Tags>,
+            entityTags: Vec<Tags>,
         }
+        #[allow(non_snake_case)]
+        #[derive(serde::Deserialize)]
+        struct Tags {
+            tagName: String,
+            entries: Vec<i32>,
+        }
+
+        let tags: AllTags =
+            serde_json::from_str(&match std::fs::read_to_string("assets/tags.json") {
+                Ok(s) => s,
+                Err(e) => {
+                    error!("Error reading `assets/tags.json`: {}", e);
+                    std::process::exit(1);
+                }
+            })
+            .unwrap();
+
+        [
+            {
+                let mut data = Vec::new();
+                let tags: Vec<(String, Vec<VarInt>)> = tags
+                    .blockTags
+                    .into_iter()
+                    .map(|t| {
+                        (
+                            t.tagName,
+                            t.entries.into_iter().map(|entry| VarInt(entry)).collect(),
+                        )
+                    })
+                    .collect();
+                tags.to_writer(&mut data).unwrap();
+                data.leak()
+            },
+            {
+                let mut data = Vec::new();
+                let tags: Vec<(String, Vec<VarInt>)> = tags
+                    .itemTags
+                    .into_iter()
+                    .map(|t| {
+                        (
+                            t.tagName,
+                            t.entries.into_iter().map(|entry| VarInt(entry)).collect(),
+                        )
+                    })
+                    .collect();
+                tags.to_writer(&mut data).unwrap();
+                data.leak()
+            },
+            {
+                let mut data = Vec::new();
+                let tags: Vec<(String, Vec<VarInt>)> = tags
+                    .fluidTags
+                    .into_iter()
+                    .map(|t| {
+                        (
+                            t.tagName,
+                            t.entries.into_iter().map(|entry| VarInt(entry)).collect(),
+                        )
+                    })
+                    .collect();
+                tags.to_writer(&mut data).unwrap();
+                data.leak()
+            },
+            {
+                let mut data = Vec::new();
+                let tags: Vec<(String, Vec<VarInt>)> = tags
+                    .entityTags
+                    .into_iter()
+                    .map(|t| {
+                        (
+                            t.tagName,
+                            t.entries.into_iter().map(|entry| VarInt(entry)).collect(),
+                        )
+                    })
+                    .collect();
+                tags.to_writer(&mut data).unwrap();
+                data.leak()
+            },
+        ]
     };
 }
 
@@ -295,28 +361,21 @@ impl LoginWorld {
         // lock the stream
         let mut stream = self.players[&id].1.lock().await;
 
-        let mut dimension = nbt::Blob::new();
-
-        // rustfmt makes this block reaaally fat and ugly and disgusting oh my god
-        #[rustfmt::skip]
-        {
-            use nbt::Value::{Byte, Float, Int, Long, String as NbtString};
-
-            dimension.insert("piglin_safe".to_string(), Byte(0)).unwrap();
-            dimension.insert("natural".to_string(), Byte(1)).unwrap();
-            dimension.insert("ambient_light".to_string(), Float(1.0)).unwrap();
-            dimension.insert("fixed_time".to_string(), Long(18000)).unwrap();
-            dimension.insert("infiniburn".to_string(), NbtString("".to_string())).unwrap();
-            dimension.insert("respawn_anchor_works".to_string(), Byte(1)).unwrap();
-            dimension.insert("has_skylight".to_string(), Byte(1)).unwrap();
-            dimension.insert("bed_works".to_string(), Byte(0)).unwrap();
-            dimension.insert("effects".to_string(), NbtString("minecraft:overworld".to_string())).unwrap();
-            dimension.insert("has_raids".to_string(), Byte(0)).unwrap();
-            dimension.insert("logical_height".to_string(), Int(256)).unwrap();
-            dimension.insert("coordinate_scale".to_string(), Float(1.0)).unwrap();
-            dimension.insert("ultrawarm".to_string(), Byte(0)).unwrap();
-            dimension.insert("has_ceiling".to_string(), Byte(0)).unwrap();
-        };
+        let mut dimension = quartz_nbt::NbtCompound::new();
+        dimension.insert("piglin_safe", false);
+        dimension.insert("natural", true);
+        dimension.insert("ambient_light", 1.0f32);
+        dimension.insert("fixed_time", 18000i64);
+        dimension.insert("infiniburn", "");
+        dimension.insert("respawn_anchor_works", true);
+        dimension.insert("has_skylight", true);
+        dimension.insert("bed_works", false);
+        dimension.insert("effects", "minecraft:overworld");
+        dimension.insert("has_raids", false);
+        dimension.insert("logical_height", 256i32);
+        dimension.insert("coordinate_scale", 1.0f32);
+        dimension.insert("ultrawarm", false);
+        dimension.insert("has_ceiling", false);
 
         let packet = PlayClientBound::JoinGame {
             eid: id as i32,
@@ -324,7 +383,7 @@ impl LoginWorld {
             gamemode: Gamemode::Spectator,
             previous_gamemode: Gamemode::Spectator,
             world_names: vec![],
-            dimension_codec: MaybeStatic::Static(incl!("assets/nbt/dimension_codec.nbt")),
+            dimension_codec: MaybeStatic::Static(&DIMENSION_CODEC),
             dimension: Nbt(dimension),
             world_name: "authentication".into(),
             hashed_seed: 0,
@@ -485,6 +544,7 @@ impl LoginWorld {
 
 pub fn start() -> Result<WSender> {
     lazy_static::initialize(&TAGS);
+    lazy_static::initialize(&DIMENSION_CODEC);
 
     let (w_sender, w_receiver) = unbounded_channel::<WBound>();
 

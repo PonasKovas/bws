@@ -13,7 +13,7 @@ serde = { version = "1.0", features = ["derive"] }
 base64 = "0.13"
 futures = "0.3"
 slab = "0.4.2"
-hematite-nbt = "0.5.1"
+quartz_nbt = "0.1.2"
 flate2 = { version = "1.0", features = ["tokio"] }
 sha2 = "0.9"
 lazy_static = "1.4"

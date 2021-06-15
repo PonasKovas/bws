@@ -163,14 +163,14 @@ impl Deserializable for Chat {
 
 impl Serializable for Nbt {
     fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
-        nbt::to_writer(output, &self.0, None)?;
+        quartz_nbt::write::write_nbt_uncompressed(output, "", &self.0)?;
 
         Ok(())
     }
 }
 impl Deserializable for Nbt {
     fn from_reader<R: Read>(input: &mut R) -> Result<Self> {
-        Ok(Self(nbt::from_reader(input)?))
+        Ok(Self(quartz_nbt::read::read_nbt_uncompressed(input)?.0))
     }
 }
 
@@ -580,5 +580,18 @@ impl Deserializable for bool {
         input.read_exact(&mut bytes)?;
 
         Ok(bytes[0] != 0)
+    }
+}
+
+impl<T1: Serializable, T2: Serializable> Serializable for (T1, T2) {
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
+        self.0.to_writer(&mut *output)?;
+        self.1.to_writer(&mut *output)?;
+        Ok(())
+    }
+}
+impl<T1: Deserializable, T2: Deserializable> Deserializable for (T1, T2) {
+    fn from_reader<R: Read>(input: &mut R) -> Result<Self> {
+        Ok((T1::from_reader(&mut *input)?, T2::from_reader(&mut *input)?))
     }
 }
