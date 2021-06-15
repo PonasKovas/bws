@@ -15,6 +15,7 @@ use protocol::datatypes::chat_parse::parse as chat_parse;
 use protocol::datatypes::*;
 use protocol::packets::*;
 use protocol::{Deserializable, Serializable};
+use serde::Deserialize;
 use serde_json::to_string_pretty;
 use serde_json::{json, to_string};
 use std::io::Cursor;
@@ -50,6 +51,28 @@ impl From<State> for i32 {
             State::Play(_) => 3,
         }
     }
+}
+
+#[derive(Deserialize)]
+struct UsernameToUuidResponse {
+    #[allow(dead_code)]
+    name: String,
+    id: String,
+}
+
+#[derive(Deserialize)]
+struct UuidToProfileAndSkinCapeResponse {
+    #[allow(dead_code)]
+    id: String,
+    #[allow(dead_code)]
+    name: String,
+    properties: Vec<Property>,
+}
+
+#[derive(Deserialize)]
+struct Property {
+    name: String,
+    value: String,
 }
 
 async fn read_varint(input: &mut BufReader<TcpStream>) -> std::io::Result<VarInt> {
@@ -305,6 +328,55 @@ async fn read_and_parse_packet(
                 return Ok(());
             }
 
+            // get the uuid
+            let res = reqwest::get(format!(
+                "https://api.mojang.com/users/profiles/minecraft/{}",
+                username
+            ))
+            .await?;
+            if res.status().is_client_error() {
+                error!(
+                    "Received {} from api.mojang.com when trying to get the UUID of '{}'",
+                    res.status(),
+                    username
+                );
+            }
+            let uuid = if res.status().as_u16() == 200 {
+                let response: UsernameToUuidResponse = res.json().await?;
+                Some(u128::from_str_radix(&response.id, 16)?)
+            } else {
+                None
+            };
+
+            let mut properties = Vec::new();
+
+            if let Some(uuid) = uuid {
+                // also query skin/cape data
+                let res = reqwest::get(format!(
+                    "https://sessionserver.mojang.com/session/minecraft/profile/{:x}",
+                    uuid
+                ))
+                .await?;
+                if res.status().is_client_error() {
+                    error!(
+                        "Received {} from sessionserver.mojang.com when trying to get skin/cape data of '{}' (`{:x}`)",
+                        res.status(),
+                        username, uuid
+                    );
+                }
+
+                let response: UuidToProfileAndSkinCapeResponse = res.json().await?;
+
+                for property in response.properties {
+                    properties.push(PlayerInfoAddPlayerProperty {
+                        name: property.name.into(),
+                        value: property.value.into(),
+                        signature: None,
+                    });
+                }
+            }
+            info!("Player properties: {:?}", properties);
+
             // set compression if non-negative
             if GLOBAL_STATE.compression_treshold >= 0 {
                 let packet = LoginClientBound::SetCompression {
@@ -315,7 +387,7 @@ async fn read_and_parse_packet(
 
             // everything's alright, come in
             let packet = LoginClientBound::LoginSuccess {
-                uuid: 0,
+                uuid: uuid.unwrap_or(0),
                 username: username.clone(),
             };
             write_packet(socket, buffer, packet.cb()).await?;
@@ -329,6 +401,8 @@ async fn read_and_parse_packet(
                 stream: Arc::new(Mutex::new(player_stream.take().unwrap())),
                 username: username.into_owned(),
                 address: address.clone(),
+                uuid,
+                properties,
                 view_distance: None,
             });
             *state = State::Play(global_id);

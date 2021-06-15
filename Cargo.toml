@@ -24,5 +24,6 @@ thiserror = "1.0"
 shrinkwraprs = "0.3.0"
 bitflags = "1.2"
 protocol = { path = "protocol" }
+reqwest = { version = "0.11", features = ["json"] }
 
 [workspace]
