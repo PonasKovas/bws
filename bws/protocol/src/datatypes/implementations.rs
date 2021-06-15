@@ -1,6 +1,7 @@
 use super::*;
 use super::{Deserializable, Serializable};
 use std::borrow::Cow;
+use std::cmp::max;
 use std::io::{self, Cursor, ErrorKind, Read, Result, Write};
 
 impl Serializable for ChunkSections {
@@ -29,9 +30,9 @@ impl Serializable for ChunkSections {
             section.block_count.to_writer(&mut *output)?;
             match &section.palette {
                 Palette::Indirect(mappings) => {
-                    let bits_per_block = std::cmp::max(
+                    let bits_per_block = max(
                         4,
-                        32u8 - std::cmp::max(mappings.len() as u32 - 1, 1).leading_zeros() as u8,
+                        32u8 - max(mappings.len() as u32 - 1, 1).leading_zeros() as u8,
                     );
                     bits_per_block.to_writer(&mut *output)?;
                     mappings.to_writer(&mut *output)?;
@@ -218,6 +219,39 @@ impl Deserializable for VarInt {
         }
 
         Ok(Self(result))
+    }
+}
+
+impl Serializable for Position {
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
+        let encoded: u64 = ((self.x as u64 & 0x3FFFFFF) << 38)
+            | ((self.z as u64 & 0x3FFFFFF) << 12)
+            | (self.y as u64 & 0xFFF);
+
+        encoded.to_writer(output)
+    }
+}
+impl Deserializable for Position {
+    fn from_reader<R: Read>(input: &mut R) -> Result<Self>
+    where
+        Self: Sized,
+    {
+        let encoded = u64::from_reader(input)?;
+
+        let mut x = (encoded >> 38) as i32;
+        let mut y = (encoded & 0xFFF) as i32;
+        let mut z = (encoded << 26 >> 38) as i32;
+        if x >= 2i32.pow(25) {
+            x -= 2i32.pow(26);
+        }
+        if y >= 2i32.pow(11) {
+            y -= 2i32.pow(12);
+        }
+        if z >= 2i32.pow(25) {
+            z -= 2i32.pow(26);
+        }
+
+        Ok(Self { x, y, z })
     }
 }
 

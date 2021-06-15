@@ -437,6 +437,14 @@ impl LoginWorld {
                         parser: Parser::String(StringParserType::SingleWord),
                         suggestions: None,
                     },
+                    CommandNode::Argument {
+                        executable: true,
+                        children: vec![],
+                        redirect: None,
+                        name: "password".into(),
+                        parser: Parser::String(StringParserType::SingleWord),
+                        suggestions: None,
+                    },
                 ]
             },
             root: VarInt(0),

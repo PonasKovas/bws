@@ -38,7 +38,7 @@ pub struct Player {
     pub stream: PStream,
     pub username: String,
     pub address: SocketAddr,
-    pub uuid: Option<u128>,
+    pub uuid: u128,
     pub properties: Vec<PlayerInfoAddPlayerProperty>,
     pub view_distance: Option<i8>,
 }
@@ -85,8 +85,5 @@ impl PlayerStream {
                 debug!("trying to disconnect already disconnect player.");
             }
         }
-    }
-    pub fn is_connected(&self) -> bool {
-        self.disconnect.is_some()
     }
 }
