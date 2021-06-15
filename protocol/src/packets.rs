@@ -111,10 +111,18 @@ pub enum PlayClientBound {
         velocity_y: i16,
         velocity_z: i16,
     },
-    SpawnExperienceOrb,       // todo
-    SpawnLivingEntity,        // todo
-    SpawnPainting,            // todo
-    SpawnPlayer,              // todo
+    SpawnExperienceOrb, // todo
+    SpawnLivingEntity,  // todo
+    SpawnPainting,      // todo
+    SpawnPlayer {
+        entity_id: VarInt,
+        uuid: u128,
+        x: f64,
+        y: f64,
+        z: f64,
+        yaw: Angle,
+        pitch: Angle,
+    },
     EntityAnimation,          // todo
     Statistics,               // todo
     AcknowledgePlayerDigging, // todo
@@ -202,8 +210,8 @@ pub enum PlayClientBound {
         field_of_view: f32,
     },
     CombatEvent, // todo
-    PlayerInfo,  // todo
-    FacePlayer,  // todo
+    PlayerInfo(PlayerInfo),
+    FacePlayer, // todo
     PlayerPositionAndLook {
         x: f64,
         y: f64,
@@ -270,16 +278,19 @@ pub enum PlayClientBound {
         volume: f32,
         pitch: f32,
     },
-    SoundEffect,               // todo
-    StopSound,                 // todo
-    PlayerListHeaderAndFooter, // todo
-    NbtQueryResponse,          // todo
-    CollectItem,               // todo
-    EntityTeleport,            // todo
-    Advancements,              // todo
-    EntityProperties,          // todo
-    EntityEffect,              // todo
-    DeclareRecipes,            // todo
+    SoundEffect, // todo
+    StopSound,   // todo
+    PlayerListHeaderAndFooter {
+        header: Chat,
+        footer: Chat,
+    },
+    NbtQueryResponse, // todo
+    CollectItem,      // todo
+    EntityTeleport,   // todo
+    Advancements,     // todo
+    EntityProperties, // todo
+    EntityEffect,     // todo
+    DeclareRecipes,   // todo
     Tags {
         blocks: MaybeStatic<Vec<Tags>>,
         items: MaybeStatic<Vec<Tags>>,
