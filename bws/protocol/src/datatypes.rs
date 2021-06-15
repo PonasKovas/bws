@@ -27,6 +27,17 @@ pub struct ArrWithLen<T, const N: usize>(pub [T; N]);
 #[shrinkwrap(mutable)]
 pub struct Nbt(pub quartz_nbt::NbtCompound);
 
+#[deserializable]
+#[serializable]
+#[derive(Debug, Clone)]
+pub struct Angle(pub u8);
+
+impl Angle {
+    pub fn from_degrees(degrees: f32) -> Self {
+        Self((degrees / 256.0).rem_euclid(1.0) as u8)
+    }
+}
+
 /// Maybe static. Helps save resources when sending the same fixed data to many clients,
 /// because you don't have to clone the data for each one of them, you just serialize a static byte slice
 /// Note that the static variant contains ALREADY SERIALIZED bytes
@@ -46,6 +57,59 @@ impl<T: Deserializable> MaybeStatic<T> {
             MaybeStatic::Owned(item) => item,
         }
     }
+}
+
+#[deserializable]
+#[serializable]
+#[derive(Debug, Clone)]
+pub enum PlayerInfo {
+    AddPlayer(Vec<(u128, PlayerInfoAddPlayer)>),
+    UpdateGamemode(Vec<(u128, PlayerInfoUpdateGamemode)>),
+    UpdateLatency(Vec<(u128, PlayerInfoUpdateLatency)>),
+    UpdateDisplayName(Vec<(u128, PlayerInfoUpdateDisplayName)>),
+    RemovePlayer(Vec<u128>),
+}
+
+#[deserializable]
+#[serializable]
+#[derive(Debug, Clone)]
+pub struct PlayerInfoAddPlayer {
+    pub name: Cow<'static, str>,
+    pub properties: Vec<PlayerInfoAddPlayerProperty>,
+    pub gamemode: Gamemode,
+    pub ping: VarInt,
+    pub display_name: Option<Chat>,
+}
+
+#[deserializable]
+#[serializable]
+#[derive(Debug, Clone)]
+pub struct PlayerInfoAddPlayerProperty {
+    pub name: Cow<'static, str>,
+    pub value: Cow<'static, str>,
+    pub signature: Option<Cow<'static, str>>,
+}
+
+#[deserializable]
+#[serializable]
+#[derive(Debug, Clone)]
+pub struct PlayerInfoUpdateGamemode {
+    pub gamemode: Gamemode,
+}
+
+#[deserializable]
+#[serializable]
+#[derive(Debug, Clone)]
+pub struct PlayerInfoUpdateLatency {
+    /// In milliseconds
+    pub ping: VarInt,
+}
+
+#[deserializable]
+#[serializable]
+#[derive(Debug, Clone)]
+pub struct PlayerInfoUpdateDisplayName {
+    pub display_name: Option<Chat>,
 }
 
 #[deserializable]

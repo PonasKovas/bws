@@ -386,6 +386,27 @@ impl<T: Deserializable> Deserializable for MaybeStatic<T> {
     }
 }
 
+impl<T: Serializable> Serializable for Option<T> {
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
+        match self {
+            Some(val) => {
+                true.to_writer(output)?;
+                val.to_writer(output)
+            }
+            None => false.to_writer(output),
+        }
+    }
+}
+impl<T: Deserializable> Deserializable for Option<T> {
+    fn from_reader<R: Read>(input: &mut R) -> Result<Self> {
+        if bool::from_reader(input)? {
+            Ok(Some(T::from_reader(input)?))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
 // primitives:
 
 impl Serializable for f64 {
@@ -585,13 +606,13 @@ impl Deserializable for bool {
 
 impl<T1: Serializable, T2: Serializable> Serializable for (T1, T2) {
     fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
-        self.0.to_writer(&mut *output)?;
-        self.1.to_writer(&mut *output)?;
+        self.0.to_writer(output)?;
+        self.1.to_writer(output)?;
         Ok(())
     }
 }
 impl<T1: Deserializable, T2: Deserializable> Deserializable for (T1, T2) {
     fn from_reader<R: Read>(input: &mut R) -> Result<Self> {
-        Ok((T1::from_reader(&mut *input)?, T2::from_reader(&mut *input)?))
+        Ok((T1::from_reader(input)?, T2::from_reader(input)?))
     }
 }

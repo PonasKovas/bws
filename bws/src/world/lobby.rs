@@ -29,23 +29,52 @@ use tokio::sync::mpsc::unbounded_channel;
 use tokio::task::unconstrained;
 use tokio::time::sleep;
 
-const SERVER_VIEW_DISTANE: i8 = 8;
+// half length of a side of the map, in chunks
+const MAP_SIZE: i8 = 8; // 8 means 16x16 chunks
 
 struct Player {
     username: String,
     stream: PStream,
     position: (f64, f64, f64),
     rotation: (f32, f32),
+    loaded_chunks: Vec<(i8, i8)>, // i8s work because the worlds aren't going to be that big
+}
+
+#[derive(Debug, Clone)]
+struct WorldChunk {
+    biomes: Box<[i32; 1024]>, // damn you stack overflows!
+    sections: [Option<WorldChunkSection>; 16],
+}
+
+#[derive(Debug, Clone)]
+
+struct WorldChunkSection {
+    block_mappings: Vec<VarInt>,
+    blocks: Vec<i64>,
 }
 
 pub struct LobbyWorld {
     players: HashMap<usize, Player>,
+    chunks: [WorldChunk; 4 * MAP_SIZE as usize * MAP_SIZE as usize], // 16x16 chunks, resulting in 256x256 world
 }
 
 impl LobbyWorld {
     pub async fn new() -> Self {
         LobbyWorld {
             players: HashMap::new(),
+            chunks: [(); 4 * MAP_SIZE as usize * MAP_SIZE as usize].map(|_| WorldChunk {
+                biomes: Box::new([174; 1024]),
+                sections: [(); 16].map(|_| {
+                    Some(WorldChunkSection {
+                        block_mappings: vec![VarInt(0), VarInt(1)],
+                        blocks: {
+                            let mut data = vec![1];
+                            data.extend(vec![0; 255]);
+                            data
+                        },
+                    })
+                }),
+            }),
         }
     }
     pub async fn run(&mut self, mut w_receiver: WReceiver) {
@@ -101,6 +130,7 @@ impl LobbyWorld {
                             stream,
                             position: (0.0, 30.0, 0.0),
                             rotation: (0.0, 0.0),
+                            loaded_chunks: Vec::new(),
                         },
                     );
 
@@ -121,7 +151,7 @@ impl LobbyWorld {
             }
         }
     }
-    async fn new_player(&self, id: usize) -> Result<()> {
+    async fn new_player(&mut self, id: usize) -> Result<()> {
         // lock the stream
         let mut stream = self.players[&id].stream.lock().await;
 
@@ -161,6 +191,19 @@ impl LobbyWorld {
             id: VarInt(0),
         })?;
 
+        stream.send(PlayClientBound::WorldBorder(
+            WorldBorderAction::Initialize {
+                x: 0.0,
+                z: 0.0,
+                old_diameter: 0.0,
+                new_diameter: 256.0,
+                speed: VarInt(0),
+                portal_teleport_boundary: VarInt(128),
+                warning_blocks: VarInt(0),
+                warning_time: VarInt(0),
+            },
+        ))?;
+
         stream.send(PlayClientBound::PluginMessage {
             channel: "minecraft:brand".into(),
             data: "\x03BWS".to_owned().into_bytes().into_boxed_slice(),
@@ -186,12 +229,46 @@ impl LobbyWorld {
             fade_out: 15,
         }))?;
 
-        stream.send(PlayClientBound::UpdateViewPosition {
-            chunk_x: VarInt(0),
-            chunk_z: VarInt(0),
+        stream.send(PlayClientBound::PlayerListHeaderAndFooter {
+            header: chat_parse("§bBWS §alobby"),
+            footer: chat_parse(""),
         })?;
 
-        let client_view_distance = GLOBAL_STATE
+        stream.send(PlayClientBound::PlayerInfo(PlayerInfo::AddPlayer(vec![(
+            1,
+            PlayerInfoAddPlayer {
+                name: "kakalas".into(),
+                properties: Vec::new(),
+                gamemode: Gamemode::Survival,
+                ping: VarInt(0),
+                display_name: Some(chat_parse("")),
+            },
+        )])))?;
+
+        stream.send(PlayClientBound::SpawnPlayer {
+            entity_id: VarInt(1),
+            uuid: 1,
+            x: 20.0,
+            y: 20.0,
+            z: 20.0,
+            yaw: Angle::from_degrees(0.0),
+            pitch: Angle::from_degrees(0.0),
+        })?;
+
+        drop(stream);
+
+        self.send_chunks(id).await?;
+
+        Ok(())
+    }
+    async fn send_chunks(&mut self, id: usize) -> Result<()> {
+        // check which chunk the player currently is
+        let player_chunk = (
+            (self.players[&id].position.0.floor() / 16.0).floor() as i8,
+            (self.players[&id].position.2.floor() / 16.0).floor() as i8,
+        );
+
+        let client_view_distance: i8 = GLOBAL_STATE
             .players
             .read()
             .await
@@ -200,30 +277,93 @@ impl LobbyWorld {
             .view_distance
             .unwrap_or(8);
 
-        let c = min(SERVER_VIEW_DISTANE, client_view_distance);
+        // the limit is 16, nerds
+        let cvd = min(16, client_view_distance);
 
-        for z in -c..c {
-            for x in -c..c {
-                stream.send(PlayClientBound::ChunkData {
-                    chunk_x: x as i32,
-                    chunk_z: z as i32,
-                    chunk: Chunk::Full {
-                        primary_bitmask: VarInt(0b1),
-                        heightmaps: Nbt(quartz_nbt::NbtCompound::new()),
-                        biomes: ArrWithLen([VarInt(174); 1024]),
-                        sections: ChunkSections(vec![ChunkSection {
-                            block_count: 4096,
-                            palette: Palette::Direct,
-                            data: {
-                                let mut x = vec![0x200040008001; 1023];
-                                x.extend_from_slice(&vec![0x2C005800B0016; 1]);
-                                x
-                            },
-                        }]),
-                        block_entities: Vec::new(),
-                    },
-                })?;
+        let mut needed_chunks = Vec::with_capacity(2 * cvd as usize); // should be enough in most cases
+        for z in -cvd..cvd {
+            for x in -cvd..cvd {
+                // only if its not already sent
+                if !self.players[&id]
+                    .loaded_chunks
+                    .contains(&(player_chunk.0 + x, player_chunk.1 + z))
+                {
+                    // and only if not outside of map
+                    // (1 empty chunk outside of map must be sent for the client to render everything correctly)
+                    if (-(MAP_SIZE + 1)..(MAP_SIZE + 1)).contains(&(player_chunk.0 + x))
+                        && (-(MAP_SIZE + 1)..(MAP_SIZE + 1)).contains(&(player_chunk.1 + z))
+                    {
+                        needed_chunks.push((player_chunk.0 + x, player_chunk.1 + z));
+                    }
+                }
             }
+        }
+
+        // update the loaded_chunks
+        // retain only those that are in the view distance of the client
+        self.players
+            .get_mut(&id)
+            .unwrap()
+            .loaded_chunks
+            .retain(|(x, z)| {
+                (-client_view_distance..client_view_distance).contains(&(x - player_chunk.0))
+                    && (-client_view_distance..client_view_distance).contains(&(z - player_chunk.1))
+            });
+        // and then add those that we're gonna send in a second
+        self.players
+            .get_mut(&id)
+            .unwrap()
+            .loaded_chunks
+            .extend(&needed_chunks);
+
+        // and then finally send all the chunks that are needed
+        for chunk in needed_chunks {
+            let temp_chunk = if (-MAP_SIZE..MAP_SIZE).contains(&chunk.0)
+                && (-MAP_SIZE..MAP_SIZE).contains(&chunk.1)
+            {
+                let chunk_index = get_chunk_index(chunk.0, chunk.1);
+
+                let mut primary_bitmask = 0;
+                let mut chunk_sections = Vec::new();
+
+                for (i, section) in self.chunks[chunk_index].sections.iter().enumerate() {
+                    if let Some(section) = section {
+                        primary_bitmask |= 2i32.pow(i as u32);
+
+                        chunk_sections.push(ChunkSection {
+                            block_count: 1,
+                            palette: Palette::Indirect(section.block_mappings.clone()),
+                            data: section.blocks.clone(),
+                        });
+                    }
+                }
+
+                Chunk::Full {
+                    primary_bitmask: VarInt(primary_bitmask),
+                    heightmaps: Nbt(quartz_nbt::NbtCompound::new()),
+                    biomes: ArrWithLen(self.chunks[chunk_index].biomes.clone().map(|e| VarInt(e))),
+                    sections: ChunkSections(chunk_sections),
+                    block_entities: Vec::new(),
+                }
+            } else {
+                // just an empty chunk
+                Chunk::Full {
+                    primary_bitmask: VarInt(0b0),
+                    heightmaps: Nbt(quartz_nbt::NbtCompound::new()),
+                    biomes: ArrWithLen([VarInt(174); 1024]),
+                    sections: ChunkSections(vec![]),
+                    block_entities: Vec::new(),
+                }
+            };
+            self.players[&id]
+                .stream
+                .lock()
+                .await
+                .send(PlayClientBound::ChunkData {
+                    chunk_x: chunk.0 as i32,
+                    chunk_z: chunk.1 as i32,
+                    chunk: temp_chunk,
+                })?;
         }
 
         Ok(())
@@ -259,7 +399,7 @@ impl LobbyWorld {
                     .await
                     .send(PlayClientBound::ChatMessage {
                         message: chat_parse(format!(
-                            "§a§l{}: §r§f{}",
+                            "§a§l{}§r§7: §f{}",
                             self.players[&id].username, message
                         )),
                         position: ChatPosition::Chat,
@@ -336,61 +476,7 @@ impl LobbyWorld {
 
         if chunk_passed {
             // send new chunks
-
-            let client_view_distance = GLOBAL_STATE
-                .players
-                .read()
-                .await
-                .get(id)
-                .context("Player already disconnected")?
-                .view_distance
-                .unwrap_or(8);
-
-            let c = min(SERVER_VIEW_DISTANE, client_view_distance) as i32;
-
-            // todo yo this is ugly and not really efficient, but I gotta know more about chunks before implementing it properly
-            let mut needed_chunks = Vec::with_capacity(16 * 16);
-            for z in -c..c {
-                for x in -c..c {
-                    needed_chunks.push((new_chunks.0 as i32 + x, new_chunks.1 as i32 + z));
-                }
-            }
-            for z in -c..c {
-                for x in -c..c {
-                    for i in (0..needed_chunks.len()).rev() {
-                        if needed_chunks[i] == (old_chunks.0 as i32 + x, old_chunks.1 as i32 + z) {
-                            needed_chunks.remove(i);
-                        }
-                    }
-                }
-            }
-            for chunk in needed_chunks {
-                self.players
-                    .get_mut(&id)
-                    .unwrap()
-                    .stream
-                    .lock()
-                    .await
-                    .send(PlayClientBound::ChunkData {
-                        chunk_x: chunk.0,
-                        chunk_z: chunk.1,
-                        chunk: Chunk::Full {
-                            primary_bitmask: VarInt(0b1),
-                            heightmaps: Nbt(quartz_nbt::NbtCompound::new()),
-                            biomes: ArrWithLen([VarInt(174); 1024]),
-                            sections: ChunkSections(vec![ChunkSection {
-                                block_count: 4096,
-                                palette: Palette::Direct,
-                                data: {
-                                    let mut x = vec![0x200040008001; 1023];
-                                    x.extend_from_slice(&vec![0x2C005800B0016; 1]);
-                                    x
-                                },
-                            }]),
-                            block_entities: Vec::new(),
-                        },
-                    })?;
-            }
+            self.send_chunks(id).await?;
         }
         Ok(())
     }
@@ -399,6 +485,10 @@ impl LobbyWorld {
     }
     async fn set_player_on_ground(&mut self, _id: usize, _on_ground: bool) {}
     async fn tick(&mut self, _counter: u128) {}
+}
+
+fn get_chunk_index(x: i8, z: i8) -> usize {
+    (x + MAP_SIZE) as usize + 2 * MAP_SIZE as usize * (z + MAP_SIZE) as usize
 }
 
 pub fn start() -> WSender {

@@ -79,68 +79,32 @@ lazy_static! {
             })
             .unwrap();
 
-        [
-            {
-                let mut data = Vec::new();
-                let tags: Vec<(String, Vec<VarInt>)> = tags
-                    .blockTags
-                    .into_iter()
-                    .map(|t| {
-                        (
-                            t.tagName,
-                            t.entries.into_iter().map(|entry| VarInt(entry)).collect(),
-                        )
-                    })
-                    .collect();
-                tags.to_writer(&mut data).unwrap();
-                data.leak()
-            },
-            {
-                let mut data = Vec::new();
-                let tags: Vec<(String, Vec<VarInt>)> = tags
-                    .itemTags
-                    .into_iter()
-                    .map(|t| {
-                        (
-                            t.tagName,
-                            t.entries.into_iter().map(|entry| VarInt(entry)).collect(),
-                        )
-                    })
-                    .collect();
-                tags.to_writer(&mut data).unwrap();
-                data.leak()
-            },
-            {
-                let mut data = Vec::new();
-                let tags: Vec<(String, Vec<VarInt>)> = tags
-                    .fluidTags
-                    .into_iter()
-                    .map(|t| {
-                        (
-                            t.tagName,
-                            t.entries.into_iter().map(|entry| VarInt(entry)).collect(),
-                        )
-                    })
-                    .collect();
-                tags.to_writer(&mut data).unwrap();
-                data.leak()
-            },
-            {
-                let mut data = Vec::new();
-                let tags: Vec<(String, Vec<VarInt>)> = tags
-                    .entityTags
-                    .into_iter()
-                    .map(|t| {
-                        (
-                            t.tagName,
-                            t.entries.into_iter().map(|entry| VarInt(entry)).collect(),
-                        )
-                    })
-                    .collect();
-                tags.to_writer(&mut data).unwrap();
-                data.leak()
-            },
-        ]
+        let fields = [
+            tags.blockTags,
+            tags.itemTags,
+            tags.fluidTags,
+            tags.entityTags,
+        ];
+        let mut types = fields.iter();
+        [(); 4].map(move |_| {
+            let mut data = Vec::new();
+
+            let tags: Vec<(String, Vec<VarInt>)> = types
+                .next()
+                .unwrap()
+                .into_iter()
+                .map(move |t| {
+                    (
+                        t.tagName.clone(),
+                        t.entries.iter().map(|entry| VarInt(*entry)).collect(),
+                    )
+                })
+                .collect();
+
+            tags.to_writer(&mut data).unwrap();
+
+            data.leak() as &'static [u8]
+        })
     };
 }
 
@@ -388,7 +352,7 @@ impl LoginWorld {
             world_name: "authentication".into(),
             hashed_seed: 0,
             max_players: VarInt(20),
-            view_distance: VarInt(8),
+            view_distance: VarInt(64),
             reduced_debug_info: false,
             enable_respawn_screen: false,
             debug_mode: false,

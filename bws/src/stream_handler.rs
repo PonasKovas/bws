@@ -343,6 +343,24 @@ async fn read_and_parse_packet(
             // Reset the timeout timer
             *last_keepalive_received = Instant::now();
         }
+        ServerBound::Play(PlayServerBound::ClientSettings {
+            locale: _,
+            view_distance,
+            chat_mode: _,
+            chat_colors: _,
+            displayed_skin_parts: _,
+            main_hand: _,
+        }) => {
+            if let State::Play(id) = state {
+                GLOBAL_STATE
+                    .players
+                    .write()
+                    .await
+                    .get_mut(*id)
+                    .unwrap()
+                    .view_distance = Some(view_distance);
+            }
+        }
         ServerBound::Play(other) => {
             debug!("received {:?}", &other);
             shoutput_sender.send(other).context(
