@@ -356,20 +356,17 @@ pub enum PlayServerBound {
     PlayerMovement {
         on_ground: bool,
     },
-    VehicleMovement,    // todo
+    VehicleMove,        // todo
     SteerBoat,          // todo
     PickItem,           // todo
     CraftRecipeRequest, // todo
     PlayerAbilites {
         flags: PlayerAbilities, // but the client changes only FLYING
     },
-    PlayerDigging, // todo
-    EntityAction,  // todo
-    SteerVehicle,  // todo
-    Pong {
-        id: i32,
-    },
-    SetRecipeBookStatus,        // todo
+    PlayerDigging,              // todo
+    EntityAction,               // todo
+    SteerVehicle,               // todo
+    SetRecipeBookState,         // todo
     SetDisplayedRecipe,         // todo
     NameItem,                   // todo
     ResourcePackStatus,         // todo

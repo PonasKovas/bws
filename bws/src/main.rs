@@ -5,7 +5,6 @@
 
 #[macro_use]
 mod incl_macro;
-mod clone_all;
 mod global_state;
 mod internal_communication;
 mod stream_handler;
@@ -70,7 +69,9 @@ lazy_static! {
             Ok(f) => f,
             Err(e) => {
                 error!("Couldn't load the favicon ({:?})! {}", opt.favicon, e);
-                std::process::exit(1);
+                warn!("Falling back to the default embedded favicon!");
+
+                incl!("assets/favicon.png").to_vec()
             }
         };
 
@@ -109,7 +110,6 @@ async fn main() -> Result<()> {
         .parse_default_env()
         .init();
 
-    // return Ok(());
     lazy_static::initialize(&GLOBAL_STATE);
 
     let join_handles = Arc::new(std::sync::Mutex::new(Vec::new()));

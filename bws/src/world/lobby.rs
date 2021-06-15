@@ -125,27 +125,20 @@ impl LobbyWorld {
         // lock the stream
         let mut stream = self.players[&id].stream.lock().await;
 
-        let mut dimension = nbt::Blob::new();
-
-        // rustfmt makes this block reaaally fat and ugly and disgusting oh my god
-        #[rustfmt::skip]
-        {
-            use nbt::Value::{Byte, Float, Int, Long, String as NbtString};
-
-            dimension.insert("piglin_safe".to_string(), Byte(0)).unwrap();
-            dimension.insert("natural".to_string(), Byte(1)).unwrap();
-            dimension.insert("ambient_light".to_string(), Float(1.0)).unwrap();
-            dimension.insert("infiniburn".to_string(), NbtString("".to_string())).unwrap();
-            dimension.insert("respawn_anchor_works".to_string(), Byte(1)).unwrap();
-            dimension.insert("has_skylight".to_string(), Byte(1)).unwrap();
-            dimension.insert("bed_works".to_string(), Byte(0)).unwrap();
-            dimension.insert("effects".to_string(), NbtString("minecraft:overworld".to_string())).unwrap();
-            dimension.insert("has_raids".to_string(), Byte(0)).unwrap();
-            dimension.insert("logical_height".to_string(), Int(256)).unwrap();
-            dimension.insert("coordinate_scale".to_string(), Float(1.0)).unwrap();
-            dimension.insert("ultrawarm".to_string(), Byte(0)).unwrap();
-            dimension.insert("has_ceiling".to_string(), Byte(0)).unwrap();
-        };
+        let mut dimension = quartz_nbt::NbtCompound::new();
+        dimension.insert("piglin_safe", false);
+        dimension.insert("natural", true);
+        dimension.insert("ambient_light", 1.0f32);
+        dimension.insert("infiniburn", "");
+        dimension.insert("respawn_anchor_works", true);
+        dimension.insert("has_skylight", true);
+        dimension.insert("bed_works", false);
+        dimension.insert("effects", "minecraft:overworld");
+        dimension.insert("has_raids", false);
+        dimension.insert("logical_height", 256i32);
+        dimension.insert("coordinate_scale", 1.0f32);
+        dimension.insert("ultrawarm", false);
+        dimension.insert("has_ceiling", false);
 
         stream.send(PlayClientBound::Respawn {
             dimension: Nbt(dimension),
@@ -216,7 +209,7 @@ impl LobbyWorld {
                     chunk_z: z as i32,
                     chunk: Chunk::Full {
                         primary_bitmask: VarInt(0b1),
-                        heightmaps: Nbt(nbt::Blob::new()),
+                        heightmaps: Nbt(quartz_nbt::NbtCompound::new()),
                         biomes: ArrWithLen([VarInt(174); 1024]),
                         sections: ChunkSections(vec![ChunkSection {
                             block_count: 4096,
@@ -383,7 +376,7 @@ impl LobbyWorld {
                         chunk_z: chunk.1,
                         chunk: Chunk::Full {
                             primary_bitmask: VarInt(0b1),
-                            heightmaps: Nbt(nbt::Blob::new()),
+                            heightmaps: Nbt(quartz_nbt::NbtCompound::new()),
                             biomes: ArrWithLen([VarInt(174); 1024]),
                             sections: ChunkSections(vec![ChunkSection {
                                 block_count: 4096,
