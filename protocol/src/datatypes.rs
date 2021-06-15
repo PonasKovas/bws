@@ -38,6 +38,13 @@ impl Angle {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct Position {
+    pub x: i32,
+    pub y: i32,
+    pub z: i32,
+}
+
 /// Maybe static. Helps save resources when sending the same fixed data to many clients,
 /// because you don't have to clone the data for each one of them, you just serialize a static byte slice
 /// Note that the static variant contains ALREADY SERIALIZED bytes
@@ -242,6 +249,31 @@ pub enum StringParserType {
     SingleWord = 0,
     QuotablePhrase,
     GreedyPhrase,
+}
+
+#[deserializable]
+#[serializable]
+#[derive(Debug, Clone, Copy)]
+pub enum PlayerDiggingStatus {
+    StartedDigging = 0,
+    CancelledDigging,
+    FinishedDigging,
+    DropItemStack,
+    DropItem,
+    ShootArrowOrFinishEating,
+    SwapItemInHand,
+}
+
+#[deserializable]
+#[serializable]
+#[derive(Debug, Clone, Copy)]
+pub enum Face {
+    Bottom = 0,
+    Top,
+    North,
+    South,
+    West,
+    East,
 }
 
 bitflags! {

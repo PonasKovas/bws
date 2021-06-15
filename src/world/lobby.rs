@@ -14,6 +14,7 @@ use protocol::datatypes::*;
 use protocol::packets::*;
 use sha2::{Digest, Sha256};
 use slab::Slab;
+use std::cmp::max;
 use std::cmp::min;
 use std::collections::HashMap;
 use std::env::Vars;
@@ -37,6 +38,7 @@ struct Player {
     stream: PStream,
     position: (f64, f64, f64),
     rotation: (f32, f32),
+    uuid: u128,
     loaded_chunks: Vec<(i8, i8)>, // i8s work because the worlds aren't going to be that big
 }
 
@@ -115,8 +117,8 @@ impl LobbyWorld {
 
             match message {
                 WBound::AddPlayer { id } => {
-                    let (username, stream) = match GLOBAL_STATE.players.read().await.get(id) {
-                        Some(p) => (p.username.clone(), p.stream.clone()),
+                    let (username, stream, uuid) = match GLOBAL_STATE.players.read().await.get(id) {
+                        Some(p) => (p.username.clone(), p.stream.clone(), p.uuid),
                         None => {
                             debug!("Tried to add player to world, but the player is already disconnected");
                             continue;
@@ -130,6 +132,7 @@ impl LobbyWorld {
                             stream,
                             position: (0.0, 30.0, 0.0),
                             rotation: (0.0, 0.0),
+                            uuid,
                             loaded_chunks: Vec::new(),
                         },
                     );
@@ -151,6 +154,18 @@ impl LobbyWorld {
             }
         }
     }
+    // both this and new_player dont actually add or remove the player to the hashmap
+    async fn player_leave(&mut self, disconnected_id: usize) {
+        for (id, player) in &self.players {
+            if *id == disconnected_id {
+                continue;
+            }
+            let _ = player.stream.lock().await.send(PlayClientBound::PlayerInfo(
+                PlayerInfo::RemovePlayer(vec![(self.players[&disconnected_id].uuid)]),
+            ));
+        }
+    }
+    // both this and player_leave dont actually add or remove the player to the hashmap
     async fn new_player(&mut self, id: usize) -> Result<()> {
         // lock the stream
         let mut stream = self.players[&id].stream.lock().await;
@@ -234,28 +249,54 @@ impl LobbyWorld {
             footer: chat_parse(""),
         })?;
 
-        stream.send(PlayClientBound::PlayerInfo(PlayerInfo::AddPlayer(vec![(
-            1,
-            PlayerInfoAddPlayer {
-                name: "kakalas".into(),
-                properties: Vec::new(),
-                gamemode: Gamemode::Survival,
-                ping: VarInt(0),
-                display_name: Some(chat_parse("")),
-            },
-        )])))?;
-
-        stream.send(PlayClientBound::SpawnPlayer {
-            entity_id: VarInt(1),
-            uuid: 1,
-            x: 20.0,
-            y: 20.0,
-            z: 20.0,
-            yaw: Angle::from_degrees(0.0),
-            pitch: Angle::from_degrees(0.0),
-        })?;
-
         drop(stream);
+
+        // inform all players of the new player
+        for (_, player) in &self.players {
+            player
+                .stream
+                .lock()
+                .await
+                .send(PlayClientBound::PlayerInfo(PlayerInfo::AddPlayer(vec![(
+                    self.players[&id].uuid,
+                    PlayerInfoAddPlayer {
+                        name: self.players[&id].username.clone().into(),
+                        properties: GLOBAL_STATE.players.read().await[id].properties.clone(),
+                        gamemode: Gamemode::Creative,
+                        ping: VarInt(0),
+                        display_name: None,
+                    },
+                )])))?;
+        }
+
+        // and now inform the new player of all the old players
+        let mut entries = Vec::new();
+
+        for (old_id, player) in &self.players {
+            if *old_id == id {
+                // dont send info about self!
+                continue;
+            }
+
+            entries.push((
+                self.players[old_id].uuid,
+                PlayerInfoAddPlayer {
+                    name: player.username.clone().into(),
+                    properties: GLOBAL_STATE.players.read().await[*old_id]
+                        .properties
+                        .clone(),
+                    gamemode: Gamemode::Creative,
+                    ping: VarInt(0),
+                    display_name: None,
+                },
+            ));
+        }
+
+        self.players[&id]
+            .stream
+            .lock()
+            .await
+            .send(PlayClientBound::PlayerInfo(PlayerInfo::AddPlayer(entries)))?;
 
         self.send_chunks(id).await?;
 
@@ -383,6 +424,7 @@ impl LobbyWorld {
                     Err(_) => {
                         // eww, looks like someone disconnected!!
                         // time to clean this up
+                        self.player_leave(id).await;
                         self.players.remove(&id);
                         break 'inner;
                     }
@@ -393,18 +435,20 @@ impl LobbyWorld {
     async fn handle_packet<'a>(&mut self, id: usize, packet: PlayServerBound) {
         match packet {
             PlayServerBound::ChatMessage(message) => {
-                let _ = self.players[&id]
-                    .stream
-                    .lock()
-                    .await
-                    .send(PlayClientBound::ChatMessage {
-                        message: chat_parse(format!(
-                            "§a§l{}§r§7: §f{}",
-                            self.players[&id].username, message
-                        )),
-                        position: ChatPosition::Chat,
-                        sender: 0,
-                    });
+                for (_, player) in &self.players {
+                    let _ = player
+                        .stream
+                        .lock()
+                        .await
+                        .send(PlayClientBound::ChatMessage {
+                            message: chat_parse(format!(
+                                "§a§l{}§r§7: §f{}",
+                                self.players[&id].username, message
+                            )),
+                            position: ChatPosition::Chat,
+                            sender: self.players[&id].uuid,
+                        });
+                }
             }
             PlayServerBound::PlayerPosition {
                 x,
@@ -438,8 +482,159 @@ impl LobbyWorld {
             PlayServerBound::PlayerMovement { on_ground } => {
                 self.set_player_on_ground(id, on_ground).await;
             }
-            _ => {}
+            PlayServerBound::PlayerBlockPlacement {
+                hand: _,
+                location: _,
+                face: _,
+                cursor_position_x: _,
+                cursor_position_y: _,
+                cursor_position_z: _,
+                inside_block: _,
+            } => {
+                // todo
+                // oops turns out first we need to handle the inventory
+            }
+            PlayServerBound::PlayerDigging {
+                status,
+                location,
+                face,
+            } => match status {
+                // this means block broken but only when in creative mode
+                PlayerDiggingStatus::StartedDigging => {
+                    // let mut target = location.clone();
+                    // match face {
+                    //     Face::Bottom => {
+                    //         target.y -= 1;
+                    //     }
+                    //     Face::Top => {
+                    //         target.y += 1;
+                    //     }
+                    //     Face::North => {
+                    //         target.z -= 1;
+                    //     }
+                    //     Face::South => {
+                    //         target.z += 1;
+                    //     }
+                    //     Face::West => {
+                    //         target.x -= 1;
+                    //     }
+                    //     Face::East => {
+                    //         target.x += 1;
+                    //     }
+                    // }
+                    if !(0..255).contains(&location.y) {
+                        debug!("StartedDigging packet received with the coordinates out of range! Disconnecting.");
+                        self.players[&id].stream.lock().await.disconnect();
+                    }
+                    if let Err(e) = self.break_block(location).await {
+                        debug!("Error breaking block: {:?}", e);
+                    }
+                }
+                _ => {
+                    debug!(
+                        "received {:?}",
+                        PlayServerBound::PlayerDigging {
+                            status,
+                            location,
+                            face,
+                        }
+                    );
+                }
+            },
+            other => {
+                debug!("received {:?}", other);
+            }
         }
+    }
+    async fn break_block(&mut self, block: Position) -> Result<()> {
+        let block_chunk = (block.x / 16, block.y / 16, block.z / 16);
+        // block position relative to the chunk
+        let iblock = Position {
+            x: ((block.x % 16) + 16) % 16,
+            y: ((block.y % 16) + 16) % 16,
+            z: ((block.z % 16) + 16) % 16,
+        };
+
+        let section = &mut self.chunks[get_chunk_index(block_chunk.0 as i8, block_chunk.2 as i8)]
+            .sections[block_chunk.1 as usize];
+
+        // This belongs in the block placement lmao my head isnt working
+        //
+        // if section.is_none() {
+        //     // initialize the section with air
+        //     section.replace(WorldChunkSection {
+        //         block_mappings: vec![VarInt(0)],
+        //         blocks: vec![0i64; 256],
+        //     });
+        // }
+        let to_remove = match section {
+            None => {
+                // this gentleman is breaking blocks in an empty chunk smh
+                return Ok(());
+            }
+            Some(section) => {
+                let bits_per_block = max(
+                    4,
+                    32u8 - max(section.block_mappings.len() as u32 - 1, 1).leading_zeros() as u8,
+                );
+                let blocks_per_i64 = 64 / bits_per_block as usize;
+
+                let block_index =
+                    iblock.x as usize + 16 * (iblock.z as usize) + 16 * 16 * (iblock.y as usize);
+
+                // zero out the specific bits that correspond to the given block
+                // because zero is always air
+                section.blocks[block_index / blocks_per_i64] &= !((!0 as usize
+                    >> (64 - bits_per_block))
+                    << (bits_per_block as i32 * (block_index as i32 % blocks_per_i64 as i32)))
+                    as i64;
+
+                // check if there are any non-air blocks left in the section
+                let mut all_empty = true;
+                for i in &section.blocks {
+                    if *i != 0 {
+                        all_empty = false;
+                        break;
+                    }
+                }
+
+                all_empty
+            }
+        };
+
+        // time to remove the section to save memory and bandwidth when sending it to clients
+        if to_remove {
+            drop(section.take());
+        }
+
+        self.inform_players_of_block_change(block, VarInt(0))
+            .await?;
+
+        Ok(())
+    }
+    async fn inform_players_of_block_change(
+        &self,
+        position: Position,
+        new_id: VarInt,
+    ) -> Result<()> {
+        let chunk = (position.x / 16, position.z / 16);
+        for (_id, player) in &self.players {
+            if player
+                .loaded_chunks
+                .contains(&(chunk.0 as i8, chunk.1 as i8))
+            {
+                player
+                    .stream
+                    .lock()
+                    .await
+                    .send(PlayClientBound::BlockChange {
+                        location: position.clone(),
+                        new_block_id: new_id,
+                    })?;
+            }
+        }
+
+        Ok(())
     }
     async fn set_player_position(
         &mut self,

@@ -281,7 +281,7 @@ async fn read_and_parse_packet(
                     },
                     players: StatusPlayers {
                         max: *GLOBAL_STATE.max_players.lock().await,
-                        online: -1095, // todo this should be dynamic
+                        online: GLOBAL_STATE.players.read().await.len() as i32,
                         sample: GLOBAL_STATE.player_sample.lock().await.clone(),
                     },
                     description: if crate::SUPPORTED_PROTOCOL_VERSIONS
@@ -375,7 +375,8 @@ async fn read_and_parse_packet(
                     });
                 }
             }
-            info!("Player properties: {:?}", properties);
+
+            let uuid = uuid.unwrap_or_else(|| uuid_from_string(&username));
 
             // set compression if non-negative
             if GLOBAL_STATE.compression_treshold >= 0 {
@@ -387,7 +388,7 @@ async fn read_and_parse_packet(
 
             // everything's alright, come in
             let packet = LoginClientBound::LoginSuccess {
-                uuid: uuid.unwrap_or(0),
+                uuid,
                 username: username.clone(),
             };
             write_packet(socket, buffer, packet.cb()).await?;
@@ -436,7 +437,6 @@ async fn read_and_parse_packet(
             }
         }
         ServerBound::Play(other) => {
-            debug!("received {:?}", &other);
             shoutput_sender.send(other).context(
                 "The PlayerStream was dropped even before the actual stream handler task finished.",
             )?;
@@ -555,4 +555,13 @@ async fn write_packet(
     }
 
     Ok(())
+}
+
+pub fn uuid_from_string(input: &str) -> u128 {
+    let mut uuid = md5::compute(input.as_bytes()).0;
+    uuid[6] &= 0x0f; // clear version
+    uuid[6] |= 0x30; // set to version 3
+    uuid[8] &= 0x3f; // clear variant
+    uuid[8] |= 0x80; // set to IETF variant
+    u128::from_be_bytes(uuid)
 }

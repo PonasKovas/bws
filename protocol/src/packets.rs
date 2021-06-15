@@ -129,8 +129,11 @@ pub enum PlayClientBound {
     BlockBreakAnimation,      // todo
     BlockEntityData,          // todo
     BlockAction,              // todo
-    BlockChange,              // todo
-    BossBar,                  // todo
+    BlockChange {
+        location: Position,
+        new_block_id: VarInt, // in the global palette
+    },
+    BossBar, // todo
     ServerDifficulty {
         difficulty: Difficulty,
         locked: bool,
@@ -374,7 +377,11 @@ pub enum PlayServerBound {
     PlayerAbilites {
         flags: PlayerAbilities, // but the client changes only FLYING
     },
-    PlayerDigging,              // todo
+    PlayerDigging {
+        status: PlayerDiggingStatus,
+        location: Position,
+        face: Face,
+    },
     EntityAction,               // todo
     SteerVehicle,               // todo
     SetRecipeBookState,         // todo
@@ -393,8 +400,16 @@ pub enum PlayServerBound {
     UpdateSign,                 // todo
     Animation,                  // todo
     Spectate,                   // todo
-    PlayerBlockPlacement,       // todo
-    UseItem,                    // todo
+    PlayerBlockPlacement {
+        hand: MainHand,
+        location: Position,
+        face: Face,
+        cursor_position_x: f32,
+        cursor_position_y: f32,
+        cursor_position_z: f32,
+        inside_block: bool,
+    },
+    UseItem, // todo
 }
 
 impl StatusClientBound {
