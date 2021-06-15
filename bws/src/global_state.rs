@@ -38,6 +38,8 @@ pub struct Player {
     pub stream: PStream,
     pub username: String,
     pub address: SocketAddr,
+    pub uuid: Option<u128>,
+    pub properties: Vec<PlayerInfoAddPlayerProperty>,
     pub view_distance: Option<i8>,
 }
 
