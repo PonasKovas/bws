@@ -6,7 +6,9 @@ use super::{Deserializable, Serializable};
 use bitflags::bitflags;
 use shrinkwraprs::Shrinkwrap;
 use std::borrow::Cow;
+use std::convert::TryFrom;
 use std::io::Cursor;
+use std::marker::PhantomData;
 
 #[derive(Debug, Clone, Copy)]
 pub struct VarInt(pub i32);
@@ -21,7 +23,13 @@ impl VarInt {
 // A newtype around an array except that when serializing/deserializing it has the fixed length as a prefix
 #[derive(Shrinkwrap, Debug, Clone)]
 #[shrinkwrap(mutable)]
-pub struct ArrWithLen<T, const N: usize>(pub [T; N]);
+pub struct ArrWithLen<T, L, const N: usize>(#[shrinkwrap(main_field)] pub [T; N], PhantomData<L>);
+
+impl<T, L, const N: usize> ArrWithLen<T, L, N> {
+    pub fn new(arr: [T; N]) -> Self {
+        Self(arr, PhantomData)
+    }
+}
 
 #[derive(Shrinkwrap, Debug, Clone)]
 #[shrinkwrap(mutable)]
@@ -167,7 +175,7 @@ pub enum Chunk {
         primary_bitmask: VarInt,
         heightmaps: Nbt,
         // 4x4x4 sections in the entire chunk (16x256x16),
-        biomes: ArrWithLen<VarInt, 1024>,
+        biomes: ArrWithLen<VarInt, VarInt, 1024>,
         sections: ChunkSections,
         block_entities: Vec<Nbt>,
     },
@@ -213,6 +221,20 @@ pub struct ChunkSection {
 pub enum Palette {
     Indirect(Vec<VarInt>),
     Direct,
+}
+
+#[deserializable]
+#[serializable]
+#[derive(Debug, Clone)]
+pub struct Slot(pub Option<InnerSlot>);
+
+#[deserializable]
+#[serializable]
+#[derive(Debug, Clone)]
+pub struct InnerSlot {
+    pub item_id: VarInt,
+    pub item_count: i8,
+    pub nbt: Nbt,
 }
 
 #[derive(Debug, Clone)]

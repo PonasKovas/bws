@@ -2,6 +2,7 @@ use super::*;
 use super::{Deserializable, Serializable};
 use std::borrow::Cow;
 use std::cmp::max;
+use std::convert::TryInto;
 use std::io::{self, Cursor, ErrorKind, Read, Result, Write};
 
 impl Serializable for ChunkSections {
@@ -380,23 +381,51 @@ impl<T: Deserializable, const N: usize> Deserializable for [T; N] {
     }
 }
 
-impl<T: Serializable, const N: usize> Serializable for ArrWithLen<T, N> {
+impl<T: Serializable, L: Serializable + TryFrom<usize>, const N: usize> Serializable
+    for ArrWithLen<T, L, N>
+{
     fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
-        VarInt(N as i32).to_writer(&mut *output)?;
+        match L::try_from(N) {
+            Ok(s) => s.to_writer(&mut *output)?,
+            Err(_) => {
+                return Err(std::io::Error::new(
+                    ErrorKind::Other,
+                    format!(
+                        "Failed to serialize the size ({}) of an ArrWithLen as a {}",
+                        N,
+                        std::any::type_name::<L>()
+                    ),
+                ));
+            }
+        }
 
         self.0.to_writer(&mut *output)
     }
 }
-impl<T: Deserializable, const N: usize> Deserializable for ArrWithLen<T, N> {
+impl<T: Deserializable, L: Deserializable + TryInto<usize>, const N: usize> Deserializable
+    for ArrWithLen<T, L, N>
+{
     fn from_reader<R: Read>(input: &mut R) -> Result<Self> {
-        let len = VarInt::from_reader(&mut *input)?.0 as usize;
+        let len: usize = match L::from_reader(&mut *input)?.try_into() {
+            Ok(s) => s,
+            Err(_) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    format!(
+                        "Failed to convert size ({}) of an ArrWithLen from {} to usize",
+                        N,
+                        std::any::type_name::<L>()
+                    ),
+                ));
+            }
+        };
         if len != N {
             Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("Tried reading ArrWithLen but the size was not correct"),
             ))
         } else {
-            Ok(Self(<[T; N]>::from_reader(&mut *input)?))
+            Ok(Self::new(<[T; N]>::from_reader(&mut *input)?))
         }
     }
 }
@@ -438,6 +467,21 @@ impl<T: Deserializable> Deserializable for Option<T> {
         } else {
             Ok(None)
         }
+    }
+}
+
+impl TryFrom<usize> for VarInt {
+    type Error = std::num::TryFromIntError;
+
+    fn try_from(value: usize) -> std::result::Result<Self, Self::Error> {
+        Ok(Self(value.try_into()?))
+    }
+}
+impl TryFrom<VarInt> for usize {
+    type Error = std::num::TryFromIntError;
+
+    fn try_from(value: VarInt) -> std::result::Result<Self, Self::Error> {
+        value.0.try_into()
     }
 }
 
