@@ -37,7 +37,14 @@ struct Player {
     username: String,
     stream: PStream,
     position: (f64, f64, f64),
+    // is synced on each tick
+    new_position: (f64, f64, f64),
     rotation: (f32, f32),
+    // is synced on each tick
+    new_rotation: (f32, f32),
+    on_ground: bool,
+    // is synced on each tick
+    new_on_ground: bool,
     uuid: u128,
     loaded_chunks: Vec<(i8, i8)>, // i8s work because the worlds aren't going to be that big
 }
@@ -130,8 +137,12 @@ impl LobbyWorld {
                         Player {
                             username,
                             stream,
-                            position: (0.0, 30.0, 0.0),
+                            position: (0.0, 20.0, 0.0),
+                            new_position: (0.0, 20.0, 0.0),
                             rotation: (0.0, 0.0),
+                            new_rotation: (0.0, 0.0),
+                            on_ground: false,
+                            new_on_ground: false,
                             uuid,
                             loaded_chunks: Vec::new(),
                         },
@@ -160,6 +171,15 @@ impl LobbyWorld {
             if *id == disconnected_id {
                 continue;
             }
+
+            let _ = player
+                .stream
+                .lock()
+                .await
+                .send(PlayClientBound::DestroyEntities(vec![VarInt(
+                    disconnected_id as i32,
+                )]));
+
             let _ = player.stream.lock().await.send(PlayClientBound::PlayerInfo(
                 PlayerInfo::RemovePlayer(vec![(self.players[&disconnected_id].uuid)]),
             ));
@@ -297,6 +317,40 @@ impl LobbyWorld {
             .lock()
             .await
             .send(PlayClientBound::PlayerInfo(PlayerInfo::AddPlayer(entries)))?;
+
+        for (old_id, player) in &self.players {
+            if *old_id == id {
+                // dont spawn myself!
+                continue;
+            }
+            player
+                .stream
+                .lock()
+                .await
+                .send(PlayClientBound::SpawnPlayer {
+                    entity_id: VarInt(id as i32),
+                    uuid: self.players[&id].uuid,
+                    x: self.players[&id].position.0,
+                    y: self.players[&id].position.1,
+                    z: self.players[&id].position.2,
+                    yaw: Angle::from_degrees(self.players[&id].rotation.0),
+                    pitch: Angle::from_degrees(self.players[&id].rotation.1),
+                })?;
+
+            self.players[&id]
+                .stream
+                .lock()
+                .await
+                .send(PlayClientBound::SpawnPlayer {
+                    entity_id: VarInt(*old_id as i32),
+                    uuid: player.uuid,
+                    x: player.position.0,
+                    y: player.position.1,
+                    z: player.position.2,
+                    yaw: Angle::from_degrees(player.rotation.0),
+                    pitch: Angle::from_degrees(player.rotation.1),
+                })?;
+        }
 
         self.send_chunks(id).await?;
 
@@ -532,7 +586,8 @@ impl LobbyWorld {
                 }
                 _ => {
                     debug!(
-                        "received {:?}",
+                        "[{}] received {:?}",
+                        id,
                         PlayServerBound::PlayerDigging {
                             status,
                             location,
@@ -542,7 +597,7 @@ impl LobbyWorld {
                 }
             },
             other => {
-                debug!("received {:?}", other);
+                debug!("[{}] received {:?}", id, other);
             }
         }
     }
@@ -604,6 +659,7 @@ impl LobbyWorld {
 
         // time to remove the section to save memory and bandwidth when sending it to clients
         if to_remove {
+            debug!("removing whole chunk section {:?}", block_chunk);
             drop(section.take());
         }
 
@@ -641,45 +697,177 @@ impl LobbyWorld {
         id: usize,
         new_position: (f64, f64, f64),
     ) -> Result<()> {
-        let old_position = &mut self.players.get_mut(&id).unwrap().position;
+        self.players.get_mut(&id).unwrap().new_position = new_position;
 
-        // check if chunk passed
-        let old_chunks = (
-            (old_position.0.floor() / 16.0).floor(),
-            (old_position.2.floor() / 16.0).floor(),
-        );
-        let old_y = old_position.1.floor() as i32;
-        let new_chunks = (
-            (new_position.0.floor() / 16.0).floor(),
-            (new_position.2.floor() / 16.0).floor(),
-        );
-        let chunk_passed = !((old_chunks.0 == new_chunks.0) && (old_chunks.1 == new_chunks.1));
-        *old_position = new_position;
-
-        if chunk_passed || old_y != new_position.1.floor() as i32 {
-            self.players
-                .get_mut(&id)
-                .unwrap()
-                .stream
-                .lock()
-                .await
-                .send(PlayClientBound::UpdateViewPosition {
-                    chunk_x: VarInt(new_chunks.0 as i32),
-                    chunk_z: VarInt(new_chunks.1 as i32),
-                })?;
-        }
-
-        if chunk_passed {
-            // send new chunks
-            self.send_chunks(id).await?;
-        }
         Ok(())
     }
     async fn set_player_rotation(&mut self, id: usize, rotation: (f32, f32)) {
-        self.players.get_mut(&id).unwrap().rotation = rotation;
+        self.players.get_mut(&id).unwrap().new_rotation = rotation;
     }
-    async fn set_player_on_ground(&mut self, _id: usize, _on_ground: bool) {}
-    async fn tick(&mut self, _counter: u128) {}
+    async fn set_player_on_ground(&mut self, id: usize, on_ground: bool) {
+        self.players.get_mut(&id).unwrap().new_on_ground = on_ground;
+    }
+    async fn tick(&mut self, _counter: u128) {
+        // sync all the player positions and rotation
+        for id in self.players.keys().copied().collect::<Vec<usize>>() {
+            let mut packets = Vec::new();
+
+            let position_change = if self.players[&id].position == self.players[&id].new_position {
+                // position didnt change
+                None
+            } else {
+                // position changed
+
+                // check if chunk passed
+                let old_chunks = (
+                    (self.players[&id].position.0.floor() / 16.0).floor(),
+                    (self.players[&id].position.2.floor() / 16.0).floor(),
+                );
+                let old_y = self.players[&id].position.1.floor();
+                let new_chunks = (
+                    (self.players[&id].new_position.0.floor() / 16.0).floor(),
+                    (self.players[&id].new_position.2.floor() / 16.0).floor(),
+                );
+                let new_y = self.players[&id].new_position.1.floor();
+
+                let chunk_passed =
+                    !((old_chunks.0 == new_chunks.0) && (old_chunks.1 == new_chunks.1));
+
+                if chunk_passed || old_y != new_y {
+                    let _ = self.players[&id].stream.lock().await.send(
+                        PlayClientBound::UpdateViewPosition {
+                            chunk_x: VarInt(new_chunks.0 as i32),
+                            chunk_z: VarInt(new_chunks.1 as i32),
+                        },
+                    );
+                }
+
+                let position_change = (
+                    self.players[&id].new_position.0 - self.players[&id].position.0,
+                    self.players[&id].new_position.1 - self.players[&id].position.1,
+                    self.players[&id].new_position.2 - self.players[&id].position.2,
+                );
+
+                self.players.get_mut(&id).unwrap().position = self.players[&id].new_position;
+
+                if chunk_passed {
+                    // send new chunks
+                    let _ = self.send_chunks(id).await;
+                }
+
+                Some(position_change)
+            };
+
+            let rotation_change = if self.players[&id].rotation == self.players[&id].new_rotation {
+                // Rotation didnt change
+                None
+            } else {
+                // Rotation changed
+                // sync
+                self.players.get_mut(&id).unwrap().rotation = self.players[&id].new_rotation;
+
+                Some(self.players[&id].rotation)
+            };
+
+            // sync on_ground
+            self.players.get_mut(&id).unwrap().on_ground = self.players[&id].new_on_ground;
+
+            let on_ground = self.players[&id].on_ground;
+
+            match (position_change, rotation_change) {
+                (None, None) => packets.push(PlayClientBound::EntityMovement {
+                    entity_id: VarInt(id as i32),
+                }),
+                (Some(pos_change), None) => {
+                    // check if the change is on any of the axes is larger than 8, in that case
+                    // we must send EntityTeleport instead of EntityPosition
+                    if (pos_change.0 < -8.0)
+                        || (pos_change.0 > 8.0)
+                        || (pos_change.1 < -8.0)
+                        || (pos_change.1 > 8.0)
+                        || (pos_change.2 < -8.0)
+                        || (pos_change.2 > 8.0)
+                    {
+                        packets.push(PlayClientBound::EntityTeleport {
+                            entity_id: VarInt(id as i32),
+                            x: self.players[&id].new_position.0,
+                            y: self.players[&id].new_position.1,
+                            z: self.players[&id].new_position.2,
+                            yaw: Angle::from_degrees(self.players[&id].rotation.0),
+                            pitch: Angle::from_degrees(self.players[&id].rotation.1),
+                            on_ground,
+                        });
+                    } else {
+                        packets.push(PlayClientBound::EntityPosition {
+                            entity_id: VarInt(id as i32),
+                            delta_x: (pos_change.0 * 4096.0) as i16,
+                            delta_y: (pos_change.1 * 4096.0) as i16,
+                            delta_z: (pos_change.2 * 4096.0) as i16,
+                            on_ground,
+                        });
+                    }
+                }
+                (None, Some(rotation)) => {
+                    packets.push(PlayClientBound::EntityRotation {
+                        entity_id: VarInt(id as i32),
+                        yaw: Angle::from_degrees(rotation.0),
+                        pitch: Angle::from_degrees(rotation.1),
+                        on_ground,
+                    });
+                    packets.push(PlayClientBound::EntityHeadLook {
+                        entity_id: VarInt(id as i32),
+                        head_yaw: Angle::from_degrees(rotation.0),
+                    });
+                }
+                (Some(pos_change), Some(rotation)) => {
+                    // check if the change is on any of the axes is larger than 8, in that case
+                    // we must send EntityTeleport and EntityRotation instead of EntityPositionAndRotation
+                    if (pos_change.0 < -8.0)
+                        || (pos_change.0 > 8.0)
+                        || (pos_change.1 < -8.0)
+                        || (pos_change.1 > 8.0)
+                        || (pos_change.2 < -8.0)
+                        || (pos_change.2 > 8.0)
+                    {
+                        packets.push(PlayClientBound::EntityTeleport {
+                            entity_id: VarInt(id as i32),
+                            x: self.players[&id].new_position.0,
+                            y: self.players[&id].new_position.1,
+                            z: self.players[&id].new_position.2,
+                            yaw: Angle::from_degrees(rotation.0),
+                            pitch: Angle::from_degrees(rotation.1),
+                            on_ground,
+                        });
+                    } else {
+                        packets.push(PlayClientBound::EntityPositionAndRotation {
+                            entity_id: VarInt(id as i32),
+                            delta_x: (pos_change.0 * 4096.0) as i16,
+                            delta_y: (pos_change.1 * 4096.0) as i16,
+                            delta_z: (pos_change.2 * 4096.0) as i16,
+                            yaw: Angle::from_degrees(rotation.0),
+                            pitch: Angle::from_degrees(rotation.1),
+                            on_ground,
+                        });
+                    }
+
+                    packets.push(PlayClientBound::EntityHeadLook {
+                        entity_id: VarInt(id as i32),
+                        head_yaw: Angle::from_degrees(rotation.0),
+                    });
+                }
+            }
+
+            for (r_id, r_player) in &self.players {
+                if id == *r_id {
+                    continue; // dont sent info about self
+                }
+
+                for packet in packets.clone() {
+                    let _ = r_player.stream.lock().await.send(packet.clone());
+                }
+            }
+        }
+    }
 }
 
 fn get_chunk_index(x: i8, z: i8) -> usize {

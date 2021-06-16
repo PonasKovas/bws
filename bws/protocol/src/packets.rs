@@ -196,17 +196,38 @@ pub enum PlayClientBound<'a> {
         // flat worlds have horizon at y=0 instead of y=63 and different void fog
         flat: bool,
     },
-    MapData,                   // todo
-    TradeList,                 // todo
-    EntityPosition,            // todo
-    EntityPositionAndRotation, // todo
-    EntityRotation,            // todo
-    EntityMovement,            // todo
-    VehicleMovement,           // todo
-    OpenBook,                  // tood
-    OpenWindow,                // todo
-    OpenSignEditor,            // todo
-    CraftRecipeResponse,       // todo
+    MapData,   // todo
+    TradeList, // todo
+    EntityPosition {
+        entity_id: VarInt,
+        delta_x: i16, // newX * 32 - prevX * 32) * 128
+        delta_y: i16, // newY * 32 - prevY * 32) * 128
+        delta_z: i16, // newZ * 32 - prevZ * 32) * 128
+        on_ground: bool,
+    },
+    EntityPositionAndRotation {
+        entity_id: VarInt,
+        delta_x: i16, // (newX * 32 - prevX * 32) * 128
+        delta_y: i16, // (newY * 32 - prevY * 32) * 128
+        delta_z: i16, // (newZ * 32 - prevZ * 32) * 128
+        yaw: Angle,   // absolute, not delta
+        pitch: Angle, // absolute, not delta
+        on_ground: bool,
+    },
+    EntityRotation {
+        entity_id: VarInt,
+        yaw: Angle,   // absolute, not delta
+        pitch: Angle, // absolute, not delta
+        on_ground: bool,
+    },
+    EntityMovement {
+        entity_id: VarInt,
+    },
+    VehicleMovement,     // todo
+    OpenBook,            // tood
+    OpenWindow,          // todo
+    OpenSignEditor,      // todo
+    CraftRecipeResponse, // todo
     PlayerAbilities {
         abilities: PlayerAbilities,
         flying_speed: f32,
@@ -224,10 +245,10 @@ pub enum PlayClientBound<'a> {
         flags: PositionAndLookFlags,
         id: VarInt,
     },
-    UnlockRecipes,      // todo
-    DestroyEntities,    // todo
-    RemoveEntityEffect, // todo
-    ResourcePackSend,   // todo
+    UnlockRecipes,                // todo
+    DestroyEntities(Vec<VarInt>), // entity IDs
+    RemoveEntityEffect,           // todo
+    ResourcePackSend,             // todo
     Respawn {
         dimension: Nbt,
         world_name: Cow<'a, str>,
@@ -238,7 +259,10 @@ pub enum PlayClientBound<'a> {
         flat: bool,
         copy_metadata: bool,
     },
-    EntityHeadLook,       // todo
+    EntityHeadLook {
+        entity_id: VarInt,
+        head_yaw: Angle,
+    },
     MultiBlockChange,     // todo
     SelectAdvancementTab, // todo
     WorldBorder(WorldBorderAction),
@@ -289,7 +313,15 @@ pub enum PlayClientBound<'a> {
     },
     NbtQueryResponse, // todo
     CollectItem,      // todo
-    EntityTeleport,   // todo
+    EntityTeleport {
+        entity_id: VarInt,
+        x: f64, // all absolute here
+        y: f64,
+        z: f64,
+        yaw: Angle,
+        pitch: Angle,
+        on_ground: bool,
+    },
     Advancements,     // todo
     EntityProperties, // todo
     EntityEffect,     // todo
