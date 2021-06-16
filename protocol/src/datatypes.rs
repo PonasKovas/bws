@@ -34,7 +34,7 @@ pub struct Angle(pub u8);
 
 impl Angle {
     pub fn from_degrees(degrees: f32) -> Self {
-        Self((degrees / 256.0).rem_euclid(1.0) as u8)
+        Self(((degrees / 360.0).rem_euclid(1.0) * 256.0) as u8)
     }
 }
 
