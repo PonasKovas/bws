@@ -71,19 +71,48 @@ impl LobbyWorld {
     pub async fn new() -> Self {
         LobbyWorld {
             players: HashMap::new(),
-            chunks: [(); 4 * MAP_SIZE as usize * MAP_SIZE as usize].map(|_| WorldChunk {
-                biomes: Box::new([174; 1024]),
-                sections: [(); 16].map(|_| {
-                    Some(WorldChunkSection {
-                        block_mappings: vec![VarInt(0), VarInt(1)],
-                        blocks: {
-                            let mut data = vec![1];
-                            data.extend(vec![0; 255]);
-                            data
-                        },
-                    })
-                }),
-            }),
+            chunks: {
+                let mut i = 0;
+                [(); 4 * MAP_SIZE as usize * MAP_SIZE as usize].map(|_| {
+                    i += 1;
+                    WorldChunk {
+                        biomes: Box::new([174; 1024]),
+                        sections: [
+                            if i == (get_chunk_index(0, 0) + 1)
+                                || i == (get_chunk_index(-1, 0) + 1)
+                                || i == (get_chunk_index(0, -1) + 1)
+                                || i == (get_chunk_index(-1, -1) + 1)
+                            {
+                                Some(WorldChunkSection {
+                                    block_mappings: vec![VarInt(0), VarInt(4104)],
+                                    blocks: {
+                                        let mut data = vec![0x1111111111111111; 16];
+                                        data.extend(vec![0; 240]);
+                                        data
+                                    },
+                                })
+                            } else {
+                                None
+                            },
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                            None,
+                        ],
+                    }
+                })
+            },
         }
     }
     pub async fn run(&mut self, mut w_receiver: WReceiver) {
@@ -265,7 +294,7 @@ impl LobbyWorld {
         }))?;
 
         stream.send(PlayClientBound::PlayerListHeaderAndFooter {
-            header: chat_parse("§f§lBWS §rlobby"),
+            header: chat_parse("                    §f§lBWS §rlobby                    "),
             footer: chat_parse(""),
         })?;
 
@@ -283,7 +312,7 @@ impl LobbyWorld {
                         name: self.players[&id].username.clone().into(),
                         properties: GLOBAL_STATE.players.read().await[id].properties.clone(),
                         gamemode: Gamemode::Creative,
-                        ping: VarInt(0),
+                        ping: VarInt(GLOBAL_STATE.players.read().await[id].ping as i32),
                         display_name: None,
                     },
                 )])))?;
@@ -306,7 +335,7 @@ impl LobbyWorld {
                         .properties
                         .clone(),
                     gamemode: Gamemode::Creative,
-                    ping: VarInt(0),
+                    ping: VarInt(GLOBAL_STATE.players.read().await[*old_id].ping as i32),
                     display_name: None,
                 },
             ));
@@ -426,7 +455,7 @@ impl LobbyWorld {
                         primary_bitmask |= 2i32.pow(i as u32);
 
                         chunk_sections.push(ChunkSection {
-                            block_count: 1,
+                            block_count: 16 * 16 * 16, // this is foolproof, but might want to send the real block count in the future
                             palette: Palette::Indirect(section.block_mappings.clone()),
                             data: section.blocks.clone(),
                         });
@@ -536,6 +565,24 @@ impl LobbyWorld {
             PlayServerBound::PlayerMovement { on_ground } => {
                 self.set_player_on_ground(id, on_ground).await;
             }
+            PlayServerBound::Animation { hand } => {
+                for (r_id, player) in &self.players {
+                    if *r_id == id {
+                        return;
+                    }
+                    let _ = player
+                        .stream
+                        .lock()
+                        .await
+                        .send(PlayClientBound::EntityAnimation {
+                            entity_id: VarInt(id as i32),
+                            animation: match hand {
+                                MainHand::Left => EntityAnimation::SwingOffhand,
+                                MainHand::Right => EntityAnimation::SwingMainArm,
+                            },
+                        });
+                }
+            }
             PlayServerBound::PlayerBlockPlacement {
                 hand: _,
                 location: _,
@@ -576,6 +623,7 @@ impl LobbyWorld {
                     //         target.x += 1;
                     //     }
                     // }
+
                     if !(0..255).contains(&location.y) {
                         debug!("StartedDigging packet received with the coordinates out of range! Disconnecting.");
                         self.players[&id].stream.lock().await.disconnect();
@@ -663,6 +711,7 @@ impl LobbyWorld {
             drop(section.take());
         }
 
+        // should we send it to the player who broke it?
         self.inform_players_of_block_change(block, VarInt(0))
             .await?;
 
@@ -707,7 +756,24 @@ impl LobbyWorld {
     async fn set_player_on_ground(&mut self, id: usize, on_ground: bool) {
         self.players.get_mut(&id).unwrap().new_on_ground = on_ground;
     }
-    async fn tick(&mut self, _counter: u128) {
+    async fn tick(&mut self, counter: u128) {
+        if counter % 100 == 0 {
+            // every 5 seconds, update all pings
+            let mut entries = Vec::with_capacity(self.players.len());
+            for (id, player) in &self.players {
+                entries.push((
+                    player.uuid,
+                    PlayerInfoUpdateLatency {
+                        ping: VarInt(GLOBAL_STATE.players.read().await[*id].ping as i32),
+                    },
+                ));
+            }
+            for (_id, player) in &self.players {
+                let _ = player.stream.lock().await.send(PlayClientBound::PlayerInfo(
+                    PlayerInfo::UpdateLatency(entries.clone()),
+                ));
+            }
+        }
         // sync all the player positions and rotation
         for id in self.players.keys().copied().collect::<Vec<usize>>() {
             let mut packets = Vec::new();

@@ -123,7 +123,10 @@ pub enum PlayClientBound<'a> {
         yaw: Angle,
         pitch: Angle,
     },
-    EntityAnimation,          // todo
+    EntityAnimation {
+        entity_id: VarInt,
+        animation: EntityAnimation,
+    },
     Statistics,               // todo
     AcknowledgePlayerDigging, // todo
     BlockBreakAnimation,      // todo
@@ -430,8 +433,10 @@ pub enum PlayServerBound<'a> {
     UpdateJigsawBlock,          // todo
     UpdateStructureBlock,       // todo
     UpdateSign,                 // todo
-    Animation,                  // todo
-    Spectate,                   // todo
+    Animation {
+        hand: MainHand,
+    },
+    Spectate, // todo
     PlayerBlockPlacement {
         hand: MainHand,
         location: Position,

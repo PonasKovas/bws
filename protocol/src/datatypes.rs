@@ -254,6 +254,21 @@ pub enum StringParserType {
 #[deserializable]
 #[serializable]
 #[derive(Debug, Clone, Copy)]
+// this one should actually be serialized as an unsigned byte
+// but there's no difference until we have more than 127 variants,
+// which I think we will never do, so this works
+pub enum EntityAnimation {
+    SwingMainArm,
+    TakeDamage,
+    LeaveBed,
+    SwingOffhand,
+    CriticalEffect,
+    MagicCriticalEffect,
+}
+
+#[deserializable]
+#[serializable]
+#[derive(Debug, Clone, Copy)]
 pub enum PlayerDiggingStatus {
     StartedDigging = 0,
     CancelledDigging,

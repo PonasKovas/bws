@@ -40,6 +40,7 @@ pub struct Player {
     pub address: SocketAddr,
     pub uuid: u128,
     pub properties: Vec<PlayerInfoAddPlayerProperty<'static>>,
+    pub ping: f32, // in milliseconds
     pub view_distance: Option<i8>,
 }
 
