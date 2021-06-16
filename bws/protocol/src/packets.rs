@@ -5,28 +5,28 @@ use std::io::{self, Write};
 
 /// Sent from the server to the client
 #[derive(Debug, Clone)]
-pub enum ClientBound {
-    Status(StatusClientBound),
-    Login(LoginClientBound),
-    Play(PlayClientBound),
+pub enum ClientBound<'a> {
+    Status(StatusClientBound<'a>),
+    Login(LoginClientBound<'a>),
+    Play(PlayClientBound<'a>),
 }
 
 /// Sent from the client to the server
 #[derive(Debug, Clone)]
-pub enum ServerBound {
-    Handshake(HandshakeServerBound),
+pub enum ServerBound<'a> {
+    Handshake(HandshakeServerBound<'a>),
     Status(StatusServerBound),
-    Login(LoginServerBound),
-    Play(PlayServerBound),
+    Login(LoginServerBound<'a>),
+    Play(PlayServerBound<'a>),
 }
 
 #[deserializable]
 #[serializable]
 #[derive(Debug, Clone)]
-pub enum HandshakeServerBound {
+pub enum HandshakeServerBound<'a> {
     Handshake {
         protocol: VarInt,
-        server_address: Cow<'static, str>,
+        server_address: Cow<'a, str>,
         server_port: u16,
         next_state: NextState,
     },
@@ -35,8 +35,8 @@ pub enum HandshakeServerBound {
 #[deserializable]
 #[serializable]
 #[derive(Debug, Clone)]
-pub enum StatusClientBound {
-    Response(StatusResponse),
+pub enum StatusClientBound<'a> {
+    Response(StatusResponse<'a>),
     Pong(i64),
 }
 
@@ -51,24 +51,24 @@ pub enum StatusServerBound {
 #[deserializable]
 #[serializable]
 #[derive(Debug, Clone)]
-pub enum LoginClientBound {
-    Disconnect(Chat),
+pub enum LoginClientBound<'a> {
+    Disconnect(Chat<'a>),
     EncryptionRequest {
         // Up to 20 characters
-        server_id: Cow<'static, str>,
+        server_id: Cow<'a, str>,
         public_key: Vec<u8>,
         verify_token: Vec<u8>,
     },
     LoginSuccess {
         uuid: u128,
-        username: Cow<'static, str>,
+        username: Cow<'a, str>,
     },
     SetCompression {
         treshold: VarInt,
     },
     PluginRequest {
         message_id: VarInt,
-        channel: Cow<'static, str>,
+        channel: Cow<'a, str>,
         // the client figures out the length based on the packet size
         data: Box<[u8]>,
     },
@@ -77,9 +77,9 @@ pub enum LoginClientBound {
 #[deserializable]
 #[serializable]
 #[derive(Debug, Clone)]
-pub enum LoginServerBound {
+pub enum LoginServerBound<'a> {
     LoginStart {
-        username: Cow<'static, str>,
+        username: Cow<'a, str>,
     },
     EncryptionResponse {
         shared_secret: Vec<u8>,
@@ -96,7 +96,7 @@ pub enum LoginServerBound {
 #[deserializable]
 #[serializable]
 #[derive(Debug, Clone)]
-pub enum PlayClientBound {
+pub enum PlayClientBound<'a> {
     SpawnEntity {
         entity_id: VarInt,
         object_uuid: u128,
@@ -139,13 +139,13 @@ pub enum PlayClientBound {
         locked: bool,
     },
     ChatMessage {
-        message: Chat,
+        message: Chat<'a>,
         position: ChatPosition,
         sender: u128,
     },
     TabComplete, // todo
     DeclareCommands {
-        nodes: Vec<CommandNode>,
+        nodes: Vec<CommandNode<'a>>,
         root: VarInt,
     },
     WindowConfirmation, // todo
@@ -155,11 +155,11 @@ pub enum PlayClientBound {
     SetSlot,            // todo
     SetCooldown,        // todo
     PluginMessage {
-        channel: Cow<'static, str>,
+        channel: Cow<'a, str>,
         data: Box<[u8]>,
     },
     NamedSoundEffect, // todo
-    Disconnect(Chat),
+    Disconnect(Chat<'a>),
     EntityStatus,    // todo
     Explosion,       // todo
     UnloadChunk,     // todo
@@ -180,10 +180,10 @@ pub enum PlayClientBound {
         hardcore: bool,
         gamemode: Gamemode,
         previous_gamemode: Gamemode,
-        world_names: Vec<Cow<'static, str>>,
-        dimension_codec: MaybeStatic<Nbt>,
+        world_names: Vec<Cow<'a, str>>,
+        dimension_codec: MaybeStatic<'a, Nbt>,
         dimension: Nbt,
-        world_name: Cow<'static, str>,
+        world_name: Cow<'a, str>,
         hashed_seed: i64,
         // doesn't do anything
         max_players: VarInt,
@@ -213,7 +213,7 @@ pub enum PlayClientBound {
         field_of_view: f32,
     },
     CombatEvent, // todo
-    PlayerInfo(PlayerInfo),
+    PlayerInfo(PlayerInfo<'a>),
     FacePlayer, // todo
     PlayerPositionAndLook {
         x: f64,
@@ -230,7 +230,7 @@ pub enum PlayClientBound {
     ResourcePackSend,   // todo
     Respawn {
         dimension: Nbt,
-        world_name: Cow<'static, str>,
+        world_name: Cow<'a, str>,
         hashed_seed: i64,
         gamemode: Gamemode,
         previous_gamemode: Gamemode,
@@ -273,7 +273,7 @@ pub enum PlayClientBound {
         world_age: i64,
         time: i64,
     },
-    Title(TitleAction),
+    Title(TitleAction<'a>),
     EntitySoundEffect {
         sound_id: VarInt,
         category: SoundCategory,
@@ -284,8 +284,8 @@ pub enum PlayClientBound {
     SoundEffect, // todo
     StopSound,   // todo
     PlayerListHeaderAndFooter {
-        header: Chat,
-        footer: Chat,
+        header: Chat<'a>,
+        footer: Chat<'a>,
     },
     NbtQueryResponse, // todo
     CollectItem,      // todo
@@ -295,26 +295,26 @@ pub enum PlayClientBound {
     EntityEffect,     // todo
     DeclareRecipes,   // todo
     Tags {
-        blocks: MaybeStatic<Vec<Tags>>,
-        items: MaybeStatic<Vec<Tags>>,
-        fluids: MaybeStatic<Vec<Tags>>,
-        entities: MaybeStatic<Vec<Tags>>,
+        blocks: MaybeStatic<'a, Vec<Tags<'a>>>,
+        items: MaybeStatic<'a, Vec<Tags<'a>>>,
+        fluids: MaybeStatic<'a, Vec<Tags<'a>>>,
+        entities: MaybeStatic<'a, Vec<Tags<'a>>>,
     },
 }
 
 #[deserializable]
 #[serializable]
 #[derive(Debug, Clone)]
-pub enum PlayServerBound {
+pub enum PlayServerBound<'a> {
     TeleportConfirm {
         teleport_id: VarInt,
     },
     QueryBlockNbt, // todo
     SetDifficulty(Difficulty),
-    ChatMessage(Cow<'static, str>),
+    ChatMessage(Cow<'a, str>),
     ClientStatus(ClientStatusAction),
     ClientSettings {
-        locale: Cow<'static, str>,
+        locale: Cow<'a, str>,
         view_distance: i8,
         chat_mode: ChatMode,
         chat_colors: bool,
@@ -323,7 +323,7 @@ pub enum PlayServerBound {
     },
     TabComplete {
         transaction_id: VarInt,
-        text: Cow<'static, str>,
+        text: Cow<'a, str>,
     },
     WindowConfirmation {
         window_id: i8,
@@ -339,7 +339,7 @@ pub enum PlayServerBound {
         window_id: i8,
     },
     PluginMessage {
-        channel: Cow<'static, str>,
+        channel: Cow<'a, str>,
         data: Box<[u8]>,
     },
     EditBook,          // todo
@@ -412,23 +412,23 @@ pub enum PlayServerBound {
     UseItem, // todo
 }
 
-impl StatusClientBound {
-    pub fn cb(self) -> ClientBound {
+impl<'a> StatusClientBound<'a> {
+    pub fn cb(self) -> ClientBound<'a> {
         ClientBound::Status(self)
     }
 }
-impl LoginClientBound {
-    pub fn cb(self) -> ClientBound {
+impl<'a> LoginClientBound<'a> {
+    pub fn cb(self) -> ClientBound<'a> {
         ClientBound::Login(self)
     }
 }
-impl PlayClientBound {
-    pub fn cb(self) -> ClientBound {
+impl<'a> PlayClientBound<'a> {
+    pub fn cb(self) -> ClientBound<'a> {
         ClientBound::Play(self)
     }
 }
 
-impl Serializable for ClientBound {
+impl<'a> Serializable for ClientBound<'a> {
     fn to_writer<W: Write>(&self, output: &mut W) -> io::Result<()> {
         match self {
             Self::Status(packet) => packet.to_writer(output),
@@ -438,28 +438,28 @@ impl Serializable for ClientBound {
     }
 }
 
-impl HandshakeServerBound {
-    pub fn sb(self) -> ServerBound {
+impl<'a> HandshakeServerBound<'a> {
+    pub fn sb(self) -> ServerBound<'a> {
         ServerBound::Handshake(self)
     }
 }
 impl StatusServerBound {
-    pub fn sb(self) -> ServerBound {
+    pub fn sb(self) -> ServerBound<'static> {
         ServerBound::Status(self)
     }
 }
-impl LoginServerBound {
-    pub fn sb(self) -> ServerBound {
+impl<'a> LoginServerBound<'a> {
+    pub fn sb(self) -> ServerBound<'a> {
         ServerBound::Login(self)
     }
 }
-impl PlayServerBound {
-    pub fn sb(self) -> ServerBound {
+impl<'a> PlayServerBound<'a> {
+    pub fn sb(self) -> ServerBound<'a> {
         ServerBound::Play(self)
     }
 }
 
-impl Serializable for ServerBound {
+impl<'a> Serializable for ServerBound<'a> {
     fn to_writer<W: Write>(&self, output: &mut W) -> io::Result<()> {
         match self {
             Self::Handshake(packet) => packet.to_writer(output),

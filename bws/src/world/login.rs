@@ -111,8 +111,8 @@ lazy_static! {
 pub struct LoginWorld {
     players: HashMap<usize, (String, PStream)>, // username and stream
     accounts: HashMap<String, String>,          // username -> SHA256 hash of password
-    login_message: Chat,
-    register_message: Chat,
+    login_message: Chat<'static>,
+    register_message: Chat<'static>,
 }
 
 impl LoginWorld {
@@ -206,7 +206,7 @@ impl LoginWorld {
             }
         }
     }
-    async fn handle_packet<'a>(&mut self, id: usize, packet: PlayServerBound) {
+    async fn handle_packet(&mut self, id: usize, packet: PlayServerBound<'static>) {
         match packet {
             PlayServerBound::ChatMessage(message) => {
                 // this world only parses commands

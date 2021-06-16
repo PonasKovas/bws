@@ -53,7 +53,7 @@ impl Deserializable for ChunkSections {
     }
 }
 
-impl Serializable for CommandNode {
+impl<'a> Serializable for CommandNode<'a> {
     fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
         match self {
             CommandNode::Root { children } => {
@@ -118,7 +118,7 @@ impl Serializable for CommandNode {
         Ok(())
     }
 }
-impl Deserializable for CommandNode {
+impl<'a> Deserializable for CommandNode<'a> {
     fn from_reader<R: Read>(input: &mut R) -> Result<Self> {
         todo!()
     }
@@ -136,14 +136,14 @@ impl Serializable for Parser {
     }
 }
 
-impl Serializable for StatusResponse {
+impl<'a> Serializable for StatusResponse<'a> {
     fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
         serde_json::to_string(&self.json)
             .unwrap()
             .to_writer(&mut *output)
     }
 }
-impl Deserializable for StatusResponse {
+impl<'a> Deserializable for StatusResponse<'a> {
     fn from_reader<R: Read>(input: &mut R) -> Result<Self> {
         Ok(Self {
             json: serde_json::from_str(&String::from_reader(input)?)?,
@@ -151,12 +151,12 @@ impl Deserializable for StatusResponse {
     }
 }
 
-impl Serializable for Chat {
+impl<'a> Serializable for Chat<'a> {
     fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
         serde_json::to_string(self)?.to_writer(output)
     }
 }
-impl Deserializable for Chat {
+impl<'a> Deserializable for Chat<'a> {
     fn from_reader<R: Read>(input: &mut R) -> Result<Self> {
         Ok(serde_json::from_str(&String::from_reader(input)?)?)
     }
@@ -255,12 +255,12 @@ impl Deserializable for Position {
     }
 }
 
-impl<T: Serializable + ToOwned + ?Sized> Serializable for Cow<'static, T> {
+impl<'a, T: Serializable + ToOwned + ?Sized> Serializable for Cow<'a, T> {
     fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
         (**self).to_writer(output)
     }
 }
-impl<T: ToOwned + ?Sized> Deserializable for Cow<'static, T>
+impl<'a, T: ToOwned + ?Sized> Deserializable for Cow<'a, T>
 where
     <T as ToOwned>::Owned: Deserializable,
 {
@@ -401,7 +401,7 @@ impl<T: Deserializable, const N: usize> Deserializable for ArrWithLen<T, N> {
     }
 }
 
-impl<T: Serializable> Serializable for MaybeStatic<T> {
+impl<'a, T: Serializable> Serializable for MaybeStatic<'a, T> {
     fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
         match self {
             MaybeStatic::Static(bytes) => {
@@ -414,7 +414,7 @@ impl<T: Serializable> Serializable for MaybeStatic<T> {
         Ok(())
     }
 }
-impl<T: Deserializable> Deserializable for MaybeStatic<T> {
+impl<'a, T: Deserializable> Deserializable for MaybeStatic<'a, T> {
     fn from_reader<R: Read>(input: &mut R) -> Result<Self> {
         Ok(MaybeStatic::Owned(T::from_reader(input)?))
     }

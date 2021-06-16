@@ -144,8 +144,8 @@ async fn handle(socket: TcpStream, state: &mut State) -> Result<()> {
     debug!("{} connected", address);
 
     // create the internal communication channels
-    let (shinput_sender, mut shinput_receiver) = unbounded_channel::<PlayClientBound>();
-    let (mut shoutput_sender, shoutput_receiver) = unbounded_channel::<PlayServerBound>();
+    let (shinput_sender, mut shinput_receiver) = unbounded_channel::<PlayClientBound<'static>>();
+    let (mut shoutput_sender, shoutput_receiver) = unbounded_channel::<PlayServerBound<'static>>();
     let (dc_sender, mut dc_receiver) = oneshot::channel();
 
     // get the stream ready, even thought it might not be used.
@@ -376,7 +376,8 @@ async fn read_and_parse_packet(
                 }
             }
 
-            let uuid = uuid.unwrap_or_else(|| uuid_from_string(&username));
+            let uuid =
+                uuid.unwrap_or_else(|| uuid_from_string(&format!("OfflinePlayer:{}", username)));
 
             // set compression if non-negative
             if GLOBAL_STATE.compression_treshold >= 0 {
@@ -450,7 +451,7 @@ async fn read_packet(
     buffer: &mut Vec<u8>,
     state: &State,
     length: usize,
-) -> tokio::io::Result<ServerBound> {
+) -> tokio::io::Result<ServerBound<'static>> {
     if GLOBAL_STATE.compression_treshold >= 0 && matches!(state, State::Play(_)) {
         // compressed packet format
         let uncompressed_size = read_varint(socket).await?;
@@ -504,10 +505,10 @@ async fn read_packet(
     })
 }
 
-async fn write_packet(
-    socket: &mut BufReader<TcpStream>,
-    buffer: &mut Vec<u8>,
-    packet: ClientBound,
+async fn write_packet<'a>(
+    socket: &'a mut BufReader<TcpStream>,
+    buffer: &'a mut Vec<u8>,
+    packet: ClientBound<'static>,
 ) -> tokio::io::Result<()> {
     buffer.clear();
     if (matches!(packet, ClientBound::Play(_))
@@ -540,7 +541,7 @@ async fn write_packet(
             write_varint(uncompressed_length, socket).await?;
             socket.write_all(&buffer[..]).await?;
         } else {
-            // the packet is not actually compressed
+            // the packet will not actually be compressed
             // ok just send it then
             write_varint(VarInt(uncompressed_length as i32 + 1), socket).await?; // + 1 because the following VarInt is counted too and it's always 1 byte since it's 0
             write_varint(VarInt(0), socket).await?;

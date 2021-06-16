@@ -46,17 +46,17 @@ pub struct Position {
 }
 
 /// Maybe static. Helps save resources when sending the same fixed data to many clients,
-/// because you don't have to clone the data for each one of them, you just serialize a static byte slice
+/// because you don't have to clone the data for each one of them, you just serialize a byte slice
 /// Note that the static variant contains ALREADY SERIALIZED bytes
 /// Use with caution, nothing's going to stop you from sending invalid datatypes.
 #[derive(Debug, Clone)]
-pub enum MaybeStatic<T> {
-    Static(&'static [u8]),
+pub enum MaybeStatic<'a, T> {
+    Static(&'a [u8]),
     Owned(T),
 }
 
-impl<T: Deserializable> MaybeStatic<T> {
-    pub fn into_owned(self: MaybeStatic<T>) -> T {
+impl<'a, T: Deserializable> MaybeStatic<'a, T> {
+    pub fn into_owned(self: MaybeStatic<'a, T>) -> T {
         match self {
             MaybeStatic::Static(bytes) => {
                 T::from_reader(&mut Cursor::<Vec<u8>>::new(bytes.into())).unwrap()
@@ -69,32 +69,32 @@ impl<T: Deserializable> MaybeStatic<T> {
 #[deserializable]
 #[serializable]
 #[derive(Debug, Clone)]
-pub enum PlayerInfo {
-    AddPlayer(Vec<(u128, PlayerInfoAddPlayer)>),
+pub enum PlayerInfo<'a> {
+    AddPlayer(Vec<(u128, PlayerInfoAddPlayer<'a>)>),
     UpdateGamemode(Vec<(u128, PlayerInfoUpdateGamemode)>),
     UpdateLatency(Vec<(u128, PlayerInfoUpdateLatency)>),
-    UpdateDisplayName(Vec<(u128, PlayerInfoUpdateDisplayName)>),
+    UpdateDisplayName(Vec<(u128, PlayerInfoUpdateDisplayName<'a>)>),
     RemovePlayer(Vec<u128>),
 }
 
 #[deserializable]
 #[serializable]
 #[derive(Debug, Clone)]
-pub struct PlayerInfoAddPlayer {
-    pub name: Cow<'static, str>,
-    pub properties: Vec<PlayerInfoAddPlayerProperty>,
+pub struct PlayerInfoAddPlayer<'a> {
+    pub name: Cow<'a, str>,
+    pub properties: Vec<PlayerInfoAddPlayerProperty<'a>>,
     pub gamemode: Gamemode,
     pub ping: VarInt,
-    pub display_name: Option<Chat>,
+    pub display_name: Option<Chat<'a>>,
 }
 
 #[deserializable]
 #[serializable]
 #[derive(Debug, Clone)]
-pub struct PlayerInfoAddPlayerProperty {
-    pub name: Cow<'static, str>,
-    pub value: Cow<'static, str>,
-    pub signature: Option<Cow<'static, str>>,
+pub struct PlayerInfoAddPlayerProperty<'a> {
+    pub name: Cow<'a, str>,
+    pub value: Cow<'a, str>,
+    pub signature: Option<Cow<'a, str>>,
 }
 
 #[deserializable]
@@ -115,8 +115,8 @@ pub struct PlayerInfoUpdateLatency {
 #[deserializable]
 #[serializable]
 #[derive(Debug, Clone)]
-pub struct PlayerInfoUpdateDisplayName {
-    pub display_name: Option<Chat>,
+pub struct PlayerInfoUpdateDisplayName<'a> {
+    pub display_name: Option<Chat<'a>>,
 }
 
 #[deserializable]
@@ -176,10 +176,10 @@ pub enum Chunk {
 #[deserializable]
 #[serializable]
 #[derive(Debug, Clone)]
-pub enum TitleAction {
-    SetTitle(Chat),
-    SetSubtitle(Chat),
-    SetActionBar(Chat),
+pub enum TitleAction<'a> {
+    SetTitle(Chat<'a>),
+    SetSubtitle(Chat<'a>),
+    SetActionBar(Chat<'a>),
     SetDisplayTime {
         // time in ticks
         fade_in: i32,
@@ -193,8 +193,8 @@ pub enum TitleAction {
 #[deserializable]
 #[serializable]
 #[derive(Debug, Clone)]
-pub struct Tags {
-    pub name: Cow<'static, str>,
+pub struct Tags<'a> {
+    pub name: Cow<'a, str>,
     pub entries: Vec<VarInt>,
 }
 
@@ -216,7 +216,7 @@ pub enum Palette {
 }
 
 #[derive(Debug, Clone)]
-pub enum CommandNode {
+pub enum CommandNode<'a> {
     Root {
         // indices of the children
         children: Vec<VarInt>,
@@ -225,15 +225,15 @@ pub enum CommandNode {
         executable: bool,
         children: Vec<VarInt>,
         redirect: Option<VarInt>,
-        name: Cow<'static, str>,
+        name: Cow<'a, str>,
     },
     Argument {
         executable: bool,
         children: Vec<VarInt>,
         redirect: Option<VarInt>,
-        name: Cow<'static, str>,
+        name: Cow<'a, str>,
         parser: Parser,
-        suggestions: Option<Cow<'static, str>>,
+        suggestions: Option<Cow<'a, str>>,
     },
 }
 
@@ -391,39 +391,39 @@ pub enum SoundCategory {
 }
 
 #[derive(Debug, Clone)]
-pub struct StatusResponse {
-    pub json: StatusResponseJson,
+pub struct StatusResponse<'a> {
+    pub json: StatusResponseJson<'a>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct StatusResponseJson {
-    pub version: StatusVersion,
-    pub players: StatusPlayers,
-    pub description: Chat,
-    pub favicon: Cow<'static, str>,
+pub struct StatusResponseJson<'a> {
+    pub version: StatusVersion<'a>,
+    pub players: StatusPlayers<'a>,
+    pub description: Chat<'a>,
+    pub favicon: Cow<'a, str>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct StatusVersion {
-    pub name: Cow<'static, str>,
+pub struct StatusVersion<'a> {
+    pub name: Cow<'a, str>,
     pub protocol: i32,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct StatusPlayers {
+pub struct StatusPlayers<'a> {
     pub max: i32,
     pub online: i32,
-    pub sample: Vec<StatusPlayerSampleEntry>,
+    pub sample: Vec<StatusPlayerSampleEntry<'a>>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct StatusPlayerSampleEntry {
-    pub name: Cow<'static, str>,
-    pub id: Cow<'static, str>,
+pub struct StatusPlayerSampleEntry<'a> {
+    pub name: Cow<'a, str>,
+    pub id: Cow<'a, str>,
 }
 
-impl StatusPlayerSampleEntry {
-    pub fn new(name: Cow<'static, str>) -> Self {
+impl<'a> StatusPlayerSampleEntry<'a> {
+    pub fn new(name: Cow<'a, str>) -> Self {
         Self {
             name,
             id: "00000000-0000-0000-0000-000000000000".into(),
@@ -433,8 +433,8 @@ impl StatusPlayerSampleEntry {
 
 // chat objects are represented in JSON so we use serde
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct Chat {
-    pub text: String,
+pub struct Chat<'a> {
+    pub text: Cow<'a, str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bold: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -446,15 +446,15 @@ pub struct Chat {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub obfuscated: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub color: Option<String>,
+    pub color: Option<Cow<'a, str>>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub extra: Vec<Chat>,
+    pub extra: Vec<Chat<'a>>,
 }
 
-impl Chat {
+impl<'a> Chat<'a> {
     pub fn new() -> Self {
         Self {
-            text: "".to_string(),
+            text: "".into(),
             bold: None,
             italic: None,
             underlined: None,
