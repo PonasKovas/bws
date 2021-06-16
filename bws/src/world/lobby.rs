@@ -255,6 +255,17 @@ impl LobbyWorld {
             id: VarInt(0),
         })?;
 
+        stream.send(PlayClientBound::WindowItems {
+            window_id: 0,
+            slots: ArrWithLen::new([(); 46].map(|_| {
+                Slot(Some(InnerSlot {
+                    item_id: VarInt(310),
+                    item_count: 127,
+                    nbt: Nbt(quartz_nbt::NbtCompound::new()),
+                }))
+            })),
+        })?;
+
         stream.send(PlayClientBound::WorldBorder(
             WorldBorderAction::Initialize {
                 x: 0.0,
@@ -465,7 +476,9 @@ impl LobbyWorld {
                 Chunk::Full {
                     primary_bitmask: VarInt(primary_bitmask),
                     heightmaps: Nbt(quartz_nbt::NbtCompound::new()),
-                    biomes: ArrWithLen(self.chunks[chunk_index].biomes.clone().map(|e| VarInt(e))),
+                    biomes: ArrWithLen::new(
+                        self.chunks[chunk_index].biomes.clone().map(|e| VarInt(e)),
+                    ),
                     sections: ChunkSections(chunk_sections),
                     block_entities: Vec::new(),
                 }
@@ -474,7 +487,7 @@ impl LobbyWorld {
                 Chunk::Full {
                     primary_bitmask: VarInt(0b0),
                     heightmaps: Nbt(quartz_nbt::NbtCompound::new()),
-                    biomes: ArrWithLen([VarInt(174); 1024]),
+                    biomes: ArrWithLen::new([VarInt(174); 1024]),
                     sections: ChunkSections(vec![]),
                     block_entities: Vec::new(),
                 }

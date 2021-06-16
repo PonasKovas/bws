@@ -153,10 +153,13 @@ pub enum PlayClientBound<'a> {
     },
     WindowConfirmation, // todo
     CloseWindow,        // todo
-    WindowItems,        // todo
-    WindowProperty,     // todo
-    SetSlot,            // todo
-    SetCooldown,        // todo
+    WindowItems {
+        window_id: u8,
+        slots: ArrWithLen<Slot, u16, 46>,
+    },
+    WindowProperty, // todo
+    SetSlot,        // todo
+    SetCooldown,    // todo
     PluginMessage {
         channel: Cow<'a, str>,
         data: Box<[u8]>,
