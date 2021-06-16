@@ -167,6 +167,7 @@ async fn handle(socket: TcpStream, state: &mut State) -> Result<()> {
 
     let mut next_keepalive = Instant::now() + Duration::from_secs(5);
     let mut last_keepalive_received = Instant::now();
+    let mut last_keepalive_sent = Instant::now();
 
     loop {
         // tokio::select - whichever arrives first: data from the TcpStream,
@@ -188,6 +189,7 @@ async fn handle(socket: TcpStream, state: &mut State) -> Result<()> {
                 &mut player_stream,
                 &mut shoutput_sender,
                 &mut last_keepalive_received,
+                last_keepalive_sent,
                 first_byte
             ).await?,
             message = shinput_receiver.recv() => {
@@ -206,8 +208,10 @@ async fn handle(socket: TcpStream, state: &mut State) -> Result<()> {
                     if Instant::now().duration_since(last_keepalive_received).as_secs_f32() > 30.0 {
                         bail!("Client timed out ({})", address);
                     }
+
                     // send the keep alive packet
                     write_packet(&mut socket, &mut buffer, PlayClientBound::KeepAlive(0).cb()).await?;
+                    last_keepalive_sent = Instant::now();
                 }
                 next_keepalive += Duration::from_secs(5);
             },
@@ -224,6 +228,7 @@ async fn read_and_parse_packet(
     player_stream: &mut Option<PlayerStream>,
     shoutput_sender: &mut SHOutputSender,
     last_keepalive_received: &mut Instant,
+    last_keepalive_sent: Instant,
     first_byte: Result<u8, tokio::io::Error>,
 ) -> Result<()> {
     // read the rest of the VarInt
@@ -405,6 +410,7 @@ async fn read_and_parse_packet(
                 address: address.clone(),
                 uuid,
                 properties,
+                ping: 0.0,
                 view_distance: None,
             });
             *state = State::Play(global_id);
@@ -418,6 +424,14 @@ async fn read_and_parse_packet(
         ServerBound::Play(PlayServerBound::KeepAlive(_)) => {
             // Reset the timeout timer
             *last_keepalive_received = Instant::now();
+
+            // update client ping
+            if let State::Play(id) = state {
+                GLOBAL_STATE.players.write().await[*id].ping = Instant::now()
+                    .duration_since(last_keepalive_sent)
+                    .as_secs_f32()
+                    / 1000.0;
+            }
         }
         ServerBound::Play(PlayServerBound::ClientSettings {
             locale: _,
