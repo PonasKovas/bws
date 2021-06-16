@@ -3,10 +3,10 @@ use std::net::SocketAddr;
 use protocol::packets::{PlayClientBound, PlayServerBound};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
-pub type SHInputSender = UnboundedSender<PlayClientBound>;
-pub type SHInputReceiver = UnboundedReceiver<PlayClientBound>;
-pub type SHOutputSender = UnboundedSender<PlayServerBound>;
-pub type SHOutputReceiver = UnboundedReceiver<PlayServerBound>;
+pub type SHInputSender = UnboundedSender<PlayClientBound<'static>>;
+pub type SHInputReceiver = UnboundedReceiver<PlayClientBound<'static>>;
+pub type SHOutputSender = UnboundedSender<PlayServerBound<'static>>;
+pub type SHOutputReceiver = UnboundedReceiver<PlayServerBound<'static>>;
 pub type WSender = UnboundedSender<WBound>;
 pub type WReceiver = UnboundedReceiver<WBound>;
 

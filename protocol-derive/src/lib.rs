@@ -9,13 +9,14 @@ pub fn serializable(_attr: TokenStream, mut item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(temp as DeriveInput);
 
     let name = input.ident;
+    let generics = input.generics;
 
     match input.data {
         Data::Struct(datastruct) => match datastruct.fields {
             Fields::Named(fields) => {
                 let field_names = fields.named.iter().map(|f| &f.ident);
                 item.extend(TokenStream::from(quote! {
-                    impl Serializable for #name {
+                    impl#generics Serializable for #name#generics {
                         fn to_writer<W: ::std::io::Write>(&self, output: &mut W) -> ::std::io::Result<()> {
                             #(Serializable::to_writer(&self.#field_names, &mut *output)?;)*
                             Ok(())
@@ -29,7 +30,7 @@ pub fn serializable(_attr: TokenStream, mut item: TokenStream) -> TokenStream {
                     span: quote::__private::Span::call_site(),
                 });
                 item.extend(TokenStream::from(quote! {
-                    impl Serializable for #name {
+                    impl#generics Serializable for #name#generics {
                         fn to_writer<W: ::std::io::Write>(&self, output: &mut W) -> ::std::io::Result<()> {
                             #(Serializable::to_writer(&self.#field_indices, &mut *output)?;)*
                             Ok(())
@@ -39,7 +40,7 @@ pub fn serializable(_attr: TokenStream, mut item: TokenStream) -> TokenStream {
             }
             Fields::Unit => {
                 item.extend(TokenStream::from(quote! {
-                    impl Serializable for #name {
+                    impl#generics Serializable for #name#generics {
                         fn to_writer<W: ::std::io::Write>(&self, output: &mut W) -> ::std::io::Result<()> {
                             Ok(())
                         }
@@ -116,7 +117,7 @@ pub fn serializable(_attr: TokenStream, mut item: TokenStream) -> TokenStream {
                 discriminant += 1;
             }
             item.extend(TokenStream::from(quote! {
-                impl Serializable for #name {
+                impl#generics Serializable for #name#generics {
                     fn to_writer<W: ::std::io::Write>(&self, output: &mut W) -> ::std::io::Result<()> {
                         match self {
                             #(Self::#variants => {
@@ -142,13 +143,14 @@ pub fn deserializable(_attr: TokenStream, mut item: TokenStream) -> TokenStream 
     let input = parse_macro_input!(temp as DeriveInput);
 
     let name = input.ident;
+    let generics = input.generics;
 
     match input.data {
         Data::Struct(datastruct) => match datastruct.fields {
             Fields::Named(fields) => {
                 let field_names = fields.named.iter().map(|f| &f.ident);
                 item.extend(TokenStream::from(quote! {
-                    impl Deserializable for #name {
+                    impl#generics Deserializable for #name#generics {
                         fn from_reader<R: ::std::io::Read>(input: &mut R) -> ::std::io::Result<Self> {
                             Ok(Self {
                                 #(#field_names: Deserializable::from_reader(&mut *input)?,)*
@@ -160,7 +162,7 @@ pub fn deserializable(_attr: TokenStream, mut item: TokenStream) -> TokenStream 
             Fields::Unnamed(fields) => {
                 let field_types = fields.unnamed.iter().map(|f| &f.ty);
                 item.extend(TokenStream::from(quote! {
-                    impl Deserializable for #name {
+                    impl#generics Deserializable for #name#generics {
                         fn from_reader<R: ::std::io::Read>(input: &mut R) -> ::std::io::Result<Self> {
                             Ok(Self (
                                 #({
@@ -174,7 +176,7 @@ pub fn deserializable(_attr: TokenStream, mut item: TokenStream) -> TokenStream 
             }
             Fields::Unit => {
                 item.extend(TokenStream::from(quote! {
-                    impl Deserializable for #name {
+                    impl#generics Deserializable for #name#generics {
                         fn from_reader<R: ::std::io::Read>(input: &mut R) -> ::std::io::Result<Self> {
                             Ok(Self{})
                         }
@@ -232,7 +234,7 @@ pub fn deserializable(_attr: TokenStream, mut item: TokenStream) -> TokenStream 
                 discriminant += 1;
             }
             item.extend(TokenStream::from(quote! {
-                impl Deserializable for #name {
+                impl#generics Deserializable for #name#generics {
                     fn from_reader<R: ::std::io::Read>(input: &mut R) -> ::std::io::Result<Self> {
                         let discriminant: VarInt = Deserializable::from_reader(&mut *input)?;
                         match discriminant.0 {

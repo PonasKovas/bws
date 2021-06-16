@@ -772,6 +772,7 @@ dependencies = [
 name = "protocol-derive"
 version = "0.1.0"
 dependencies = [
+ "protocol",
  "quote",
  "syn",
 ]

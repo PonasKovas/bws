@@ -22,9 +22,9 @@ pub struct GlobalState {
     pub compression_treshold: i32,
     pub port: u16,
     // mutable
-    pub description: Mutex<Chat>,
+    pub description: Mutex<Chat<'static>>,
     pub favicon: Mutex<String>,
-    pub player_sample: Mutex<Vec<StatusPlayerSampleEntry>>,
+    pub player_sample: Mutex<Vec<StatusPlayerSampleEntry<'static>>>,
     pub max_players: Mutex<i32>,
     pub w_login: ic::WSender,
     pub w_lobby: ic::WSender,
@@ -39,7 +39,7 @@ pub struct Player {
     pub username: String,
     pub address: SocketAddr,
     pub uuid: u128,
-    pub properties: Vec<PlayerInfoAddPlayerProperty>,
+    pub properties: Vec<PlayerInfoAddPlayerProperty<'static>>,
     pub view_distance: Option<i8>,
 }
 
@@ -57,14 +57,14 @@ pub enum StreamError {
 }
 
 impl PlayerStream {
-    pub fn send(&mut self, packet: PlayClientBound) -> Result<(), StreamError> {
+    pub fn send(&mut self, packet: PlayClientBound<'static>) -> Result<(), StreamError> {
         self.sender
             .send(packet)
             .map_err(|_| StreamError::StreamError)
     }
     /// Returns Err if the player has disconnected
     /// And None, if the player is connected, but no packets in queue
-    pub fn try_recv(&mut self) -> Result<Option<PlayServerBound>, StreamError> {
+    pub fn try_recv(&mut self) -> Result<Option<PlayServerBound<'static>>, StreamError> {
         // Tries executing the recv() exactly once. If there's a message in the queue it will return it
         // If not, it will also immediatelly return with a None
         let message = match unconstrained(self.receiver.recv()).now_or_never() {

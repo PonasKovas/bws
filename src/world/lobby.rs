@@ -245,7 +245,7 @@ impl LobbyWorld {
         }))?;
 
         stream.send(PlayClientBound::PlayerListHeaderAndFooter {
-            header: chat_parse("§bBWS §alobby"),
+            header: chat_parse("§f§lBWS §rlobby"),
             footer: chat_parse(""),
         })?;
 
@@ -432,7 +432,7 @@ impl LobbyWorld {
             }
         }
     }
-    async fn handle_packet<'a>(&mut self, id: usize, packet: PlayServerBound) {
+    async fn handle_packet(&mut self, id: usize, packet: PlayServerBound<'static>) {
         match packet {
             PlayServerBound::ChatMessage(message) => {
                 for (_, player) in &self.players {

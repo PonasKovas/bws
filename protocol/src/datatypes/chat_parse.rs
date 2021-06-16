@@ -1,6 +1,6 @@
 use super::*;
 
-pub fn parse<T: AsRef<str>>(input: T) -> Chat {
+pub fn parse<'a, T: AsRef<str>>(input: T) -> Chat<'a> {
     let mut result = Chat::new();
     let mut innermost = &mut result;
     let mut escaping = false;
@@ -13,11 +13,11 @@ pub fn parse<T: AsRef<str>>(input: T) -> Chat {
             } else if character == '§' {
                 modifying = true;
             } else {
-                innermost.text.push(character);
+                innermost.text.to_mut().push(character);
             }
         } else {
             if escaping {
-                innermost.text.push(character);
+                innermost.text.to_mut().push(character);
                 escaping = false;
             } else if modifying {
                 if innermost.text.len() > 0 {
@@ -47,55 +47,55 @@ pub fn parse<T: AsRef<str>>(input: T) -> Chat {
                         innermost.strikethrough = Some(false);
                         innermost.underlined = Some(false);
                         innermost.italic = Some(false);
-                        innermost.color = Some("reset".to_string());
+                        innermost.color = Some("reset".into());
                     }
                     '0' => {
-                        innermost.color = Some("black".to_string());
+                        innermost.color = Some("black".into());
                     }
                     '1' => {
-                        innermost.color = Some("dark_blue".to_string());
+                        innermost.color = Some("dark_blue".into());
                     }
                     '2' => {
-                        innermost.color = Some("dark_green".to_string());
+                        innermost.color = Some("dark_green".into());
                     }
                     '3' => {
-                        innermost.color = Some("dark_aqua".to_string());
+                        innermost.color = Some("dark_aqua".into());
                     }
                     '4' => {
-                        innermost.color = Some("dark_red".to_string());
+                        innermost.color = Some("dark_red".into());
                     }
                     '5' => {
-                        innermost.color = Some("dark_purple".to_string());
+                        innermost.color = Some("dark_purple".into());
                     }
                     '6' => {
-                        innermost.color = Some("gold".to_string());
+                        innermost.color = Some("gold".into());
                     }
                     '7' => {
-                        innermost.color = Some("gray".to_string());
+                        innermost.color = Some("gray".into());
                     }
                     '8' => {
-                        innermost.color = Some("dark_gray".to_string());
+                        innermost.color = Some("dark_gray".into());
                     }
                     '9' => {
-                        innermost.color = Some("blue".to_string());
+                        innermost.color = Some("blue".into());
                     }
                     'a' => {
-                        innermost.color = Some("green".to_string());
+                        innermost.color = Some("green".into());
                     }
                     'b' => {
-                        innermost.color = Some("aqua".to_string());
+                        innermost.color = Some("aqua".into());
                     }
                     'c' => {
-                        innermost.color = Some("red".to_string());
+                        innermost.color = Some("red".into());
                     }
                     'd' => {
-                        innermost.color = Some("light_purple".to_string());
+                        innermost.color = Some("light_purple".into());
                     }
                     'e' => {
-                        innermost.color = Some("yellow".to_string());
+                        innermost.color = Some("yellow".into());
                     }
                     'f' => {
-                        innermost.color = Some("white".to_string());
+                        innermost.color = Some("white".into());
                     }
                     _ => {}
                 }
