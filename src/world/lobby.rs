@@ -568,8 +568,9 @@ impl LobbyWorld {
             PlayServerBound::Animation { hand } => {
                 for (r_id, player) in &self.players {
                     if *r_id == id {
-                        return;
+                        continue;
                     }
+
                     let _ = player
                         .stream
                         .lock()
