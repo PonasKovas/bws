@@ -18,6 +18,7 @@ use protocol::{Deserializable, Serializable};
 use serde::Deserialize;
 use serde_json::to_string_pretty;
 use serde_json::{json, to_string};
+use std::cmp::min;
 use std::io::Cursor;
 use std::io::Write;
 use std::net::SocketAddr;
@@ -449,6 +450,15 @@ async fn read_and_parse_packet(
                     .get_mut(*id)
                     .unwrap()
                     .view_distance = Some(view_distance);
+
+                // and make the client think the server's view distance is the same
+                // (as long as its not higher than 16, since thats the limit of this server)
+                write_packet(
+                    socket,
+                    buffer,
+                    PlayClientBound::UpdateViewDistance(VarInt(min(16, view_distance as i32))).cb(),
+                )
+                .await?;
             }
         }
         ServerBound::Play(other) => {
