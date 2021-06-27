@@ -123,7 +123,7 @@ pub async fn handle_stream(socket: TcpStream) {
 
     if let Err(e) = handle(socket, &mut state).await {
         if e.is::<std::io::Error>() {
-            debug!("IO error: {}", e);
+            debug!("IO error: {:?}", e);
         } else if e.is::<mpsc::error::SendError<ServerBound>>() || e.is::<mpsc::error::RecvError>()
         {
             error!("PlayerStream dropped before the actual task ended: {}", e);
