@@ -176,6 +176,52 @@ impl Deserializable for Nbt {
     }
 }
 
+impl Serializable for OptionalNbt {
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
+        match &self.0 {
+            None => {
+                // the TAG_END is 0 so just write a 0
+                0u8.to_writer(output)?;
+            }
+            Some(nbt) => {
+                quartz_nbt::write::write_nbt_uncompressed(output, "", nbt)?;
+            }
+        }
+
+        Ok(())
+    }
+}
+impl Deserializable for OptionalNbt {
+    fn from_reader<R: Read>(input: &mut R) -> Result<Self> {
+        let first_byte = u8::from_reader(input)?;
+
+        if first_byte == 0 {
+            Ok(Self(None))
+        } else {
+            // a wrapper hack so I could peek at the first byte and then reuse it
+            struct Wrapper<R>(Option<u8>, R);
+            impl<R: Read> Read for Wrapper<R> {
+                fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+                    if buf.len() == 0 {
+                        return Ok(0);
+                    }
+                    if let Some(b) = self.0.take() {
+                        buf[0] = b;
+                        Ok(1)
+                    } else {
+                        self.1.read(buf)
+                    }
+                }
+            }
+
+            let mut reader = Wrapper(Some(first_byte), input);
+            Ok(Self(Some(
+                quartz_nbt::read::read_nbt_uncompressed(&mut reader)?.0,
+            )))
+        }
+    }
+}
+
 impl Serializable for VarInt {
     fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
         let mut number = self.0 as u32;

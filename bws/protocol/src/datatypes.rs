@@ -35,6 +35,11 @@ impl<T, L, const N: usize> ArrWithLen<T, L, N> {
 #[shrinkwrap(mutable)]
 pub struct Nbt(pub quartz_nbt::NbtCompound);
 
+/// the same as normal Nbt, except that it allows for it to be just a single TAG_END byte, without any actual data.
+#[derive(Shrinkwrap, Debug, Clone)]
+#[shrinkwrap(mutable)]
+pub struct OptionalNbt(pub Option<quartz_nbt::NbtCompound>);
+
 #[deserializable]
 #[serializable]
 #[derive(Debug, Clone)]
@@ -234,7 +239,7 @@ pub struct Slot(pub Option<InnerSlot>);
 pub struct InnerSlot {
     pub item_id: VarInt,
     pub item_count: i8,
-    pub nbt: Nbt,
+    pub nbt: OptionalNbt,
 }
 
 #[derive(Debug, Clone)]

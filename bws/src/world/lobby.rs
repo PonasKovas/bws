@@ -47,6 +47,7 @@ struct Player {
     new_on_ground: bool,
     uuid: u128,
     loaded_chunks: Vec<(i8, i8)>, // i8s work because the worlds aren't going to be that big
+    inventory: [Slot; 46],
 }
 
 #[derive(Debug, Clone)]
@@ -174,6 +175,7 @@ impl LobbyWorld {
                             new_on_ground: false,
                             uuid,
                             loaded_chunks: Vec::new(),
+                            inventory: [(); 46].map(|_| Slot(None)),
                         },
                     );
 
@@ -257,13 +259,7 @@ impl LobbyWorld {
 
         stream.send(PlayClientBound::WindowItems {
             window_id: 0,
-            slots: ArrWithLen::new([(); 46].map(|_| {
-                Slot(Some(InnerSlot {
-                    item_id: VarInt(310),
-                    item_count: 127,
-                    nbt: Nbt(quartz_nbt::NbtCompound::new()),
-                }))
-            })),
+            slots: ArrWithLen::new([(); 46].map(|_| Slot(None))),
         })?;
 
         stream.send(PlayClientBound::WorldBorder(
@@ -305,7 +301,7 @@ impl LobbyWorld {
         }))?;
 
         stream.send(PlayClientBound::PlayerListHeaderAndFooter {
-            header: chat_parse("                    §f§lBWS §rlobby                    "),
+            header: chat_parse("\n                    §f§lBWS §rlobby                    \n"),
             footer: chat_parse(""),
         })?;
 
@@ -597,6 +593,25 @@ impl LobbyWorld {
                         });
                 }
             }
+            PlayServerBound::CreativeInventoryAction { slot, item } => {
+                // first make sure the client even has the permissions
+                // (todo)
+
+                // some sanity checks
+                if !(-1..=45).contains(&slot) {
+                    debug!(
+                        "Client {} sent CreativeInventoryAction with invalid slot id ({})",
+                        id, slot
+                    );
+                    return;
+                }
+                if slot < 0 {
+                    // should drop the item
+                    // but no need for this in the lobby
+                } else {
+                    self.players.get_mut(&id).unwrap().inventory[slot as usize] = item;
+                }
+            }
             PlayServerBound::PlayerBlockPlacement {
                 hand: _,
                 location: _,
@@ -637,11 +652,13 @@ impl LobbyWorld {
                     //         target.x += 1;
                     //     }
                     // }
+                    // this belongs in block placement too lmao wth
 
                     if !(0..255).contains(&location.y) {
                         debug!("StartedDigging packet received with the coordinates out of range! Disconnecting.");
                         self.players[&id].stream.lock().await.disconnect();
                     }
+
                     if let Err(e) = self.break_block(location).await {
                         debug!("Error breaking block: {:?}", e);
                     }

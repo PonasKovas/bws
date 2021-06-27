@@ -432,10 +432,13 @@ pub enum PlayServerBound<'a> {
     HeldItemChange,             // todo
     UpdateCommandBlock,         // todo
     UpdateCommandBlockMinecart, // todo
-    CreativeInventoryAction,    // todo
-    UpdateJigsawBlock,          // todo
-    UpdateStructureBlock,       // todo
-    UpdateSign,                 // todo
+    CreativeInventoryAction {
+        slot: i16,
+        item: Slot,
+    },
+    UpdateJigsawBlock,    // todo
+    UpdateStructureBlock, // todo
+    UpdateSign,           // todo
     Animation {
         hand: MainHand,
     },
