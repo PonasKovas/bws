@@ -596,6 +596,7 @@ impl LobbyWorld {
             PlayServerBound::CreativeInventoryAction { slot, item } => {
                 // first make sure the client even has the permissions
                 // (todo)
+                //
 
                 // some sanity checks
                 if !(-1..=45).contains(&slot) {
