@@ -60,16 +60,22 @@ pub struct Opt {
     /// The maximum number of bytes before the packet is compressed. Negative means no compression.
     #[structopt(long, default_value = "256", env = "COMPRESSION_TRESHOLD")]
     pub compression_treshold: i32,
+
+    /// If set, the application will not log timestamps. Useful when using with systemd, because it logs timestamps itself.
+    #[structopt(long, env = "DISABLE_TIMESTAMPS")]
+    pub disable_timestamps: bool,
+}
+
+lazy_static! {
+    static ref OPT: Opt = Opt::from_args();
 }
 
 lazy_static! {
     static ref GLOBAL_STATE: GlobalState = {
-        let opt = Opt::from_args();
-
-        let favicon = match std::fs::read(&opt.favicon) {
+        let favicon = match std::fs::read(&OPT.favicon) {
             Ok(f) => f,
             Err(e) => {
-                error!("Couldn't load the favicon ({:?})! {}", opt.favicon, e);
+                error!("Couldn't load the favicon ({:?})! {}", OPT.favicon, e);
                 warn!("Falling back to the default embedded favicon!");
 
                 incl!("assets/favicon.png").to_vec()
@@ -78,17 +84,17 @@ lazy_static! {
 
         // parse the player sample to the format minecraft requires
         let mut player_sample = Vec::new();
-        for line in opt.player_sample.lines() {
+        for line in OPT.player_sample.lines() {
             player_sample.push(StatusPlayerSampleEntry::new(line.to_owned().into()));
         }
         GlobalState {
-            description: Mutex::new(chat_parse(opt.description)),
+            description: Mutex::new(chat_parse(OPT.description.clone())),
             favicon: Mutex::new(format!(
                 "data:image/png;base64,{}",
                 base64::encode(favicon)
             )),
             player_sample: Mutex::new(player_sample),
-            max_players: Mutex::new(opt.max_players),
+            max_players: Mutex::new(OPT.max_players),
             players: RwLock::new(Slab::new()),
             w_login: match world::login::start() {
                 Ok(w) => w,
@@ -98,8 +104,8 @@ lazy_static! {
                 },
             },
             w_lobby: world::lobby::start(),
-            compression_treshold: opt.compression_treshold,
-            port: opt.port,
+            compression_treshold: OPT.compression_treshold,
+            port: OPT.port,
         }
     };
 }
@@ -108,6 +114,11 @@ lazy_static! {
 async fn main() -> Result<()> {
     env_logger::builder()
         .filter_level(log::LevelFilter::Info)
+        .format_timestamp(if OPT.disable_timestamps {
+            None
+        } else {
+            Some(Default::default())
+        })
         .parse_default_env()
         .init();
 
