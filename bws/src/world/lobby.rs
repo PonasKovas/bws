@@ -48,8 +48,10 @@ struct Player {
     uuid: u128,
     loaded_chunks: Vec<(i8, i8)>, // i8s work because the worlds aren't going to be that big
     inventory: [Slot; 46],
+    held_item: i16,
 }
 
+// todo why am i not using the datatype from the protocol?
 #[derive(Debug, Clone)]
 struct WorldChunk {
     biomes: Box<[i32; 1024]>, // damn you stack overflows!
@@ -57,10 +59,9 @@ struct WorldChunk {
 }
 
 #[derive(Debug, Clone)]
-
 struct WorldChunkSection {
     block_mappings: Vec<VarInt>,
-    blocks: Vec<i64>,
+    blocks: Vec<u64>,
 }
 
 pub struct LobbyWorld {
@@ -176,6 +177,7 @@ impl LobbyWorld {
                             uuid,
                             loaded_chunks: Vec::new(),
                             inventory: [(); 46].map(|_| Slot(None)),
+                            held_item: 0,
                         },
                     );
 
@@ -409,7 +411,7 @@ impl LobbyWorld {
             .unwrap_or(8);
 
         // the limit is 16, nerds
-        let cvd = min(16, client_view_distance);
+        let cvd = min(16, client_view_distance + 2);
 
         let mut needed_chunks = Vec::with_capacity(2 * cvd as usize); // should be enough in most cases
         for z in -cvd..cvd {
@@ -612,17 +614,54 @@ impl LobbyWorld {
                     self.players.get_mut(&id).unwrap().inventory[slot as usize] = item;
                 }
             }
+            PlayServerBound::HeldItemChange { slot } => {
+                self.players.get_mut(&id).unwrap().held_item = slot;
+            }
             PlayServerBound::PlayerBlockPlacement {
-                hand: _,
-                location: _,
-                face: _,
+                hand,
+                location,
+                face,
                 cursor_position_x: _,
                 cursor_position_y: _,
                 cursor_position_z: _,
                 inside_block: _,
             } => {
-                // todo
-                // oops turns out first we need to handle the inventory
+                let mut target = location.clone();
+                match face {
+                    Face::Bottom => {
+                        target.y -= 1;
+                    }
+                    Face::Top => {
+                        target.y += 1;
+                    }
+                    Face::North => {
+                        target.z -= 1;
+                    }
+                    Face::South => {
+                        target.z += 1;
+                    }
+                    Face::West => {
+                        target.x -= 1;
+                    }
+                    Face::East => {
+                        target.x += 1;
+                    }
+                }
+
+                // get the item in hand of player
+                // let block = match hand {
+                //     MainHand::Left => {
+
+                //     }
+                //     MainHand::Right => {
+
+                //     }
+                // };
+                let block = 1;
+
+                if let Err(e) = self.set_block(target, block).await {
+                    debug!("Error placing block: {:?}", e);
+                }
             }
             PlayServerBound::PlayerDigging {
                 status,
@@ -631,35 +670,12 @@ impl LobbyWorld {
             } => match status {
                 // this means block broken but only when in creative mode
                 PlayerDiggingStatus::StartedDigging => {
-                    // let mut target = location.clone();
-                    // match face {
-                    //     Face::Bottom => {
-                    //         target.y -= 1;
-                    //     }
-                    //     Face::Top => {
-                    //         target.y += 1;
-                    //     }
-                    //     Face::North => {
-                    //         target.z -= 1;
-                    //     }
-                    //     Face::South => {
-                    //         target.z += 1;
-                    //     }
-                    //     Face::West => {
-                    //         target.x -= 1;
-                    //     }
-                    //     Face::East => {
-                    //         target.x += 1;
-                    //     }
-                    // }
-                    // this belongs in block placement too lmao wth
-
                     if !(0..255).contains(&location.y) {
                         debug!("StartedDigging packet received with the coordinates out of range! Disconnecting.");
                         self.players[&id].stream.lock().await.disconnect();
                     }
 
-                    if let Err(e) = self.break_block(location).await {
+                    if let Err(e) = self.set_block(location, 0).await {
                         debug!("Error breaking block: {:?}", e);
                     }
                 }
@@ -680,70 +696,81 @@ impl LobbyWorld {
             }
         }
     }
-    async fn break_block(&mut self, block: Position) -> Result<()> {
-        let block_chunk = (block.x / 16, block.y / 16, block.z / 16);
+    async fn set_block(&mut self, position: Position, glob_block: i32) -> Result<()> {
+        let mut block_chunk = (position.x / 16, position.y / 16, position.z / 16);
+        if position.x < 0 {
+            block_chunk.0 -= 1;
+        }
+        if position.z < 0 {
+            block_chunk.2 -= 1;
+        }
+
         // block position relative to the chunk
         let iblock = Position {
-            x: ((block.x % 16) + 16) % 16,
-            y: ((block.y % 16) + 16) % 16,
-            z: ((block.z % 16) + 16) % 16,
+            x: ((position.x % 16) + 16) % 16,
+            y: ((position.y % 16) + 16) % 16,
+            z: ((position.z % 16) + 16) % 16,
         };
 
         let section = &mut self.chunks[get_chunk_index(block_chunk.0 as i8, block_chunk.2 as i8)]
             .sections[block_chunk.1 as usize];
 
-        // This belongs in the block placement lmao my head isnt working
+        if section.is_none() {
+            // initialize the section with air
+            section.replace(WorldChunkSection {
+                block_mappings: vec![VarInt(0)],
+                blocks: vec![0u64; 256],
+            });
+        }
+
+        let section = section.as_mut().unwrap();
+
+        // removing blocks from the palette would require remapping of the whole chunk section
+        // with little benefit, so we're just not gonna do that right now.
+        // maybe later.
         //
-        // if section.is_none() {
-        //     // initialize the section with air
-        //     section.replace(WorldChunkSection {
-        //         block_mappings: vec![VarInt(0)],
-        //         blocks: vec![0i64; 256],
-        //     });
+        // // adjust palette
+        // // might want to remove a block from the palette if the block which was previously
+        // // in this position is no longer present in the whole section
+        // // so get the block that was in that position previously
+        // let old_block = get_section_block(section, position);
+        //
+        // // check if any other blocks of this type are in this section
+        // let mut more_of_old = false;
+        // for y in 0..16 {
+        //     for z in 0..16 {
+        //         for x in 0..16 {
+        //             let p = Position { x, y, z };
+        //             // don't compare to the self
+        //             if p == iblock {
+        //                 continue;
+        //             }
+
+        //             if old_block == get_section_block(section, p) {
+        //                 more_of_old = true;
+        //                 break;
+        //             }
+        //         }
+        //     }
         // }
-        let to_remove = match section {
+
+        // add the new block to the palette, if not there already
+        let block = match section
+            .block_mappings
+            .iter()
+            .position(|v| v.0 == glob_block)
+        {
+            Some(index) => index as i32,
             None => {
-                // this gentleman is breaking blocks in an empty chunk smh
-                return Ok(());
-            }
-            Some(section) => {
-                let bits_per_block = max(
-                    4,
-                    32u8 - max(section.block_mappings.len() as u32 - 1, 1).leading_zeros() as u8,
-                );
-                let blocks_per_i64 = 64 / bits_per_block as usize;
-
-                let block_index =
-                    iblock.x as usize + 16 * (iblock.z as usize) + 16 * 16 * (iblock.y as usize);
-
-                // zero out the specific bits that correspond to the given block
-                // because zero is always air
-                section.blocks[block_index / blocks_per_i64] &= !((!0 as usize
-                    >> (64 - bits_per_block))
-                    << (bits_per_block as i32 * (block_index as i32 % blocks_per_i64 as i32)))
-                    as i64;
-
-                // check if there are any non-air blocks left in the section
-                let mut all_empty = true;
-                for i in &section.blocks {
-                    if *i != 0 {
-                        all_empty = false;
-                        break;
-                    }
-                }
-
-                all_empty
+                // Insert the block into the pallete
+                section.block_mappings.push(VarInt(glob_block));
+                (section.block_mappings.len() - 1) as i32
             }
         };
 
-        // time to remove the section to save memory and bandwidth when sending it to clients
-        if to_remove {
-            debug!("removing whole chunk section {:?}", block_chunk);
-            drop(section.take());
-        }
+        set_section_block(section, iblock, block);
 
-        // should we send it to the player who broke it?
-        self.inform_players_of_block_change(block, VarInt(0))
+        self.inform_players_of_block_change(position, VarInt(glob_block))
             .await?;
 
         Ok(())
@@ -969,6 +996,49 @@ impl LobbyWorld {
 
 fn get_chunk_index(x: i8, z: i8) -> usize {
     (x + MAP_SIZE) as usize + 2 * MAP_SIZE as usize * (z + MAP_SIZE) as usize
+}
+
+fn bits_per_block(section: &WorldChunkSection) -> u8 {
+    max(
+        4,
+        32u8 - max(section.block_mappings.len() as u32 - 1, 1).leading_zeros() as u8,
+    )
+}
+
+// position is not global, but relative to the chunk. negative or bigger than 15 values are illegal
+fn get_section_block(section: &WorldChunkSection, position: Position) -> i32 {
+    let bits_per_block = bits_per_block(section);
+    let blocks_per_i64 = 64 / bits_per_block as usize;
+
+    let block_index =
+        position.x as usize + 16 * (position.z as usize) + 16 * 16 * (position.y as usize);
+
+    let mut t = section.blocks[block_index / blocks_per_i64] as u64;
+
+    let bits_to_the_right =
+        64 - bits_per_block as i32 * (block_index as i32 % blocks_per_i64 as i32 + 1);
+    t = t << bits_to_the_right;
+
+    let bits_to_the_left = bits_per_block as i32 * (block_index as i32 % blocks_per_i64 as i32);
+    t = t >> (bits_to_the_right + bits_to_the_left);
+
+    t as i32
+}
+
+// position is not global, but relative to the chunk. negative or bigger than 15 values are illegal
+// and the block value is of the local pallete, not global
+fn set_section_block(section: &mut WorldChunkSection, position: Position, block: i32) {
+    let old_block = get_section_block(section, position);
+
+    let bits_per_block = bits_per_block(section);
+    let blocks_per_i64 = 64 / bits_per_block as usize;
+
+    let block_index =
+        position.x as usize + 16 * (position.z as usize) + 16 * 16 * (position.y as usize);
+
+    // logic magic
+    section.blocks[block_index / blocks_per_i64] ^= ((block ^ old_block) as u64)
+        << (bits_per_block as i32 * (block_index as i32 % blocks_per_i64 as i32));
 }
 
 pub fn start() -> WSender {
