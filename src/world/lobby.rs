@@ -697,13 +697,16 @@ impl LobbyWorld {
         }
     }
     async fn set_block(&mut self, position: Position, glob_block: i32) -> Result<()> {
-        let mut block_chunk = (position.x / 16, position.y / 16, position.z / 16);
+        let mut block_chunk = position;
         if position.x < 0 {
-            block_chunk.0 -= 1;
+            block_chunk.x -= 15;
         }
         if position.z < 0 {
-            block_chunk.2 -= 1;
+            block_chunk.z -= 15;
         }
+        block_chunk.x /= 16;
+        block_chunk.y /= 16;
+        block_chunk.z /= 16;
 
         // block position relative to the chunk
         let iblock = Position {
@@ -712,8 +715,8 @@ impl LobbyWorld {
             z: ((position.z % 16) + 16) % 16,
         };
 
-        let section = &mut self.chunks[get_chunk_index(block_chunk.0 as i8, block_chunk.2 as i8)]
-            .sections[block_chunk.1 as usize];
+        let section = &mut self.chunks[get_chunk_index(block_chunk.x as i8, block_chunk.z as i8)]
+            .sections[block_chunk.y as usize];
 
         if section.is_none() {
             // initialize the section with air
