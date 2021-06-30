@@ -420,16 +420,18 @@ pub enum PlayServerBound<'a> {
         location: Position,
         face: Face,
     },
-    EntityAction,               // todo
-    SteerVehicle,               // todo
-    SetRecipeBookState,         // todo
-    SetDisplayedRecipe,         // todo
-    NameItem,                   // todo
-    ResourcePackStatus,         // todo
-    AdvancementTab,             // todo
-    SelectTrade,                // todo
-    SetBeaconEffect,            // todo
-    HeldItemChange,             // todo
+    EntityAction,       // todo
+    SteerVehicle,       // todo
+    SetRecipeBookState, // todo
+    SetDisplayedRecipe, // todo
+    NameItem,           // todo
+    ResourcePackStatus, // todo
+    AdvancementTab,     // todo
+    SelectTrade,        // todo
+    SetBeaconEffect,    // todo
+    HeldItemChange {
+        slot: i16,
+    },
     UpdateCommandBlock,         // todo
     UpdateCommandBlockMinecart, // todo
     CreativeInventoryAction {

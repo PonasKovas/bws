@@ -10,7 +10,7 @@ use std::convert::TryFrom;
 use std::io::Cursor;
 use std::marker::PhantomData;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct VarInt(pub i32);
 
 impl VarInt {
@@ -51,7 +51,7 @@ impl Angle {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Position {
     pub x: i32,
     pub y: i32,
@@ -219,7 +219,7 @@ pub struct ChunkSection {
     // number of non-air blocks in the chuck section, for lighting purposes.
     pub block_count: i16,
     pub palette: Palette,
-    pub data: Vec<i64>,
+    pub data: Vec<u64>,
 }
 
 #[derive(Debug, Clone)]

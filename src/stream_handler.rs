@@ -456,7 +456,8 @@ async fn read_and_parse_packet(
                 write_packet(
                     socket,
                     buffer,
-                    PlayClientBound::UpdateViewDistance(VarInt(min(16, view_distance as i32))).cb(),
+                    PlayClientBound::UpdateViewDistance(VarInt(min(16, view_distance as i32 + 2)))
+                        .cb(),
                 )
                 .await?;
             }
