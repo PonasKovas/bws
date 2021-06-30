@@ -720,6 +720,14 @@ impl LobbyWorld {
         }
     }
     async fn set_block(&mut self, position: Position, glob_block: i32) -> Result<()> {
+        // sanity checks
+        if !(0..256).contains(&position.y)
+            || !((-MAP_SIZE as i32 * 16)..(MAP_SIZE as i32 * 16)).contains(&position.x)
+            || !((-MAP_SIZE as i32 * 16)..(MAP_SIZE as i32 * 16)).contains(&position.z)
+        {
+            bail!("Position out of bounds");
+        }
+
         let mut block_chunk = position;
         if position.x < 0 {
             block_chunk.x -= 15;
