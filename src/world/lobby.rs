@@ -3,6 +3,8 @@ use crate::global_state::PStream;
 use crate::internal_communication::WBound;
 use crate::internal_communication::WReceiver;
 use crate::internal_communication::WSender;
+use crate::map::Map;
+use crate::world::WorldChunkSection;
 use crate::GLOBAL_STATE;
 use anyhow::bail;
 use anyhow::Context;
@@ -14,6 +16,7 @@ use protocol::datatypes::*;
 use protocol::packets::*;
 use sha2::{Digest, Sha256};
 use slab::Slab;
+use std::borrow::Cow;
 use std::cmp::max;
 use std::cmp::min;
 use std::collections::HashMap;
@@ -30,8 +33,9 @@ use tokio::sync::mpsc::unbounded_channel;
 use tokio::task::unconstrained;
 use tokio::time::sleep;
 
-// half length of a side of the map, in chunks
-const MAP_SIZE: i8 = 8; // 8 means 16x16 chunks
+use super::{WorldChunk, MAP_SIZE};
+
+const MAP_PATH: &'static str = "assets/maps/lobby.map";
 
 struct Player {
     username: String,
@@ -51,19 +55,6 @@ struct Player {
     held_item: i16,
 }
 
-// todo why am i not using the datatype from the protocol?
-#[derive(Debug, Clone)]
-struct WorldChunk {
-    biomes: Box<[i32; 1024]>, // damn you stack overflows!
-    sections: [Option<WorldChunkSection>; 16],
-}
-
-#[derive(Debug, Clone)]
-struct WorldChunkSection {
-    block_mappings: Vec<VarInt>,
-    blocks: Vec<u64>,
-}
-
 pub struct LobbyWorld {
     players: HashMap<usize, Player>,
     chunks: [WorldChunk; 4 * MAP_SIZE as usize * MAP_SIZE as usize], // 16x16 chunks, resulting in 256x256 world
@@ -71,50 +62,62 @@ pub struct LobbyWorld {
 
 impl LobbyWorld {
     pub async fn new() -> Self {
-        LobbyWorld {
-            players: HashMap::new(),
-            chunks: {
-                let mut i = 0;
-                [(); 4 * MAP_SIZE as usize * MAP_SIZE as usize].map(|_| {
-                    i += 1;
-                    WorldChunk {
-                        biomes: Box::new([174; 1024]),
-                        sections: [
-                            if i == (get_chunk_index(0, 0) + 1)
-                                || i == (get_chunk_index(-1, 0) + 1)
-                                || i == (get_chunk_index(0, -1) + 1)
-                                || i == (get_chunk_index(-1, -1) + 1)
-                            {
-                                Some(WorldChunkSection {
-                                    block_mappings: vec![VarInt(0), VarInt(4104)],
-                                    blocks: {
-                                        let mut data = vec![0x1111111111111111; 16];
-                                        data.extend(vec![0; 240]);
-                                        data
-                                    },
-                                })
-                            } else {
-                                None
-                            },
-                            None,
-                            None,
-                            None,
-                            None,
-                            None,
-                            None,
-                            None,
-                            None,
-                            None,
-                            None,
-                            None,
-                            None,
-                            None,
-                            None,
-                            None,
-                        ],
-                    }
-                })
+        // try reading the map data from the fs
+        match Map::load(MAP_PATH) {
+            Ok(map) => Self {
+                players: HashMap::new(),
+                chunks: map.chunks.into_owned(),
             },
+            Err(e) => {
+                error!("Couldn't load the lobby map: {}", e);
+                warn!("Falling back to the default map");
+
+                Self {
+                    players: HashMap::new(),
+                    chunks: {
+                        let mut i = 0;
+                        [(); 4 * MAP_SIZE as usize * MAP_SIZE as usize].map(|_| {
+                            i += 1;
+                            WorldChunk {
+                                biomes: Box::new([174; 1024]),
+                                sections: [
+                                    if i == (get_chunk_index(0, 0) + 1)
+                                        || i == (get_chunk_index(-1, 0) + 1)
+                                        || i == (get_chunk_index(0, -1) + 1)
+                                        || i == (get_chunk_index(-1, -1) + 1)
+                                    {
+                                        Some(WorldChunkSection {
+                                            block_mappings: vec![0, 4104],
+                                            blocks: {
+                                                let mut data = vec![0x1111111111111111; 16];
+                                                data.extend(vec![0; 240]);
+                                                data
+                                            },
+                                        })
+                                    } else {
+                                        None
+                                    },
+                                    None,
+                                    None,
+                                    None,
+                                    None,
+                                    None,
+                                    None,
+                                    None,
+                                    None,
+                                    None,
+                                    None,
+                                    None,
+                                    None,
+                                    None,
+                                    None,
+                                    None,
+                                ],
+                            }
+                        })
+                    },
+                }
+            }
         }
     }
     pub async fn run(&mut self, mut w_receiver: WReceiver) {
@@ -479,7 +482,9 @@ impl LobbyWorld {
 
                         chunk_sections.push(ChunkSection {
                             block_count: 16 * 16 * 16, // this is foolproof, but might want to send the real block count in the future
-                            palette: Palette::Indirect(section.block_mappings.clone()),
+                            palette: Palette::Indirect(
+                                section.block_mappings.iter().map(|v| VarInt(*v)).collect(),
+                            ),
                             data: section.blocks.clone(),
                         });
                     }
@@ -693,11 +698,6 @@ impl LobbyWorld {
             } => match status {
                 // this means block broken but only when in creative mode
                 PlayerDiggingStatus::StartedDigging => {
-                    if !(0..255).contains(&location.y) {
-                        debug!("StartedDigging packet received with the coordinates out of range! Disconnecting.");
-                        self.players[&id].stream.lock().await.disconnect();
-                    }
-
                     if let Err(e) = self.set_block(location, 0).await {
                         debug!("Error breaking block: {:?}", e);
                     }
@@ -752,7 +752,7 @@ impl LobbyWorld {
         if section.is_none() {
             // initialize the section with air
             section.replace(WorldChunkSection {
-                block_mappings: vec![VarInt(0)],
+                block_mappings: vec![0],
                 blocks: vec![0u64; 256],
             });
         }
@@ -789,20 +789,59 @@ impl LobbyWorld {
         // }
 
         // add the new block to the palette, if not there already
-        let block = match section
-            .block_mappings
-            .iter()
-            .position(|v| v.0 == glob_block)
-        {
+        let block = match section.block_mappings.iter().position(|v| *v == glob_block) {
             Some(index) => index as i32,
             None => {
                 // Insert the block into the pallete
-                section.block_mappings.push(VarInt(glob_block));
+                section.block_mappings.push(glob_block);
                 (section.block_mappings.len() - 1) as i32
             }
         };
 
         set_section_block(section, iblock, block);
+
+        // if the block was set to air, might want to remove the whole chunk section
+        // todo use a const or something
+        if glob_block == 0 {
+            // if there are no more non-air blocks we can just unload the chunk to save memory
+            let air_in_palette = section.block_mappings.iter().position(|v| *v == 0);
+            match air_in_palette {
+                Some(air) => {
+                    let mut empty = true;
+
+                    'outermost: for z in 0..16 {
+                        for y in 0..16 {
+                            for x in 0..16 {
+                                let pos = Position { x, y, z };
+                                if get_section_block(section, pos) == air as i32 {
+                                    empty = false;
+                                    break 'outermost;
+                                }
+                            }
+                        }
+                    }
+
+                    if empty {
+                        self.chunks[get_chunk_index(block_chunk.x as i8, block_chunk.z as i8)]
+                            .sections[block_chunk.y as usize] = None;
+                    }
+                }
+                None => {
+                    // what?
+                    // no air in the palette?
+                }
+            }
+        }
+
+        // save the changes
+        // TODO make this async somehow
+        if let Err(e) = (Map {
+            chunks: Cow::Borrowed(&self.chunks),
+        }
+        .save(MAP_PATH))
+        {
+            error!("Error saving map data: {}", e);
+        }
 
         self.inform_players_of_block_change(position, VarInt(glob_block))
             .await?;

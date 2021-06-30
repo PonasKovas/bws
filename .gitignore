@@ -1,2 +1,4 @@
 /target
 accounts.bwsdata
+assets/maps/*
+!assets/maps/.gitkeep 
