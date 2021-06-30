@@ -158,8 +158,12 @@ pub enum PlayClientBound<'a> {
         slots: ArrWithLen<Slot, u16, 46>,
     },
     WindowProperty, // todo
-    SetSlot,        // todo
-    SetCooldown,    // todo
+    SetSlot {
+        window_id: i8,
+        slot: i16,
+        slot_data: Slot,
+    },
+    SetCooldown, // todo
     PluginMessage {
         channel: Cow<'a, str>,
         data: Box<[u8]>,

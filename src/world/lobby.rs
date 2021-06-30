@@ -311,11 +311,8 @@ impl LobbyWorld {
 
         // inform all players of the new player
         for (_, player) in &self.players {
-            player
-                .stream
-                .lock()
-                .await
-                .send(PlayClientBound::PlayerInfo(PlayerInfo::AddPlayer(vec![(
+            let _ = player.stream.lock().await.send(PlayClientBound::PlayerInfo(
+                PlayerInfo::AddPlayer(vec![(
                     self.players[&id].uuid,
                     PlayerInfoAddPlayer {
                         name: self.players[&id].username.clone().into(),
@@ -324,7 +321,8 @@ impl LobbyWorld {
                         ping: VarInt(GLOBAL_STATE.players.read().await[id].ping as i32),
                         display_name: None,
                     },
-                )])))?;
+                )]),
+            ));
         }
 
         // and now inform the new player of all the old players
@@ -361,7 +359,7 @@ impl LobbyWorld {
                 // dont spawn myself!
                 continue;
             }
-            player
+            let _ = player
                 .stream
                 .lock()
                 .await
@@ -373,7 +371,15 @@ impl LobbyWorld {
                     z: self.players[&id].position.2,
                     yaw: Angle::from_degrees(self.players[&id].rotation.0),
                     pitch: Angle::from_degrees(self.players[&id].rotation.1),
-                })?;
+                });
+            let _ = player
+                .stream
+                .lock()
+                .await
+                .send(PlayClientBound::EntityHeadLook {
+                    entity_id: VarInt(id as i32),
+                    head_yaw: Angle::from_degrees(self.players[&id].rotation.0),
+                });
 
             self.players[&id]
                 .stream
@@ -387,6 +393,14 @@ impl LobbyWorld {
                     z: player.position.2,
                     yaw: Angle::from_degrees(player.rotation.0),
                     pitch: Angle::from_degrees(player.rotation.1),
+                })?;
+            self.players[&id]
+                .stream
+                .lock()
+                .await
+                .send(PlayClientBound::EntityHeadLook {
+                    entity_id: VarInt(*old_id as i32),
+                    head_yaw: Angle::from_degrees(player.rotation.0),
                 })?;
         }
 
@@ -611,7 +625,16 @@ impl LobbyWorld {
                     // should drop the item
                     // but no need for this in the lobby
                 } else {
-                    self.players.get_mut(&id).unwrap().inventory[slot as usize] = item;
+                    self.players.get_mut(&id).unwrap().inventory[slot as usize] = item.clone();
+                    let _ = self.players[&id]
+                        .stream
+                        .lock()
+                        .await
+                        .send(PlayClientBound::SetSlot {
+                            window_id: 0,
+                            slot,
+                            slot_data: item,
+                        });
                 }
             }
             PlayServerBound::HeldItemChange { slot } => {
