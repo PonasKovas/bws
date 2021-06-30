@@ -58,7 +58,7 @@ impl<'a> Serializable for CommandNode<'a> {
     fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
         match self {
             CommandNode::Root { children } => {
-                let mut flags = 0u8; // todo bitflags
+                let mut flags = 0u8;
                 flags |= 0; // root type
                 flags.to_writer(&mut *output)?;
                 children.to_writer(&mut *output)?;

@@ -7,6 +7,7 @@
 mod incl_macro;
 mod global_state;
 mod internal_communication;
+mod map;
 mod stream_handler;
 mod world;
 
