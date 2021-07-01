@@ -12,7 +12,7 @@ fn first() {
         chat_mode: ChatMode::CommandsOnly,
         chat_colors: true,
         displayed_skin_parts: SkinParts::JACKET | SkinParts::HAT,
-        main_hand: MainHand::Left,
+        main_hand: Hand::Left,
     };
 
     original.to_writer(&mut buffer).unwrap();
