@@ -1,7 +1,6 @@
 pub mod chat_parse;
 mod implementations;
 
-use super::{deserializable, serializable};
 use super::{Deserializable, Serializable};
 use bitflags::bitflags;
 use shrinkwraprs::Shrinkwrap;
@@ -10,8 +9,26 @@ use std::convert::TryFrom;
 use std::io::Cursor;
 use std::marker::PhantomData;
 
+use crate as protocol;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct VarInt(pub i32);
+
+impl TryFrom<i32> for VarInt {
+    type Error = !;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        Ok(Self(value))
+    }
+}
+
+impl TryFrom<VarInt> for i32 {
+    type Error = !;
+
+    fn try_from(value: VarInt) -> Result<Self, Self::Error> {
+        Ok(value.0)
+    }
+}
 
 impl VarInt {
     pub fn size(&self) -> u8 {
@@ -21,7 +38,7 @@ impl VarInt {
 }
 
 // A newtype around an array except that when serializing/deserializing it has the fixed length as a prefix
-#[derive(Shrinkwrap, Debug, Clone)]
+#[derive(Shrinkwrap, Debug, Clone, PartialEq)]
 #[shrinkwrap(mutable)]
 pub struct ArrWithLen<T, L, const N: usize>(#[shrinkwrap(main_field)] pub [T; N], PhantomData<L>);
 
@@ -31,18 +48,16 @@ impl<T, L, const N: usize> ArrWithLen<T, L, N> {
     }
 }
 
-#[derive(Shrinkwrap, Debug, Clone)]
+#[derive(Shrinkwrap, Debug, Clone, PartialEq)]
 #[shrinkwrap(mutable)]
 pub struct Nbt(pub quartz_nbt::NbtCompound);
 
 /// the same as normal Nbt, except that it allows for it to be just a single TAG_END byte, without any actual data.
-#[derive(Shrinkwrap, Debug, Clone)]
+#[derive(Shrinkwrap, Debug, Clone, PartialEq)]
 #[shrinkwrap(mutable)]
 pub struct OptionalNbt(pub Option<quartz_nbt::NbtCompound>);
 
-#[deserializable]
-#[serializable]
-#[derive(Debug, Clone)]
+#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
 pub struct Angle(pub u8);
 
 impl Angle {
@@ -62,7 +77,7 @@ pub struct Position {
 /// because you don't have to clone the data for each one of them, you just serialize a byte slice
 /// Note that the static variant contains ALREADY SERIALIZED bytes
 /// Use with caution, nothing's going to stop you from sending invalid datatypes.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum MaybeStatic<'a, T> {
     Static(&'a [u8]),
     Owned(T),
@@ -79,9 +94,41 @@ impl<'a, T: Deserializable> MaybeStatic<'a, T> {
     }
 }
 
-#[deserializable]
-#[serializable]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct EntityMetadata<'a>(pub Vec<EntityMetadataEntry<'a>>);
+
+#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
+pub enum EntityMetadataEntry<'a> {
+    Byte(i8),
+    VarInt(VarInt),
+    Float(f32),
+    String(Cow<'a, str>),
+    Chat(Chat<'a>),
+    OptChat(Option<Chat<'a>>),
+    Slot(Slot),
+    Boolean(bool),
+    Rotation {
+        x: f32,
+        y: f32,
+        z: f32,
+    },
+    Position(Position),
+    OptPosition(Option<Position>),
+    Direction(Direction),
+    OptUuid(Option<u128>),
+    OptBlockId(VarInt),
+    Nbt(Nbt),
+    Particle(), // todo!
+    VillagerData {
+        villager_type: VarInt,
+        profession: VarInt,
+        level: VarInt,
+    },
+    OptVarInt(VarInt),
+    Pose(Pose),
+}
+
+#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
 pub enum PlayerInfo<'a> {
     AddPlayer(Vec<(u128, PlayerInfoAddPlayer<'a>)>),
     UpdateGamemode(Vec<(u128, PlayerInfoUpdateGamemode)>),
@@ -90,9 +137,7 @@ pub enum PlayerInfo<'a> {
     RemovePlayer(Vec<u128>),
 }
 
-#[deserializable]
-#[serializable]
-#[derive(Debug, Clone)]
+#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
 pub struct PlayerInfoAddPlayer<'a> {
     pub name: Cow<'a, str>,
     pub properties: Vec<PlayerInfoAddPlayerProperty<'a>>,
@@ -101,40 +146,30 @@ pub struct PlayerInfoAddPlayer<'a> {
     pub display_name: Option<Chat<'a>>,
 }
 
-#[deserializable]
-#[serializable]
-#[derive(Debug, Clone)]
+#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
 pub struct PlayerInfoAddPlayerProperty<'a> {
     pub name: Cow<'a, str>,
     pub value: Cow<'a, str>,
     pub signature: Option<Cow<'a, str>>,
 }
 
-#[deserializable]
-#[serializable]
-#[derive(Debug, Clone)]
+#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
 pub struct PlayerInfoUpdateGamemode {
     pub gamemode: Gamemode,
 }
 
-#[deserializable]
-#[serializable]
-#[derive(Debug, Clone)]
+#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
 pub struct PlayerInfoUpdateLatency {
     /// In milliseconds
     pub ping: VarInt,
 }
 
-#[deserializable]
-#[serializable]
-#[derive(Debug, Clone)]
+#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
 pub struct PlayerInfoUpdateDisplayName<'a> {
     pub display_name: Option<Chat<'a>>,
 }
 
-#[deserializable]
-#[serializable]
-#[derive(Debug, Clone)]
+#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
 pub enum WorldBorderAction {
     SetSize {
         diameter: f64,
@@ -164,9 +199,7 @@ pub enum WorldBorderAction {
 
 // no need for manual Serialization and Deserialization implementation since the first field
 // `full_chunk` is a bool and the VarInt enum equivalent of 0 is false, 1 is true so this works
-#[deserializable]
-#[serializable]
-#[derive(Debug, Clone)]
+#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
 pub enum Chunk {
     Partial {
         // bits 0-15, if 1 then the chunk section will be sent in this packet
@@ -186,9 +219,7 @@ pub enum Chunk {
     },
 }
 
-#[deserializable]
-#[serializable]
-#[derive(Debug, Clone)]
+#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
 pub enum TitleAction<'a> {
     SetTitle(Chat<'a>),
     SetSubtitle(Chat<'a>),
@@ -203,18 +234,16 @@ pub enum TitleAction<'a> {
     Reset,
 }
 
-#[deserializable]
-#[serializable]
-#[derive(Debug, Clone)]
+#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
 pub struct Tags<'a> {
     pub name: Cow<'a, str>,
     pub entries: Vec<VarInt>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ChunkSections(pub Vec<ChunkSection>);
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ChunkSection {
     // number of non-air blocks in the chuck section, for lighting purposes.
     pub block_count: i16,
@@ -222,27 +251,23 @@ pub struct ChunkSection {
     pub data: Vec<u64>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Palette {
     Indirect(Vec<VarInt>),
     Direct,
 }
 
-#[deserializable]
-#[serializable]
-#[derive(Debug, Clone)]
+#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
 pub struct Slot(pub Option<InnerSlot>);
 
-#[deserializable]
-#[serializable]
-#[derive(Debug, Clone)]
+#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
 pub struct InnerSlot {
     pub item_id: VarInt,
     pub item_count: i8,
     pub nbt: OptionalNbt,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum CommandNode<'a> {
     Root {
         // indices of the children
@@ -264,23 +289,19 @@ pub enum CommandNode<'a> {
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Parser {
     String(StringParserType),
 }
 
-#[deserializable]
-#[serializable]
-#[derive(Debug, Clone, Copy)]
+#[derive(Serializable, Deserializable, Debug, Clone, Copy, PartialEq)]
 pub enum StringParserType {
-    SingleWord = 0,
+    SingleWord,
     QuotablePhrase,
     GreedyPhrase,
 }
 
-#[deserializable]
-#[serializable]
-#[derive(Debug, Clone, Copy)]
+#[derive(Serializable, Deserializable, Debug, Clone, Copy, PartialEq)]
 pub enum EntityAction {
     StartSneaking,
     StopSneaking,
@@ -293,9 +314,18 @@ pub enum EntityAction {
     StartFlyingWithElytra,
 }
 
-#[deserializable]
-#[serializable]
-#[derive(Debug, Clone, Copy)]
+#[derive(Serializable, Deserializable, Debug, Clone, Copy, PartialEq)]
+pub enum Pose {
+    Standing,
+    FallFlying,
+    Sleeping,
+    Swimming,
+    SpinAttack,
+    Sneaking,
+    Dying,
+}
+
+#[derive(Serializable, Deserializable, Debug, Clone, Copy, PartialEq)]
 // this one should actually be serialized as an unsigned byte
 // but there's no difference until we have more than 127 variants,
 // which I think we will never do, so this works
@@ -308,11 +338,9 @@ pub enum EntityAnimation {
     MagicCriticalEffect,
 }
 
-#[deserializable]
-#[serializable]
-#[derive(Debug, Clone, Copy)]
+#[derive(Serializable, Deserializable, Debug, Clone, Copy, PartialEq)]
 pub enum PlayerDiggingStatus {
-    StartedDigging = 0,
+    StartedDigging,
     CancelledDigging,
     FinishedDigging,
     DropItemStack,
@@ -321,12 +349,10 @@ pub enum PlayerDiggingStatus {
     SwapItemInHand,
 }
 
-#[deserializable]
-#[serializable]
-#[derive(Debug, Clone, Copy)]
-pub enum Face {
-    Bottom = 0,
-    Top,
+#[derive(Serializable, Deserializable, Debug, Clone, Copy, PartialEq)]
+pub enum Direction {
+    Down,
+    Up,
     North,
     South,
     West,
@@ -334,8 +360,7 @@ pub enum Face {
 }
 
 bitflags! {
-    #[deserializable]
-    #[serializable]
+    #[derive(Serializable, Deserializable)]
     pub struct PlayerAbilities: u8 {
         const INVULNERABLE = 0x01;
         const FLYING = 0x02;
@@ -344,8 +369,7 @@ bitflags! {
     }
 }
 bitflags! {
-    #[deserializable]
-    #[serializable]
+    #[derive(Serializable, Deserializable)]
     pub struct PositionAndLookFlags: u8 {
         const RELATIVE_X = 0x01;
         const RELATIVE_Y = 0x02;
@@ -356,8 +380,7 @@ bitflags! {
 }
 
 bitflags! {
-    #[deserializable]
-    #[serializable]
+    #[derive(Serializable, Deserializable)]
     pub struct SkinParts: u8 {
         const CAPE = 0x01;
         const JACKET = 0x02;
@@ -369,73 +392,58 @@ bitflags! {
     }
 }
 
-#[deserializable]
-#[serializable]
-#[derive(Debug, Clone, Copy)]
+#[derive(Serializable, Deserializable, Debug, Clone, Copy, PartialEq)]
 pub enum NextState {
-    Status = 1,
+    #[discriminant(1)]
+    Status,
     Login,
 }
 
-#[deserializable]
-#[serializable]
-#[derive(Debug, Clone, Copy)]
+#[derive(Serializable, Deserializable, Debug, Clone, Copy, PartialEq)]
 pub enum Difficulty {
-    Peaceful = 0,
+    Peaceful,
     Easy,
     Normal,
     Hard,
 }
 
-#[deserializable]
-#[serializable]
-#[derive(Debug, Clone, Copy)]
+#[derive(Serializable, Deserializable, Debug, Clone, Copy, PartialEq)]
 pub enum ClientStatusAction {
-    PerformRespawn = 0,
+    PerformRespawn,
     RequestStats,
 }
 
-#[deserializable]
-#[serializable]
-#[derive(Debug, Clone, Copy)]
+#[derive(Serializable, Deserializable, Debug, Clone, Copy, PartialEq)]
 pub enum ChatMode {
-    Enabled = 0,
+    Enabled,
     CommandsOnly,
     Hidden,
 }
 
-#[deserializable]
-#[serializable]
-#[derive(Debug, Clone, Copy)]
+#[derive(Serializable, Deserializable, Debug, Clone, Copy, PartialEq)]
 pub enum MainHand {
-    Left = 0,
+    Left,
     Right,
 }
 
-#[deserializable]
-#[serializable]
-#[derive(Debug, Clone, Copy)]
+#[derive(Serializable, Deserializable, Debug, Clone, Copy, PartialEq)]
 pub enum ChatPosition {
-    Chat = 0,
+    Chat,
     System,
     AboveHotbar,
 }
 
-#[deserializable]
-#[serializable]
-#[derive(Debug, Clone, Copy)]
+#[derive(Serializable, Deserializable, Debug, Clone, Copy, PartialEq)]
 pub enum Gamemode {
-    Survival = 0,
+    Survival,
     Creative,
     Adventure,
     Spectator,
 }
 
-#[deserializable]
-#[serializable]
-#[derive(Debug, Clone, Copy)]
+#[derive(Serializable, Deserializable, Debug, Clone, Copy, PartialEq)]
 pub enum SoundCategory {
-    Master = 0,
+    Master,
     Music,
     Records,
     Weather,
@@ -447,12 +455,12 @@ pub enum SoundCategory {
     Voice,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct StatusResponse<'a> {
     pub json: StatusResponseJson<'a>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct StatusResponseJson<'a> {
     pub version: StatusVersion<'a>,
     pub players: StatusPlayers<'a>,
@@ -460,20 +468,20 @@ pub struct StatusResponseJson<'a> {
     pub favicon: Cow<'a, str>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct StatusVersion<'a> {
     pub name: Cow<'a, str>,
     pub protocol: i32,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct StatusPlayers<'a> {
     pub max: i32,
     pub online: i32,
     pub sample: Vec<StatusPlayerSampleEntry<'a>>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct StatusPlayerSampleEntry<'a> {
     pub name: Cow<'a, str>,
     pub id: Cow<'a, str>,
@@ -489,7 +497,7 @@ impl<'a> StatusPlayerSampleEntry<'a> {
 }
 
 // chat objects are represented in JSON so we use serde
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct Chat<'a> {
     pub text: Cow<'a, str>,
     #[serde(skip_serializing_if = "Option::is_none")]

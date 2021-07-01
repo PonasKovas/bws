@@ -656,22 +656,22 @@ impl LobbyWorld {
             } => {
                 let mut target = location.clone();
                 match face {
-                    Face::Bottom => {
+                    Direction::Down => {
                         target.y -= 1;
                     }
-                    Face::Top => {
+                    Direction::Up => {
                         target.y += 1;
                     }
-                    Face::North => {
+                    Direction::North => {
                         target.z -= 1;
                     }
-                    Face::South => {
+                    Direction::South => {
                         target.z += 1;
                     }
-                    Face::West => {
+                    Direction::West => {
                         target.x -= 1;
                     }
-                    Face::East => {
+                    Direction::East => {
                         target.x += 1;
                     }
                 }
@@ -689,6 +689,56 @@ impl LobbyWorld {
 
                 if let Err(e) = self.set_block(target, block).await {
                     debug!("Error placing block: {:?}", e);
+                }
+            }
+            PlayServerBound::EntityAction {
+                entity_id: _,
+                action,
+                jump_boost: _,
+            } => {
+                if action == EntityAction::StartSprinting {
+                    for (_id, player) in &self.players {
+                        let _ = player
+                            .stream
+                            .lock()
+                            .await
+                            .send(PlayClientBound::EntityStatus {
+                                entity_id: id as i32,
+                                status: 43,
+                            });
+                    }
+                } else if action == EntityAction::StartSneaking {
+                    info!("[{}] started sneaking", id);
+                    for (_id, player) in &self.players {
+                        let _ = player
+                            .stream
+                            .lock()
+                            .await
+                            .send(PlayClientBound::EntityMetadata {
+                                entity_id: VarInt(id as i32),
+                                metadata: EntityMetadata(vec![
+                                    EntityMetadataEntry::Byte(2),
+                                    EntityMetadataEntry::VarInt(VarInt(300)),
+                                    EntityMetadataEntry::OptChat(None),
+                                    EntityMetadataEntry::Boolean(false),
+                                    EntityMetadataEntry::Boolean(false),
+                                    EntityMetadataEntry::Boolean(false),
+                                    EntityMetadataEntry::Pose(Pose::Sneaking),
+                                ]),
+                            });
+                    }
+                } else if action == EntityAction::StopSneaking {
+                    info!("[{}] stopped sneaking", id);
+                    for (_id, player) in &self.players {
+                        let _ = player
+                            .stream
+                            .lock()
+                            .await
+                            .send(PlayClientBound::EntityMetadata {
+                                entity_id: VarInt(id as i32),
+                                metadata: EntityMetadata(vec![EntityMetadataEntry::Byte(0)]),
+                            });
+                    }
                 }
             }
             PlayServerBound::PlayerDigging {
@@ -905,6 +955,21 @@ impl LobbyWorld {
                 ));
             }
         }
+
+        // test
+        // for (_id, player) in &self.players {
+        //     for (id, _player) in &self.players {
+        //         let _ = player
+        //             .stream
+        //             .lock()
+        //             .await
+        //             .send(PlayClientBound::EntityStatus {
+        //                 entity_id: *id as i32,
+        //                 status: 43,
+        //             });
+        //     }
+        // }
+
         // sync all the player positions and rotation
         for id in self.players.keys().copied().collect::<Vec<usize>>() {
             let mut packets = Vec::new();
