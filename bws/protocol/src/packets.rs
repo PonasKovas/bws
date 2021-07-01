@@ -357,7 +357,7 @@ pub enum PlayServerBound<'a> {
         chat_mode: ChatMode,
         chat_colors: bool,
         displayed_skin_parts: SkinParts,
-        main_hand: MainHand,
+        main_hand: Hand,
     },
     TabComplete {
         transaction_id: VarInt,
@@ -446,11 +446,11 @@ pub enum PlayServerBound<'a> {
     UpdateStructureBlock, // todo
     UpdateSign,           // todo
     Animation {
-        hand: MainHand,
+        hand: Hand,
     },
     Spectate, // todo
     PlayerBlockPlacement {
-        hand: MainHand,
+        hand: Hand,
         location: Position,
         face: Direction,
         cursor_position_x: f32,

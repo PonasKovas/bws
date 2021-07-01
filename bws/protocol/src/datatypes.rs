@@ -421,7 +421,7 @@ pub enum ChatMode {
 }
 
 #[derive(Serializable, Deserializable, Debug, Clone, Copy, PartialEq)]
-pub enum MainHand {
+pub enum Hand {
     Left,
     Right,
 }

@@ -608,8 +608,8 @@ impl LobbyWorld {
                         .send(PlayClientBound::EntityAnimation {
                             entity_id: VarInt(id as i32),
                             animation: match hand {
-                                MainHand::Left => EntityAnimation::SwingOffhand,
-                                MainHand::Right => EntityAnimation::SwingMainArm,
+                                Hand::Left => EntityAnimation::SwingOffhand,
+                                Hand::Right => EntityAnimation::SwingMainArm,
                             },
                         });
                 }
@@ -678,10 +678,10 @@ impl LobbyWorld {
 
                 // get the item in hand of player
                 // let block = match hand {
-                //     MainHand::Left => {
+                //     Hand::Left => {
 
                 //     }
-                //     MainHand::Right => {
+                //     Hand::Right => {
 
                 //     }
                 // };
