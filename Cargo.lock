@@ -839,6 +839,7 @@ dependencies = [
 name = "protocol-derive"
 version = "0.1.0"
 dependencies = [
+ "proc-macro2 1.0.27",
  "protocol",
  "quote 1.0.7",
  "syn 1.0.72",

@@ -1,18 +1,17 @@
-use protocol::{datatypes::VarInt, Deserializable, Serializable};
-use protocol_derive::{deserializable, serializable};
+use std::borrow::Cow;
 
-#[serializable]
-#[deserializable]
+use protocol::Serializable;
+
+#[derive(Serializable)]
 pub enum Enum<'a> {
     First,
-    Second(&'a str),
+    Second(Cow<'a, str>),
 }
 
-#[serializable]
-#[deserializable]
+#[derive(Serializable)]
 pub struct Struct<'a> {
-    first: &'a u32,
-    second: &'a mut i16,
+    first: Cow<'a, str>,
+    second: Cow<'a, str>,
 }
 
 #[test]

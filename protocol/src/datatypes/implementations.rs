@@ -163,6 +163,30 @@ impl<'a> Deserializable for Chat<'a> {
     }
 }
 
+impl<'a> Serializable for EntityMetadata<'a> {
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
+        for (i, item) in self.0.iter().enumerate() {
+            (i as u8).to_writer(output)?;
+            item.to_writer(output)?;
+        }
+
+        0xFFu8.to_writer(output)?;
+
+        Ok(())
+    }
+}
+impl<'a> Deserializable for EntityMetadata<'a> {
+    fn from_reader<R: Read>(input: &mut R) -> Result<Self> {
+        let mut res = Vec::new();
+
+        while u8::from_reader(input)? != 0xFF {
+            res.push(EntityMetadataEntry::from_reader(input)?);
+        }
+
+        Ok(Self(res))
+    }
+}
+
 impl Serializable for Nbt {
     fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
         quartz_nbt::write::write_nbt_uncompressed(output, "", &self.0)?;

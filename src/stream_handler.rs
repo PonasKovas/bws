@@ -251,6 +251,8 @@ async fn read_and_parse_packet(
     // read the rest of the packet
     let packet = read_packet(socket, buffer, &*state, length as usize).await?;
 
+    debug!("received packet {:?}", packet);
+
     Ok(match packet {
         ServerBound::Handshake(HandshakeServerBound::Handshake {
             protocol,
@@ -260,9 +262,9 @@ async fn read_and_parse_packet(
         }) => {
             *client_protocol = protocol.0;
 
-            if next_state as u8 == 1 {
+            if next_state == NextState::Status {
                 *state = State::Status;
-            } else if next_state as u8 == 2 {
+            } else if next_state == NextState::Login {
                 *state = State::Login;
             } else {
                 // wrong choice buddy

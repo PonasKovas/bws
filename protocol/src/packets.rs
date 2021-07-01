@@ -1,10 +1,12 @@
 use super::datatypes::*;
-use super::{deserializable, serializable, Deserializable, Serializable};
+use super::{Deserializable, Serializable};
 use std::borrow::Cow;
 use std::io::{self, Write};
 
+use crate as protocol;
+
 /// Sent from the server to the client
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ClientBound<'a> {
     Status(StatusClientBound<'a>),
     Login(LoginClientBound<'a>),
@@ -12,7 +14,7 @@ pub enum ClientBound<'a> {
 }
 
 /// Sent from the client to the server
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ServerBound<'a> {
     Handshake(HandshakeServerBound<'a>),
     Status(StatusServerBound),
@@ -20,9 +22,7 @@ pub enum ServerBound<'a> {
     Play(PlayServerBound<'a>),
 }
 
-#[deserializable]
-#[serializable]
-#[derive(Debug, Clone)]
+#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
 pub enum HandshakeServerBound<'a> {
     Handshake {
         protocol: VarInt,
@@ -32,25 +32,19 @@ pub enum HandshakeServerBound<'a> {
     },
 }
 
-#[deserializable]
-#[serializable]
-#[derive(Debug, Clone)]
+#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
 pub enum StatusClientBound<'a> {
     Response(StatusResponse<'a>),
     Pong(i64),
 }
 
-#[deserializable]
-#[serializable]
-#[derive(Debug, Clone)]
+#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
 pub enum StatusServerBound {
     Request,
     Ping(i64),
 }
 
-#[deserializable]
-#[serializable]
-#[derive(Debug, Clone)]
+#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
 pub enum LoginClientBound<'a> {
     Disconnect(Chat<'a>),
     EncryptionRequest {
@@ -74,9 +68,7 @@ pub enum LoginClientBound<'a> {
     },
 }
 
-#[deserializable]
-#[serializable]
-#[derive(Debug, Clone)]
+#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
 pub enum LoginServerBound<'a> {
     LoginStart {
         username: Cow<'a, str>,
@@ -93,9 +85,7 @@ pub enum LoginServerBound<'a> {
     },
 }
 
-#[deserializable]
-#[serializable]
-#[derive(Debug, Clone)]
+#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
 pub enum PlayClientBound<'a> {
     SpawnEntity {
         entity_id: VarInt,
@@ -170,7 +160,12 @@ pub enum PlayClientBound<'a> {
     },
     NamedSoundEffect, // todo
     Disconnect(Chat<'a>),
-    EntityStatus,    // todo
+    EntityStatus {
+        // good job on making the protocol so consistent, mojang
+        entity_id: i32,
+        /// see https://wiki.vg/Entity_statuses
+        status: i8,
+    },
     Explosion,       // todo
     UnloadChunk,     // todo
     ChangeGameState, // todo
@@ -185,7 +180,7 @@ pub enum PlayClientBound<'a> {
     Particle,    // todo
     UpdateLight, // todo
     JoinGame {
-        // entity ID, global on the server
+        /// entity ID, global on the server
         eid: i32,
         hardcore: bool,
         gamemode: Gamemode,
@@ -195,15 +190,15 @@ pub enum PlayClientBound<'a> {
         dimension: Nbt,
         world_name: Cow<'a, str>,
         hashed_seed: i64,
-        // doesn't do anything
+        /// doesn't do anything
         max_players: VarInt,
         view_distance: VarInt,
-        // shows less on the F3 debug screen
+        /// shows less on the F3 debug screen
         reduced_debug_info: bool,
         enable_respawn_screen: bool,
-        // debug worlds cannot be modified and have predefined blocks
+        /// debug worlds cannot be modified and have predefined blocks
         debug_mode: bool,
-        // flat worlds have horizon at y=0 instead of y=63 and different void fog
+        /// flat worlds have horizon at y=0 instead of y=63 and different void fog
         flat: bool,
     },
     MapData,   // todo
@@ -285,10 +280,13 @@ pub enum PlayClientBound<'a> {
     UpdateViewDistance(VarInt),
     SpawnPosition,     // todo
     DisplayScoreboard, // todo
-    EntityMetadata,    // todo
-    AttachEntity,      // todo
-    EntityVelocity,    // todo
-    EntityEquipment,   // todo
+    EntityMetadata {
+        entity_id: VarInt,
+        metadata: EntityMetadata<'a>,
+    },
+    AttachEntity,    // todo
+    EntityVelocity,  // todo
+    EntityEquipment, // todo
     SetExperience {
         bar: f32, // between 0 and 1
         level: VarInt,
@@ -344,9 +342,7 @@ pub enum PlayClientBound<'a> {
     },
 }
 
-#[deserializable]
-#[serializable]
-#[derive(Debug, Clone)]
+#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
 pub enum PlayServerBound<'a> {
     TeleportConfirm {
         teleport_id: VarInt,
@@ -422,7 +418,7 @@ pub enum PlayServerBound<'a> {
     PlayerDigging {
         status: PlayerDiggingStatus,
         location: Position,
-        face: Face,
+        face: Direction,
     },
     EntityAction {
         entity_id: VarInt,
@@ -456,7 +452,7 @@ pub enum PlayServerBound<'a> {
     PlayerBlockPlacement {
         hand: MainHand,
         location: Position,
-        face: Face,
+        face: Direction,
         cursor_position_x: f32,
         cursor_position_y: f32,
         cursor_position_z: f32,
