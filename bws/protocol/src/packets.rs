@@ -424,7 +424,11 @@ pub enum PlayServerBound<'a> {
         location: Position,
         face: Face,
     },
-    EntityAction,       // todo
+    EntityAction {
+        entity_id: VarInt,
+        action: EntityAction,
+        jump_boost: VarInt, // used only when Action is jump with horse, otherwise its 0
+    },
     SteerVehicle,       // todo
     SetRecipeBookState, // todo
     SetDisplayedRecipe, // todo

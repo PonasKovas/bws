@@ -281,6 +281,21 @@ pub enum StringParserType {
 #[deserializable]
 #[serializable]
 #[derive(Debug, Clone, Copy)]
+pub enum EntityAction {
+    StartSneaking,
+    StopSneaking,
+    LeaveBed,
+    StartSprinting,
+    StopSprinting,
+    StartJumpWithHorse,
+    StopJumpWithHorse,
+    OpenHorseInventory,
+    StartFlyingWithElytra,
+}
+
+#[deserializable]
+#[serializable]
+#[derive(Debug, Clone, Copy)]
 // this one should actually be serialized as an unsigned byte
 // but there's no difference until we have more than 127 variants,
 // which I think we will never do, so this works

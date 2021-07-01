@@ -27,6 +27,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use structopt::StructOpt;
 use tokio::net::TcpListener;
+use tokio::signal;
 use tokio::sync::Mutex;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
@@ -127,7 +128,22 @@ async fn main() -> Result<()> {
     let join_handles = Arc::new(std::sync::Mutex::new(Vec::new()));
 
     tokio::select! {
-        _ = tokio::signal::ctrl_c() => {
+        _ = signal::ctrl_c() => {
+            shutdown(&join_handles.clone()).await;
+            Ok(())
+        },
+        // On Unixes, handle SIGTERM too
+        _ = async move {
+            #[cfg(unix)]
+            {
+                let mut sig = signal::unix::signal(signal::unix::SignalKind::terminate()).unwrap();
+                sig.recv().await
+            }
+            #[cfg(not(unix))]
+            {
+                futures::future::pending().await
+            }
+        } => {
             shutdown(&join_handles.clone()).await;
             Ok(())
         },
