@@ -127,7 +127,12 @@ pub fn derive_serializable(input: TokenStream) -> TokenStream {
                             match_arms.push(quote! {
                                 Self::#variant_name { #( #field_names ),*} => {
                                     protocol::Serializable::to_writer(
-                                        &(::core::convert::TryInto::< #discriminant_as >::try_into(#next_discriminant).unwrap()),
+                                        &(::core::convert::TryInto::< #discriminant_as >::try_into(#next_discriminant)
+                                            .expect(&format!(
+                                                "Couldn't convert the discriminant {} to type {}",
+                                                #next_discriminant,
+                                                std::any::type_name::< #discriminant_as >()
+                                            ))),
                                         __output
                                     )?;
                                     #( protocol::Serializable::to_writer( #field_names2, __output)?; )*
@@ -143,7 +148,12 @@ pub fn derive_serializable(input: TokenStream) -> TokenStream {
                             match_arms.push(quote! {
                                 Self::#variant_name ( #( #field_names ),*) => {
                                     protocol::Serializable::to_writer(
-                                        &(::core::convert::TryInto::< #discriminant_as >::try_into(#next_discriminant).unwrap()),
+                                        &(::core::convert::TryInto::< #discriminant_as >::try_into(#next_discriminant)
+                                            .expect(&format!(
+                                                "Couldn't convert the discriminant {} to type {}",
+                                                #next_discriminant,
+                                                std::any::type_name::< #discriminant_as >()
+                                            ))),
                                         __output
                                     )?;
                                     #( protocol::Serializable::to_writer( #field_names2, __output)?; )*
@@ -154,7 +164,12 @@ pub fn derive_serializable(input: TokenStream) -> TokenStream {
                             match_arms.push(quote! {
                                 Self::#variant_name => {
                                     protocol::Serializable::to_writer(
-                                        &(::core::convert::TryInto::< #discriminant_as >::try_into(#next_discriminant).unwrap()),
+                                        &(::core::convert::TryInto::< #discriminant_as >::try_into(#next_discriminant)
+                                            .expect(&format!(
+                                                "Couldn't convert the discriminant {} to type {}",
+                                                #next_discriminant,
+                                                std::any::type_name::< #discriminant_as >()
+                                            ))),
                                         __output
                                     )?;
                                 }
@@ -356,7 +371,12 @@ pub fn derive_deserializable(input: TokenStream) -> TokenStream {
                     fn from_reader<__R: ::std::io::Read>(__input: &mut __R) -> ::std::io::Result<Self> {
                         let original_discriminant: #discriminant_as = protocol::Deserializable::from_reader(__input)?;
 
-                        let discriminant: i32 = ::core::convert::TryInto::try_into(original_discriminant.clone()).unwrap();
+                        let discriminant: i32 = ::core::convert::TryInto::try_into(original_discriminant.clone())
+                                            .expect(&format!(
+                                                "Couldn't convert the discriminant {} of type {} to i32",
+                                                #next_discriminant,
+                                                std::any::type_name::< #discriminant_as >()
+                                            ));
 
                         match discriminant {
                             #(#match_arms,)*
