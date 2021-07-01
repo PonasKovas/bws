@@ -1019,6 +1019,7 @@ checksum = "71d301d4193d031abdd79ff7e3dd721168a9572ef3fe51a1517aba235bd8f86e"
 [[package]]
 name = "savefile"
 version = "0.8.2"
+source = "git+https://github.com/avl/savefile.git#733a63527524df3a5a7fafbadef66d0fc6eec14c"
 dependencies = [
  "arrayvec",
  "bit-vec",
