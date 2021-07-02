@@ -8,7 +8,10 @@ pub use protocol_derive::{Deserializable, Serializable};
 use std::io::{Read, Result, Write};
 
 pub trait Serializable {
-    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()>;
+    /// Returns how many bytes were written.
+    ///
+    /// You can feed it a no-op writer and just calculate the size of a packet efficiently.
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize>;
 }
 
 pub trait Deserializable {

@@ -6,7 +6,7 @@ use std::convert::TryInto;
 use std::io::{self, Cursor, ErrorKind, Read, Result, Write};
 
 impl Serializable for ChunkSections {
-    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
         // first we need the size of the whole structure IN BYTES
         // (good job mojang)
         let mut size = 0i32;
@@ -26,26 +26,28 @@ impl Serializable for ChunkSections {
             size += 8 * chunk_section.data.len() as i32; // i64s
         }
 
-        VarInt(size).to_writer(&mut *output)?;
+        let mut sum = 0;
+
+        sum += VarInt(size).to_writer(&mut *output)?;
         for section in &self.0 {
-            section.block_count.to_writer(&mut *output)?;
+            sum += section.block_count.to_writer(&mut *output)?;
             match &section.palette {
                 Palette::Indirect(mappings) => {
                     let bits_per_block = max(
                         4,
                         32u8 - max(mappings.len() as u32 - 1, 1).leading_zeros() as u8,
                     );
-                    bits_per_block.to_writer(&mut *output)?;
-                    mappings.to_writer(&mut *output)?;
+                    sum += bits_per_block.to_writer(&mut *output)?;
+                    sum += mappings.to_writer(&mut *output)?;
                 }
                 Palette::Direct => {
-                    15u8.to_writer(&mut *output)?;
+                    sum += 15u8.to_writer(&mut *output)?;
                 }
             }
-            section.data.to_writer(&mut *output)?;
+            sum += section.data.to_writer(&mut *output)?;
         }
 
-        Ok(())
+        Ok(sum)
     }
 }
 impl Deserializable for ChunkSections {
@@ -55,13 +57,15 @@ impl Deserializable for ChunkSections {
 }
 
 impl<'a> Serializable for CommandNode<'a> {
-    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
+        let mut sum = 0;
+
         match self {
             CommandNode::Root { children } => {
                 let mut flags = 0u8;
                 flags |= 0; // root type
-                flags.to_writer(&mut *output)?;
-                children.to_writer(&mut *output)?;
+                sum += flags.to_writer(&mut *output)?;
+                sum += children.to_writer(&mut *output)?;
             }
             CommandNode::Literal {
                 executable,
@@ -77,12 +81,12 @@ impl<'a> Serializable for CommandNode<'a> {
                 if let Some(_) = redirect {
                     flags |= 0x08;
                 }
-                flags.to_writer(&mut *output)?;
-                children.to_writer(&mut *output)?;
+                sum += flags.to_writer(&mut *output)?;
+                sum += children.to_writer(&mut *output)?;
                 if let Some(r) = redirect {
-                    r.to_writer(&mut *output)?;
+                    sum += r.to_writer(&mut *output)?;
                 }
-                name.to_writer(&mut *output)?;
+                sum += name.to_writer(&mut *output)?;
             }
             CommandNode::Argument {
                 executable,
@@ -103,20 +107,20 @@ impl<'a> Serializable for CommandNode<'a> {
                 if let Some(_) = suggestions {
                     flags |= 0x10;
                 }
-                flags.to_writer(&mut *output)?;
-                children.to_writer(&mut *output)?;
+                sum += flags.to_writer(&mut *output)?;
+                sum += children.to_writer(&mut *output)?;
                 if let Some(r) = redirect {
-                    r.to_writer(&mut *output)?;
+                    sum += r.to_writer(&mut *output)?;
                 }
-                name.to_writer(&mut *output)?;
-                parser.to_writer(&mut *output)?;
+                sum += name.to_writer(&mut *output)?;
+                sum += parser.to_writer(&mut *output)?;
                 if let Some(suggestions) = suggestions {
-                    suggestions.to_writer(&mut *output)?;
+                    sum += suggestions.to_writer(&mut *output)?;
                 }
             }
         }
 
-        Ok(())
+        Ok(sum)
     }
 }
 impl<'a> Deserializable for CommandNode<'a> {
@@ -126,19 +130,21 @@ impl<'a> Deserializable for CommandNode<'a> {
 }
 
 impl Serializable for Parser {
-    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
+        let mut sum = 0;
+
         match self {
             Parser::String(properties) => {
-                "brigadier:string".to_writer(&mut *output)?;
-                properties.to_writer(&mut *output)?;
+                sum += "brigadier:string".to_writer(&mut *output)?;
+                sum += properties.to_writer(&mut *output)?;
             }
         }
-        Ok(())
+        Ok(sum)
     }
 }
 
 impl<'a> Serializable for StatusResponse<'a> {
-    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
         serde_json::to_string(&self.json)
             .unwrap()
             .to_writer(&mut *output)
@@ -153,7 +159,7 @@ impl<'a> Deserializable for StatusResponse<'a> {
 }
 
 impl<'a> Serializable for Chat<'a> {
-    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
         serde_json::to_string(self)?.to_writer(output)
     }
 }
@@ -164,14 +170,16 @@ impl<'a> Deserializable for Chat<'a> {
 }
 
 impl<'a> Serializable for EntityMetadata<'a> {
-    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
+        let mut sum = 0;
+
         for item in &self.0 {
-            item.to_writer(output)?;
+            sum += item.to_writer(output)?;
         }
 
-        0xFFu8.to_writer(output)?;
+        sum += 0xFFu8.to_writer(output)?;
 
-        Ok(())
+        Ok(sum)
     }
 }
 impl<'a> Deserializable for EntityMetadata<'a> {
@@ -192,10 +200,34 @@ impl<'a> Deserializable for EntityMetadata<'a> {
 }
 
 impl Serializable for Nbt {
-    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
-        quartz_nbt::write::write_nbt_uncompressed(output, "", &self.0)?;
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
+        // there's a problem: the quart_nbt library doesn't return the number of bytes written when writing.
+        // so we'll have to make a wrapper around the given Write stream that will count the bytes as they are written
+        // and then use that value.
+        struct ByteCounter<W: Write> {
+            counter: usize,
+            stream: W,
+        }
+        impl<W: Write> Write for ByteCounter<W> {
+            fn write(&mut self, buf: &[u8]) -> Result<usize> {
+                let written = self.stream.write(buf)?;
+                self.counter += written;
 
-        Ok(())
+                Ok(written)
+            }
+
+            fn flush(&mut self) -> Result<()> {
+                self.stream.flush()
+            }
+        }
+        let mut output_wrapper = ByteCounter {
+            counter: 0,
+            stream: output,
+        };
+
+        quartz_nbt::write::write_nbt_uncompressed(&mut output_wrapper, "", &self.0)?;
+
+        Ok(output_wrapper.counter)
     }
 }
 impl Deserializable for Nbt {
@@ -205,18 +237,14 @@ impl Deserializable for Nbt {
 }
 
 impl Serializable for OptionalNbt {
-    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
         match &self.0 {
             None => {
                 // the TAG_END is 0 so just write a 0
-                0u8.to_writer(output)?;
+                Ok(0u8.to_writer(output)?)
             }
-            Some(nbt) => {
-                quartz_nbt::write::write_nbt_uncompressed(output, "", nbt)?;
-            }
+            Some(nbt) => nbt.to_writer(output),
         }
-
-        Ok(())
     }
 }
 impl Deserializable for OptionalNbt {
@@ -243,15 +271,15 @@ impl Deserializable for OptionalNbt {
             }
 
             let mut reader = Wrapper(Some(first_byte), input);
-            Ok(Self(Some(
-                quartz_nbt::read::read_nbt_uncompressed(&mut reader)?.0,
-            )))
+            Ok(Self(Some(Nbt::from_reader(&mut reader)?)))
         }
     }
 }
 
 impl Serializable for VarInt {
-    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
+        let mut sum = 0;
+
         let mut number = self.0 as u32;
 
         loop {
@@ -263,13 +291,14 @@ impl Serializable for VarInt {
             }
 
             output.write_all(&[byte])?;
+            sum += 1;
 
             if number == 0 {
                 break;
             }
         }
 
-        Ok(())
+        Ok(sum)
     }
 }
 impl Deserializable for VarInt {
@@ -298,7 +327,7 @@ impl Deserializable for VarInt {
 }
 
 impl Serializable for Position {
-    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
         let encoded: u64 = ((self.x as u64 & 0x3FFFFFF) << 38)
             | ((self.z as u64 & 0x3FFFFFF) << 12)
             | (self.y as u64 & 0xFFF);
@@ -331,7 +360,7 @@ impl Deserializable for Position {
 }
 
 impl<'a, T: Serializable + ToOwned + ?Sized> Serializable for Cow<'a, T> {
-    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
         (**self).to_writer(output)
     }
 }
@@ -345,12 +374,12 @@ where
 }
 
 impl Serializable for str {
-    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
         self.as_bytes().to_writer(output)
     }
 }
 impl Serializable for String {
-    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
         self.as_bytes().to_writer(output)
     }
 }
@@ -364,7 +393,7 @@ impl Deserializable for String {
 }
 
 impl<T: Serializable> Serializable for Vec<T> {
-    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
         (&self[..]).to_writer(output)
     }
 }
@@ -383,25 +412,29 @@ impl<T: Deserializable> Deserializable for Vec<T> {
 }
 
 impl<T: Serializable> Serializable for [T] {
-    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
-        VarInt(self.len() as i32).to_writer(&mut *output)?;
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
+        let mut sum = 0;
+
+        sum += VarInt(self.len() as i32).to_writer(&mut *output)?;
 
         for e in self {
-            e.to_writer(&mut *output)?;
+            sum += e.to_writer(&mut *output)?;
         }
 
-        Ok(())
+        Ok(sum)
     }
 }
 
 // Box<[T]> are like Vec<T> except that there's no length prefix and you just read to end
 impl<T: Serializable> Serializable for Box<[T]> {
-    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
+        let mut sum = 0;
+
         for e in &**self {
-            e.to_writer(&mut *output)?;
+            sum += e.to_writer(&mut *output)?;
         }
 
-        Ok(())
+        Ok(sum)
     }
 }
 impl<T: Deserializable> Deserializable for Box<[T]> {
@@ -435,12 +468,14 @@ impl<T: Deserializable> Deserializable for Box<[T]> {
 }
 
 impl<T: Serializable, const N: usize> Serializable for [T; N] {
-    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
+        let mut sum = 0;
+
         for e in self {
-            e.to_writer(&mut *output)?;
+            sum += e.to_writer(&mut *output)?;
         }
 
-        Ok(())
+        Ok(sum)
     }
 }
 impl<T: Deserializable, const N: usize> Deserializable for [T; N] {
@@ -458,9 +493,13 @@ impl<T: Deserializable, const N: usize> Deserializable for [T; N] {
 impl<T: Serializable, L: Serializable + TryFrom<usize>, const N: usize> Serializable
     for ArrWithLen<T, L, N>
 {
-    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
+        let mut sum = 0;
+
         match L::try_from(N) {
-            Ok(s) => s.to_writer(&mut *output)?,
+            Ok(s) => {
+                sum += s.to_writer(&mut *output)?;
+            }
             Err(_) => {
                 return Err(std::io::Error::new(
                     ErrorKind::Other,
@@ -473,7 +512,9 @@ impl<T: Serializable, L: Serializable + TryFrom<usize>, const N: usize> Serializ
             }
         }
 
-        self.0.to_writer(&mut *output)
+        sum += self.0.to_writer(&mut *output)?;
+
+        Ok(sum)
     }
 }
 impl<T: Deserializable, L: Deserializable + TryInto<usize>, const N: usize> Deserializable
@@ -505,16 +546,14 @@ impl<T: Deserializable, L: Deserializable + TryInto<usize>, const N: usize> Dese
 }
 
 impl<'a, T: Serializable> Serializable for MaybeStatic<'a, T> {
-    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
         match self {
             MaybeStatic::Static(bytes) => {
                 output.write_all(bytes)?;
+                Ok(bytes.len())
             }
-            MaybeStatic::Owned(item) => {
-                item.to_writer(output)?;
-            }
+            MaybeStatic::Owned(item) => Ok(item.to_writer(output)?),
         }
-        Ok(())
     }
 }
 impl<'a, T: Deserializable> Deserializable for MaybeStatic<'a, T> {
@@ -524,14 +563,18 @@ impl<'a, T: Deserializable> Deserializable for MaybeStatic<'a, T> {
 }
 
 impl<T: Serializable> Serializable for Option<T> {
-    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
+        let mut sum = 0;
+
         match self {
             Some(val) => {
-                true.to_writer(output)?;
-                val.to_writer(output)
+                sum += true.to_writer(output)?;
+                sum += val.to_writer(output)?;
             }
-            None => false.to_writer(output),
+            None => sum += false.to_writer(output)?,
         }
+
+        Ok(sum)
     }
 }
 impl<T: Deserializable> Deserializable for Option<T> {
@@ -562,8 +605,9 @@ impl TryFrom<VarInt> for usize {
 // primitives:
 
 impl Serializable for f64 {
-    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
-        output.write_all(&self.to_be_bytes())
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
+        output.write_all(&self.to_be_bytes())?;
+        Ok(std::mem::size_of::<f64>())
     }
 }
 impl Deserializable for f64 {
@@ -577,8 +621,9 @@ impl Deserializable for f64 {
 }
 
 impl Serializable for f32 {
-    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
-        output.write_all(&self.to_be_bytes())
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
+        output.write_all(&self.to_be_bytes())?;
+        Ok(std::mem::size_of::<f32>())
     }
 }
 impl Deserializable for f32 {
@@ -592,8 +637,9 @@ impl Deserializable for f32 {
 }
 
 impl Serializable for u8 {
-    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
-        output.write_all(&self.to_be_bytes())
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
+        output.write_all(&self.to_be_bytes())?;
+        Ok(std::mem::size_of::<u8>())
     }
 }
 impl Deserializable for u8 {
@@ -607,8 +653,9 @@ impl Deserializable for u8 {
 }
 
 impl Serializable for i8 {
-    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
-        output.write_all(&self.to_be_bytes())
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
+        output.write_all(&self.to_be_bytes())?;
+        Ok(std::mem::size_of::<i8>())
     }
 }
 impl Deserializable for i8 {
@@ -622,8 +669,9 @@ impl Deserializable for i8 {
 }
 
 impl Serializable for u16 {
-    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
-        output.write_all(&self.to_be_bytes())
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
+        output.write_all(&self.to_be_bytes())?;
+        Ok(std::mem::size_of::<u16>())
     }
 }
 impl Deserializable for u16 {
@@ -637,8 +685,9 @@ impl Deserializable for u16 {
 }
 
 impl Serializable for i16 {
-    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
-        output.write_all(&self.to_be_bytes())
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
+        output.write_all(&self.to_be_bytes())?;
+        Ok(std::mem::size_of::<i16>())
     }
 }
 impl Deserializable for i16 {
@@ -652,8 +701,9 @@ impl Deserializable for i16 {
 }
 
 impl Serializable for u32 {
-    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
-        output.write_all(&self.to_be_bytes())
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
+        output.write_all(&self.to_be_bytes())?;
+        Ok(std::mem::size_of::<u32>())
     }
 }
 impl Deserializable for u32 {
@@ -667,8 +717,9 @@ impl Deserializable for u32 {
 }
 
 impl Serializable for i32 {
-    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
-        output.write_all(&self.to_be_bytes())
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
+        output.write_all(&self.to_be_bytes())?;
+        Ok(std::mem::size_of::<i32>())
     }
 }
 impl Deserializable for i32 {
@@ -682,8 +733,9 @@ impl Deserializable for i32 {
 }
 
 impl Serializable for u64 {
-    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
-        output.write_all(&self.to_be_bytes())
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
+        output.write_all(&self.to_be_bytes())?;
+        Ok(std::mem::size_of::<u64>())
     }
 }
 impl Deserializable for u64 {
@@ -697,8 +749,9 @@ impl Deserializable for u64 {
 }
 
 impl Serializable for i64 {
-    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
-        output.write_all(&self.to_be_bytes())
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
+        output.write_all(&self.to_be_bytes())?;
+        Ok(std::mem::size_of::<i64>())
     }
 }
 impl Deserializable for i64 {
@@ -712,8 +765,9 @@ impl Deserializable for i64 {
 }
 
 impl Serializable for u128 {
-    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
-        output.write_all(&self.to_be_bytes())
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
+        output.write_all(&self.to_be_bytes())?;
+        Ok(std::mem::size_of::<u128>())
     }
 }
 impl Deserializable for u128 {
@@ -727,8 +781,9 @@ impl Deserializable for u128 {
 }
 
 impl Serializable for i128 {
-    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
-        output.write_all(&self.to_be_bytes())
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
+        output.write_all(&self.to_be_bytes())?;
+        Ok(std::mem::size_of::<i128>())
     }
 }
 impl Deserializable for i128 {
@@ -742,8 +797,9 @@ impl Deserializable for i128 {
 }
 
 impl Serializable for bool {
-    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
-        output.write_all(&[*self as u8])
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
+        output.write_all(&[*self as u8])?;
+        Ok(std::mem::size_of::<bool>())
     }
 }
 impl Deserializable for bool {
@@ -757,10 +813,11 @@ impl Deserializable for bool {
 }
 
 impl<T1: Serializable, T2: Serializable> Serializable for (T1, T2) {
-    fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
-        self.0.to_writer(output)?;
-        self.1.to_writer(output)?;
-        Ok(())
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
+        let mut sum = 0;
+        sum += self.0.to_writer(output)?;
+        sum += self.1.to_writer(output)?;
+        Ok(sum)
     }
 }
 impl<T1: Deserializable, T2: Deserializable> Deserializable for (T1, T2) {
@@ -770,8 +827,8 @@ impl<T1: Deserializable, T2: Deserializable> Deserializable for (T1, T2) {
 }
 
 impl Serializable for () {
-    fn to_writer<W: Write>(&self, _output: &mut W) -> Result<()> {
-        Ok(())
+    fn to_writer<W: Write>(&self, _output: &mut W) -> Result<usize> {
+        Ok(std::mem::size_of::<()>())
     }
 }
 impl Deserializable for () {

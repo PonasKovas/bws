@@ -20,9 +20,10 @@ pub fn derive_serializable(input: TokenStream) -> TokenStream {
 
                 TokenStream::from(quote! {
                     impl#generics protocol::Serializable for #name#generics {
-                        fn to_writer<__W: ::std::io::Write>(&self, __output: &mut __W) -> ::std::io::Result<()> {
-                           #(protocol::Serializable::to_writer(&self.#field_names, __output)?;)*
-                            Ok(())
+                        fn to_writer<__W: ::std::io::Write>(&self, __output: &mut __W) -> ::std::io::Result<usize> {
+                            let mut sum = 0;
+                            #(sum += protocol::Serializable::to_writer(&self.#field_names, __output)?;)*
+                            Ok(sum)
                         }
                     }
                 })
@@ -34,17 +35,18 @@ pub fn derive_serializable(input: TokenStream) -> TokenStream {
                 });
                 TokenStream::from(quote! {
                     impl#generics protocol::Serializable for #name#generics {
-                        fn to_writer<__W: ::std::io::Write>(&self, __output: &mut __W) -> ::std::io::Result<()> {
-                           #(protocol::Serializable::to_writer(&self.#field_indices, __output)?;)*
-                            Ok(())
+                        fn to_writer<__W: ::std::io::Write>(&self, __output: &mut __W) -> ::std::io::Result<usize> {
+                            let mut sum = 0;
+                            #(sum += protocol::Serializable::to_writer(&self.#field_indices, __output)?;)*
+                            Ok(sum)
                         }
                     }
                 })
             }
             Fields::Unit => TokenStream::from(quote! {
                 impl#generics protocol::Serializable for #name#generics {
-                    fn to_writer<__W: ::std::io::Write>(&self, __output: &mut __W) -> ::std::io::Result<()> {
-                        Ok(())
+                    fn to_writer<__W: ::std::io::Write>(&self, __output: &mut __W) -> ::std::io::Result<usize> {
+                        Ok(0)
                     }
                 }
             }),
@@ -94,7 +96,7 @@ pub fn derive_serializable(input: TokenStream) -> TokenStream {
                         }
                         match_arms.push(quote! {
                             Self::#variant_name (__inlined_enum) => {
-                                protocol::Serializable::to_writer(__inlined_enum, __output)?;
+                                sum += protocol::Serializable::to_writer(__inlined_enum, __output)?;
                             }
                         });
                     } else {
@@ -103,7 +105,7 @@ pub fn derive_serializable(input: TokenStream) -> TokenStream {
                 } else {
                     // serialize normally
                     let discriminant = quote! {
-                        protocol::Serializable::to_writer(
+                        sum += protocol::Serializable::to_writer(
                             &(::core::convert::TryInto::< #discriminant_as >::try_into(#next_discriminant)
                                 .expect(&format!(
                                     "Couldn't convert the discriminant {} to type {}",
@@ -122,7 +124,7 @@ pub fn derive_serializable(input: TokenStream) -> TokenStream {
                             match_arms.push(quote! {
                                  Self::#variant_name { #( #field_names ),*} => {
                                     #discriminant
-                                    #( protocol::Serializable::to_writer( #field_names2, __output)?; )*
+                                    #( sum += protocol::Serializable::to_writer( #field_names2, __output)?; )*
                                  }
                              });
                         }
@@ -135,7 +137,7 @@ pub fn derive_serializable(input: TokenStream) -> TokenStream {
                             match_arms.push(quote! {
                                  Self::#variant_name ( #( #field_names ),*) => {
                                     #discriminant
-                                    #( protocol::Serializable::to_writer( #field_names2, __output)?; )*
+                                    #( sum += protocol::Serializable::to_writer( #field_names2, __output)?; )*
                                  }
                              });
                         }
@@ -154,12 +156,15 @@ pub fn derive_serializable(input: TokenStream) -> TokenStream {
 
             TokenStream::from(quote! {
                 impl#generics protocol::Serializable for #name#generics {
-                    fn to_writer<__W: ::std::io::Write>(&self, __output: &mut __W) -> ::std::io::Result<()> {
+                    fn to_writer<__W: ::std::io::Write>(&self, __output: &mut __W) -> ::std::io::Result<usize> {
+                        let mut sum = 0;
+
                         match self {
                             #(#match_arms,)*
                             _ => {}
                         }
-                        Ok(())
+
+                        Ok(sum)
                     }
                 }
             })
