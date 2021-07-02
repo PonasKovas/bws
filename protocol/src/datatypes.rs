@@ -31,9 +31,19 @@ impl TryFrom<VarInt> for i32 {
 }
 
 impl VarInt {
-    pub fn size(&self) -> u8 {
-        // the inner +6 is so that dividing by 7 would always round up
-        std::cmp::max((32 - (self.0 as u32).leading_zeros() + 6) / 7, 1) as u8
+    pub fn size(&self) -> usize {
+        struct Size;
+        impl std::io::Write for Size {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                Ok(buf.len())
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        self.to_writer(&mut Size).unwrap()
     }
 }
 
