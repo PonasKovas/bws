@@ -709,35 +709,33 @@ impl LobbyWorld {
                     }
                 } else if action == EntityAction::StartSneaking {
                     info!("[{}] started sneaking", id);
-                    // for (_id, player) in &self.players {
-                    //     let _ = player
-                    //         .stream
-                    //         .lock()
-                    //         .await
-                    //         .send(PlayClientBound::EntityMetadata {
-                    //             entity_id: VarInt(id as i32),
-                    //             metadata: EntityMetadata(vec![
-                    //                 EntityMetadataEntry::Byte(2),
-                    //                 EntityMetadataEntry::VarInt(VarInt(300)),
-                    //                 EntityMetadataEntry::OptChat(None),
-                    //                 EntityMetadataEntry::Boolean(false),
-                    //                 EntityMetadataEntry::Boolean(false),
-                    //                 EntityMetadataEntry::Boolean(false),
-                    //                 EntityMetadataEntry::Pose(Pose::Sneaking),
-                    //             ]),
-                    //         });
-                    // }
+                    for (_id, player) in &self.players {
+                        let _ = player
+                            .stream
+                            .lock()
+                            .await
+                            .send(PlayClientBound::EntityMetadata {
+                                entity_id: VarInt(id as i32),
+                                metadata: EntityMetadata(vec![
+                                    (0, EntityMetadataEntry::Byte(0x02 | 0x40)),
+                                    (6, EntityMetadataEntry::Pose(Pose::Sneaking)),
+                                ]),
+                            });
+                    }
                 } else if action == EntityAction::StopSneaking {
                     info!("[{}] stopped sneaking", id);
                     for (_id, player) in &self.players {
-                        // let _ = player
-                        //     .stream
-                        //     .lock()
-                        //     .await
-                        //     .send(PlayClientBound::EntityMetadata {
-                        //         entity_id: VarInt(id as i32),
-                        //         metadata: EntityMetadata(vec![EntityMetadataEntry::Byte(0)]),
-                        //     });
+                        let _ = player
+                            .stream
+                            .lock()
+                            .await
+                            .send(PlayClientBound::EntityMetadata {
+                                entity_id: VarInt(id as i32),
+                                metadata: EntityMetadata(vec![
+                                    (0, EntityMetadataEntry::Byte(0x00)),
+                                    (6, EntityMetadataEntry::Pose(Pose::Standing)),
+                                ]),
+                            });
                     }
                 }
             }
