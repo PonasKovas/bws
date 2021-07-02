@@ -53,6 +53,7 @@ struct Player {
     loaded_chunks: Vec<(i8, i8)>, // i8s work because the worlds aren't going to be that big
     inventory: [Slot; 46],
     held_item: i16,
+    placing_block: i32,
 }
 
 pub struct LobbyWorld {
@@ -181,6 +182,7 @@ impl LobbyWorld {
                             loaded_chunks: Vec::new(),
                             inventory: [(); 46].map(|_| Slot(None)),
                             held_item: 0,
+                            placing_block: 1,
                         },
                     );
 
@@ -548,19 +550,29 @@ impl LobbyWorld {
     async fn handle_packet(&mut self, id: usize, packet: PlayServerBound<'static>) {
         match packet {
             PlayServerBound::ChatMessage(message) => {
-                for (_, player) in &self.players {
-                    let _ = player
-                        .stream
-                        .lock()
-                        .await
-                        .send(PlayClientBound::ChatMessage {
-                            message: chat_parse(format!(
-                                "§a§l{}§r§7: §f{}",
-                                self.players[&id].username, message
-                            )),
-                            position: ChatPosition::Chat,
-                            sender: self.players[&id].uuid,
-                        });
+                if message.starts_with('/') {
+                    if message.starts_with("/block ") {
+                        if let Some(block_id) = message.split(' ').nth(1) {
+                            if let Ok(block_id) = i32::from_str_radix(block_id, 10) {
+                                self.players.get_mut(&id).unwrap().placing_block = block_id;
+                            }
+                        }
+                    }
+                } else {
+                    for (_, player) in &self.players {
+                        let _ = player
+                            .stream
+                            .lock()
+                            .await
+                            .send(PlayClientBound::ChatMessage {
+                                message: chat_parse(format!(
+                                    "§a§l{}§r§7: §f{}",
+                                    self.players[&id].username, message
+                                )),
+                                position: ChatPosition::Chat,
+                                sender: self.players[&id].uuid,
+                            });
+                    }
                 }
             }
             PlayServerBound::PlayerPosition {
@@ -685,7 +697,7 @@ impl LobbyWorld {
 
                 //     }
                 // };
-                let block = 1;
+                let block = self.players[&id].placing_block;
 
                 if let Err(e) = self.set_block(target, block).await {
                     debug!("Error placing block: {:?}", e);
