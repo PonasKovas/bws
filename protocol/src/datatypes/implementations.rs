@@ -49,7 +49,7 @@ impl Serializable for ChunkSections {
     }
 }
 impl Deserializable for ChunkSections {
-    fn from_reader<R: Read>(input: &mut R) -> Result<Self> {
+    fn from_reader<R: Read>(_input: &mut R) -> Result<Self> {
         todo!()
     }
 }
@@ -120,7 +120,7 @@ impl<'a> Serializable for CommandNode<'a> {
     }
 }
 impl<'a> Deserializable for CommandNode<'a> {
-    fn from_reader<R: Read>(input: &mut R) -> Result<Self> {
+    fn from_reader<R: Read>(_input: &mut R) -> Result<Self> {
         todo!()
     }
 }
@@ -165,8 +165,7 @@ impl<'a> Deserializable for Chat<'a> {
 
 impl<'a> Serializable for EntityMetadata<'a> {
     fn to_writer<W: Write>(&self, output: &mut W) -> Result<()> {
-        for (i, item) in self.0.iter().enumerate() {
-            (i as u8).to_writer(output)?;
+        for item in &self.0 {
             item.to_writer(output)?;
         }
 
@@ -179,8 +178,16 @@ impl<'a> Deserializable for EntityMetadata<'a> {
     fn from_reader<R: Read>(input: &mut R) -> Result<Self> {
         let mut res = Vec::new();
 
-        while u8::from_reader(input)? != 0xFF {
-            res.push(EntityMetadataEntry::from_reader(input)?);
+        loop {
+            let index = u8::from_reader(input)?;
+            if index == 0xFF {
+                break;
+            }
+
+            res.push(EntityMetadataEntry {
+                index,
+                entry: EntityMetadataData::from_reader(input)?,
+            });
         }
 
         Ok(Self(res))
@@ -762,5 +769,16 @@ impl<T1: Serializable, T2: Serializable> Serializable for (T1, T2) {
 impl<T1: Deserializable, T2: Deserializable> Deserializable for (T1, T2) {
     fn from_reader<R: Read>(input: &mut R) -> Result<Self> {
         Ok((T1::from_reader(input)?, T2::from_reader(input)?))
+    }
+}
+
+impl Serializable for () {
+    fn to_writer<W: Write>(&self, _output: &mut W) -> Result<()> {
+        Ok(())
+    }
+}
+impl Deserializable for () {
+    fn from_reader<R: Read>(_input: &mut R) -> Result<Self> {
+        Ok(())
     }
 }

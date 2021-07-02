@@ -1,11 +1,15 @@
+
 extern crate proc_macro;
 
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::quote;
-use syn::{parse_macro_input, parse_quote, Data, DeriveInput, Fields, LitInt, Path};
+use syn::{
+    parse_macro_input, parse_quote, Attribute, Data, DeriveInput, Expr, Fields, LitInt, Path, Type,
+};
 
 #[proc_macro_derive(Serializable, attributes(discriminant_as, discriminant, inline_enum))]
+
 pub fn derive_serializable(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
@@ -20,7 +24,7 @@ pub fn derive_serializable(input: TokenStream) -> TokenStream {
                 TokenStream::from(quote! {
                     impl#generics protocol::Serializable for #name#generics {
                         fn to_writer<__W: ::std::io::Write>(&self, __output: &mut __W) -> ::std::io::Result<()> {
-                            #(protocol::Serializable::to_writer(&self.#field_names, __output)?;)*
+                           #(protocol::Serializable::to_writer(&self.#field_names, __output)?;)*
                             Ok(())
                         }
                     }
@@ -34,7 +38,7 @@ pub fn derive_serializable(input: TokenStream) -> TokenStream {
                 TokenStream::from(quote! {
                     impl#generics protocol::Serializable for #name#generics {
                         fn to_writer<__W: ::std::io::Write>(&self, __output: &mut __W) -> ::std::io::Result<()> {
-                            #(protocol::Serializable::to_writer(&self.#field_indices, __output)?;)*
+                           #(protocol::Serializable::to_writer(&self.#field_indices, __output)?;)*
                             Ok(())
                         }
                     }
@@ -49,25 +53,7 @@ pub fn derive_serializable(input: TokenStream) -> TokenStream {
             }),
         },
         Data::Enum(data) => {
-            let mut discriminant_as = parse_quote! {protocol::datatypes::VarInt};
-
-            for attribute in input.attrs {
-                match attribute.path.get_ident() {
-                    Some(ident) => {
-                        if format!("{}", ident).as_str() == "discriminant_as" {
-                            match attribute.parse_args::<Path>() {
-                                Ok(arg) => {
-                                    discriminant_as = arg;
-                                }
-                                Err(_) => {
-                                    panic!("Usage: #[discriminant_as(u32)] with any type that implements Serialize and TryFrom<i32> instead of u32");
-                                }
-                            }
-                        }
-                    }
-                    None => continue,
-                }
-            }
+            let discriminant_as = parse_attrs(input.attrs);
 
             let mut match_arms = Vec::new();
 
@@ -119,25 +105,29 @@ pub fn derive_serializable(input: TokenStream) -> TokenStream {
                     }
                 } else {
                     // serialize normally
+                    let discriminant = quote! {
+                        protocol::Serializable::to_writer(
+                            &(::core::convert::TryInto::< #discriminant_as >::try_into(#next_discriminant)
+                                .expect(&format!(
+                                    "Couldn't convert the discriminant {} to type {}",
+                                    #next_discriminant,
+                                    std::any::type_name::< #discriminant_as >()
+                                ))),
+                            __output
+                        )?;
+                    };
+
                     match variant.fields {
                         Fields::Named(fields) => {
                             let field_names = fields.named.iter().map(|f| &f.ident);
                             let field_names2 = field_names.clone();
 
                             match_arms.push(quote! {
-                                Self::#variant_name { #( #field_names ),*} => {
-                                    protocol::Serializable::to_writer(
-                                        &(::core::convert::TryInto::< #discriminant_as >::try_into(#next_discriminant)
-                                            .expect(&format!(
-                                                "Couldn't convert the discriminant {} to type {}",
-                                                #next_discriminant,
-                                                std::any::type_name::< #discriminant_as >()
-                                            ))),
-                                        __output
-                                    )?;
+                                 Self::#variant_name { #( #field_names ),*} => {
+                                    #discriminant
                                     #( protocol::Serializable::to_writer( #field_names2, __output)?; )*
-                                }
-                            });
+                                 }
+                             });
                         }
                         Fields::Unnamed(fields) => {
                             let field_names = fields.unnamed.iter().enumerate().map(|(i, _)| {
@@ -146,32 +136,16 @@ pub fn derive_serializable(input: TokenStream) -> TokenStream {
                             let field_names2 = field_names.clone();
 
                             match_arms.push(quote! {
-                                Self::#variant_name ( #( #field_names ),*) => {
-                                    protocol::Serializable::to_writer(
-                                        &(::core::convert::TryInto::< #discriminant_as >::try_into(#next_discriminant)
-                                            .expect(&format!(
-                                                "Couldn't convert the discriminant {} to type {}",
-                                                #next_discriminant,
-                                                std::any::type_name::< #discriminant_as >()
-                                            ))),
-                                        __output
-                                    )?;
+                                 Self::#variant_name ( #( #field_names ),*) => {
+                                    #discriminant
                                     #( protocol::Serializable::to_writer( #field_names2, __output)?; )*
-                                }
-                            });
+                                 }
+                             });
                         }
                         Fields::Unit => {
                             match_arms.push(quote! {
                                 Self::#variant_name => {
-                                    protocol::Serializable::to_writer(
-                                        &(::core::convert::TryInto::< #discriminant_as >::try_into(#next_discriminant)
-                                            .expect(&format!(
-                                                "Couldn't convert the discriminant {} to type {}",
-                                                #next_discriminant,
-                                                std::any::type_name::< #discriminant_as >()
-                                            ))),
-                                        __output
-                                    )?;
+                                   #discriminant
                                 }
                             });
                         }
@@ -243,25 +217,7 @@ pub fn derive_deserializable(input: TokenStream) -> TokenStream {
             }),
         },
         Data::Enum(data) => {
-            let mut discriminant_as = parse_quote! {protocol::datatypes::VarInt};
-
-            for attribute in input.attrs {
-                match attribute.path.get_ident() {
-                    Some(ident) => {
-                        if format!("{}", ident).as_str() == "discriminant_as" {
-                            match attribute.parse_args::<Path>() {
-                                Ok(arg) => {
-                                    discriminant_as = arg;
-                                }
-                                Err(_) => {
-                                    panic!("Usage: #[discriminant_as(u32)] with any type that implements Deserialize and TryInto<i32> instead of u32");
-                                }
-                            }
-                        }
-                    }
-                    None => continue,
-                }
-            }
+            let discriminant_as = parse_attrs(input.attrs);
 
             let mut match_arms = Vec::new();
             let mut inlined_arm = None;
@@ -306,14 +262,14 @@ pub fn derive_deserializable(input: TokenStream) -> TokenStream {
                         }
 
                         match_arms.push(quote! {
-                            _ => {
-                                let mut __peeked_input = protocol::PeekedStream {
-                                    peeked: Some(original_discriminant),
-                                    stream: __input,
-                                };
-                                Ok(Self::#variant_name ( protocol::Deserializable::from_reader(&mut __peeked_input)? ) )
-                            }
-                        });
+                             _ => {
+                                 let mut __peeked_input = protocol::PeekedStream {
+                                     peeked: Some(original_discriminant),
+                                     stream: __input,
+                                 };
+                                 Ok(Self::#variant_name ( protocol::Deserializable::from_reader(&mut __peeked_input)? ) )
+                             }
+                         });
 
                         inlined_arm = Some(match_arms.len() - 1);
                     } else {
@@ -326,26 +282,26 @@ pub fn derive_deserializable(input: TokenStream) -> TokenStream {
                             let field_names = fields.named.iter().map(|f| &f.ident);
 
                             match_arms.push(quote! {
-                                #next_discriminant => {
-                                    Ok(Self::#variant_name{ #(
-                                        #field_names: protocol::Deserializable::from_reader(__input)?,
-                                    )* })
-                                }
-                            });
+                                 #next_discriminant => {
+                                     Ok(Self::#variant_name{ #(
+                                         #field_names: protocol::Deserializable::from_reader(__input)?,
+                                     )* })
+                                 }
+                             });
                         }
                         Fields::Unnamed(fields) => {
                             let field_types = fields.unnamed.iter().map(|f| &f.ty);
 
                             match_arms.push(quote! {
-                                #next_discriminant => {
-                                    Ok(Self::#variant_name ( #(
-                                        {
-                                            let temp: #field_types = protocol::Deserializable::from_reader(__input)?;
-                                            temp
-                                        }
-                                    )* ))
-                                }
-                            });
+                                 #next_discriminant => {
+                                     Ok(Self::#variant_name ( #(
+                                         {
+                                             let temp: #field_types = protocol::Deserializable::from_reader(__input)?;
+                                             temp
+                                         }
+                                     )* ))
+                                 }
+                             });
                         }
                         Fields::Unit => {
                             match_arms.push(quote! {
@@ -388,4 +344,27 @@ pub fn derive_deserializable(input: TokenStream) -> TokenStream {
         }
         Data::Union(_) => panic!("Unions are not supported!"),
     }
+}
+
+fn parse_attrs(attrs: Vec<Attribute>) -> Path {
+    let mut discriminant_as: Path = parse_quote! {protocol::datatypes::VarInt};
+
+    for attribute in attrs {
+        match attribute.path.get_ident() {
+            Some(ident) => match format!("{}", ident).as_str() {
+                "discriminant_as" => match attribute.parse_args::<Path>() {
+                    Ok(arg) => {
+                        discriminant_as = arg;
+                    }
+                    Err(_) => {
+                        panic!("Usage: #[discriminant_as(u32)] with any type that implements Serialize/Deserialize and TryFrom<i32>/TryInto<i32> instead of u32");
+                    }
+                },
+                _ => {}
+            },
+            None => {}
+        }
+    }
+
+    discriminant_as
 }
