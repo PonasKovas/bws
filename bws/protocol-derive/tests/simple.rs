@@ -1,6 +1,6 @@
 use protocol::{Deserializable, Serializable};
 
-#[derive(Serializable)]
+#[derive(Serializable, Deserializable)]
 #[discriminant_as(u16)]
 pub enum Foo {
     First,

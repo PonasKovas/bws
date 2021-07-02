@@ -1,4 +1,5 @@
 pub mod chat_parse;
+pub mod entity_metadata;
 mod implementations;
 
 use super::{Deserializable, Serializable};
@@ -37,7 +38,7 @@ impl VarInt {
     }
 }
 
-// A newtype around an array except that when serializing/deserializing it has the fixed length as a prefix
+/// A newtype around an array except that when serializing/deserializing it has the fixed length as a prefix
 #[derive(Shrinkwrap, Debug, Clone, PartialEq)]
 #[shrinkwrap(mutable)]
 pub struct ArrWithLen<T, L, const N: usize>(#[shrinkwrap(main_field)] pub [T; N], PhantomData<L>);
@@ -98,7 +99,13 @@ impl<'a, T: Deserializable> MaybeStatic<'a, T> {
 pub struct EntityMetadata<'a>(pub Vec<EntityMetadataEntry<'a>>);
 
 #[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
-pub enum EntityMetadataEntry<'a> {
+pub struct EntityMetadataEntry<'a> {
+    pub index: u8,
+    pub entry: EntityMetadataData<'a>,
+}
+
+#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
+pub enum EntityMetadataData<'a> {
     Byte(i8),
     VarInt(VarInt),
     Float(f32),
@@ -126,6 +133,17 @@ pub enum EntityMetadataEntry<'a> {
     },
     OptVarInt(VarInt),
     Pose(Pose),
+}
+
+#[derive(Serializable, Deserializable, Debug, Clone, Copy, PartialEq)]
+pub enum Pose {
+    Standing,
+    FallFlying,
+    Sleeping,
+    Swimming,
+    SpinAttack,
+    Sneaking,
+    Dying,
 }
 
 #[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
@@ -315,20 +333,7 @@ pub enum EntityAction {
 }
 
 #[derive(Serializable, Deserializable, Debug, Clone, Copy, PartialEq)]
-pub enum Pose {
-    Standing,
-    FallFlying,
-    Sleeping,
-    Swimming,
-    SpinAttack,
-    Sneaking,
-    Dying,
-}
-
-#[derive(Serializable, Deserializable, Debug, Clone, Copy, PartialEq)]
-// this one should actually be serialized as an unsigned byte
-// but there's no difference until we have more than 127 variants,
-// which I think we will never do, so this works
+#[discriminant_as(u8)]
 pub enum EntityAnimation {
     SwingMainArm,
     TakeDamage,
