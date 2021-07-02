@@ -530,6 +530,17 @@ async fn read_packet(
     })
 }
 
+struct Size;
+impl Write for Size {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 async fn write_packet<'a>(
     socket: &'a mut BufReader<TcpStream>,
     buffer: &'a mut Vec<u8>,
@@ -546,12 +557,10 @@ async fn write_packet<'a>(
         // use the compressed packet format
 
         // first check if the packet is long enough to actually be compressed
-        packet.clone().to_writer(buffer)?;
-        let uncompressed_length = buffer.len();
+        let uncompressed_length = packet.to_writer(&mut Size)?;
 
         // if the packet is long enough be compressed
         if uncompressed_length as i32 >= GLOBAL_STATE.compression_treshold {
-            buffer.clear();
             let mut encoder = ZlibEncoder::new(&mut *buffer, Compression::fast());
             packet.to_writer(&mut encoder)?;
             encoder.finish()?;
@@ -567,7 +576,7 @@ async fn write_packet<'a>(
             socket.write_all(&buffer[..]).await?;
         } else {
             // the packet will not actually be compressed
-            // ok just send it then
+            packet.to_writer(buffer)?;
             write_varint(VarInt(uncompressed_length as i32 + 1), socket).await?; // + 1 because the following VarInt is counted too and it's always 1 byte since it's 0
             write_varint(VarInt(0), socket).await?;
             socket.write_all(&buffer[..]).await?;
