@@ -1,12 +1,9 @@
-
 extern crate proc_macro;
 
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::quote;
-use syn::{
-    parse_macro_input, parse_quote, Attribute, Data, DeriveInput, Expr, Fields, LitInt, Path, Type,
-};
+use syn::{parse_macro_input, parse_quote, Attribute, Data, DeriveInput, Fields, LitInt, Path};
 
 #[proc_macro_derive(Serializable, attributes(discriminant_as, discriminant, inline_enum))]
 

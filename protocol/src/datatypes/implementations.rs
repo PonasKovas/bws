@@ -184,10 +184,7 @@ impl<'a> Deserializable for EntityMetadata<'a> {
                 break;
             }
 
-            res.push(EntityMetadataEntry {
-                index,
-                entry: EntityMetadataData::from_reader(input)?,
-            });
+            res.push((index, EntityMetadataEntry::from_reader(input)?));
         }
 
         Ok(Self(res))
