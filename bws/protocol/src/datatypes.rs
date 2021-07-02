@@ -1,5 +1,4 @@
 pub mod chat_parse;
-pub mod entity_metadata;
 mod implementations;
 
 use super::{Deserializable, Serializable};
@@ -96,16 +95,10 @@ impl<'a, T: Deserializable> MaybeStatic<'a, T> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct EntityMetadata<'a>(pub Vec<EntityMetadataEntry<'a>>);
+pub struct EntityMetadata<'a>(pub Vec<(u8, EntityMetadataEntry<'a>)>);
 
 #[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
-pub struct EntityMetadataEntry<'a> {
-    pub index: u8,
-    pub entry: EntityMetadataData<'a>,
-}
-
-#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
-pub enum EntityMetadataData<'a> {
+pub enum EntityMetadataEntry<'a> {
     Byte(i8),
     VarInt(VarInt),
     Float(f32),
