@@ -55,7 +55,7 @@ pub struct Nbt(pub quartz_nbt::NbtCompound);
 /// the same as normal Nbt, except that it allows for it to be just a single TAG_END byte, without any actual data.
 #[derive(Shrinkwrap, Debug, Clone, PartialEq)]
 #[shrinkwrap(mutable)]
-pub struct OptionalNbt(pub Option<quartz_nbt::NbtCompound>);
+pub struct OptionalNbt(pub Option<Nbt>);
 
 #[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
 pub struct Angle(pub u8);

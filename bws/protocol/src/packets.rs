@@ -478,7 +478,7 @@ impl<'a> PlayClientBound<'a> {
 }
 
 impl<'a> Serializable for ClientBound<'a> {
-    fn to_writer<W: Write>(&self, output: &mut W) -> io::Result<()> {
+    fn to_writer<W: Write>(&self, output: &mut W) -> io::Result<usize> {
         match self {
             Self::Status(packet) => packet.to_writer(output),
             Self::Login(packet) => packet.to_writer(output),
@@ -509,7 +509,7 @@ impl<'a> PlayServerBound<'a> {
 }
 
 impl<'a> Serializable for ServerBound<'a> {
-    fn to_writer<W: Write>(&self, output: &mut W) -> io::Result<()> {
+    fn to_writer<W: Write>(&self, output: &mut W) -> io::Result<usize> {
         match self {
             Self::Handshake(packet) => packet.to_writer(output),
             Self::Status(packet) => packet.to_writer(output),
