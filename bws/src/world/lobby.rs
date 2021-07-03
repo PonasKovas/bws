@@ -310,6 +310,22 @@ impl LobbyWorld {
             footer: chat_parse(""),
         })?;
 
+        // declare commands
+        stream.send(PlayClientBound::DeclareCommands {
+            nodes: vec![
+                CommandNode::Root {
+                    children: vec![VarInt(1)],
+                },
+                CommandNode::Literal {
+                    executable: true,
+                    children: Vec::new(),
+                    redirect: None,
+                    name: "save".into(),
+                },
+            ],
+            root: VarInt(0),
+        })?;
+
         drop(stream);
 
         // inform all players of the new player
@@ -549,13 +565,16 @@ impl LobbyWorld {
         match packet {
             PlayServerBound::ChatMessage(message) => {
                 if message.starts_with('/') {
-                    // if message.starts_with("/block ") {
-                    //     if let Some(block_id) = message.split(' ').nth(1) {
-                    //         if let Ok(block_id) = i32::from_str_radix(block_id, 10) {
-                    //             self.players.get_mut(&id).unwrap().placing_block = block_id;
-                    //         }
-                    //     }
-                    // }
+                    if message.starts_with("/save") {
+                        // save the map
+                        if let Err(e) = (Map {
+                            chunks: Cow::Borrowed(&self.chunks),
+                        }
+                        .save(MAP_PATH))
+                        {
+                            error!("Error saving map data: {}", e);
+                        }
+                    }
                 } else {
                     for (_, player) in &self.players {
                         let _ = player
@@ -899,16 +918,6 @@ impl LobbyWorld {
                     // no air in the palette?
                 }
             }
-        }
-
-        // save the changes
-        // TODO move this out of here
-        if let Err(e) = (Map {
-            chunks: Cow::Borrowed(&self.chunks),
-        }
-        .save(MAP_PATH))
-        {
-            error!("Error saving map data: {}", e);
         }
 
         self.inform_players_of_block_change(position, VarInt(glob_block))
