@@ -6,7 +6,7 @@ use std::io::{self, Write};
 use crate as protocol;
 
 /// Sent from the server to the client
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, strum::ToString)]
 pub enum ClientBound<'a> {
     Status(StatusClientBound<'a>),
     Login(LoginClientBound<'a>),
@@ -14,7 +14,7 @@ pub enum ClientBound<'a> {
 }
 
 /// Sent from the client to the server
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, strum::ToString)]
 pub enum ServerBound<'a> {
     Handshake(HandshakeServerBound<'a>),
     Status(StatusServerBound),
@@ -22,7 +22,7 @@ pub enum ServerBound<'a> {
     Play(PlayServerBound<'a>),
 }
 
-#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
+#[derive(Serializable, Deserializable, Debug, Clone, PartialEq, strum::ToString)]
 pub enum HandshakeServerBound<'a> {
     Handshake {
         protocol: VarInt,
@@ -32,19 +32,19 @@ pub enum HandshakeServerBound<'a> {
     },
 }
 
-#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
+#[derive(Serializable, Deserializable, Debug, Clone, PartialEq, strum::ToString)]
 pub enum StatusClientBound<'a> {
     Response(StatusResponse<'a>),
     Pong(i64),
 }
 
-#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
+#[derive(Serializable, Deserializable, Debug, Clone, PartialEq, strum::ToString)]
 pub enum StatusServerBound {
     Request,
     Ping(i64),
 }
 
-#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
+#[derive(Serializable, Deserializable, Debug, Clone, PartialEq, strum::ToString)]
 pub enum LoginClientBound<'a> {
     Disconnect(Chat<'a>),
     EncryptionRequest {
@@ -68,7 +68,7 @@ pub enum LoginClientBound<'a> {
     },
 }
 
-#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
+#[derive(Serializable, Deserializable, Debug, Clone, PartialEq, strum::ToString)]
 pub enum LoginServerBound<'a> {
     LoginStart {
         username: Cow<'a, str>,
@@ -85,7 +85,7 @@ pub enum LoginServerBound<'a> {
     },
 }
 
-#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
+#[derive(Serializable, Deserializable, Debug, Clone, PartialEq, strum::ToString)]
 pub enum PlayClientBound<'a> {
     SpawnEntity {
         entity_id: VarInt,
@@ -342,7 +342,7 @@ pub enum PlayClientBound<'a> {
     },
 }
 
-#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
+#[derive(Serializable, Deserializable, Debug, Clone, PartialEq, strum::ToString)]
 pub enum PlayServerBound<'a> {
     TeleportConfirm {
         teleport_id: VarInt,
