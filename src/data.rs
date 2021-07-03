@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use flate2::read::DeflateDecoder;
 use lazy_static::lazy_static;
 use log::{error, info};
 use serde_json::{Map, Value};
@@ -16,6 +17,13 @@ pub struct BlockState {
     pub properties: &'static [(String, String)],
 }
 
+// this file was taken from https://gitlab.bixilon.de/bixilon/pixlyzer-data/-/blob/master/version/1.16.5/blocks.json
+pub static COMPRESSED_BLOCKS: &'static [u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/blocks.json"));
+// this file was taken from https://gitlab.bixilon.de/bixilon/pixlyzer-data/-/blob/master/version/1.16.5/items.json
+pub static COMPRESSED_ITEMS: &'static [u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/items.json"));
+
 lazy_static! {
     // maps item IDs to the corresponding block states
     // damn takes a long time to initialize, whats the problem?
@@ -32,13 +40,11 @@ lazy_static! {
 }
 
 fn gen() -> Result<&'static [Option<Block>]> {
-    // this file was taken from https://gitlab.bixilon.de/bixilon/pixlyzer-data/-/blob/master/version/1.16.5/blocks.json
-    let blocks: Map<String, Value> =
-        serde_json::from_reader(Cursor::new(incl!("data/blocks.json")))?;
-    // uhmm if I use serde_json::from_slice with this the stack overflows?? and this works
+    let blocks_decoder = DeflateDecoder::new(Cursor::new(COMPRESSED_BLOCKS));
+    let blocks: Map<String, Value> = serde_json::from_reader(blocks_decoder)?;
 
-    // this file was taken from https://gitlab.bixilon.de/bixilon/pixlyzer-data/-/blob/master/version/1.16.5/items.json
-    let items: Map<String, Value> = serde_json::from_slice(incl!("data/items.json"))?;
+    let items_decoder = DeflateDecoder::new(Cursor::new(COMPRESSED_ITEMS));
+    let items: Map<String, Value> = serde_json::from_reader(items_decoder)?;
 
     let mut mappings = vec![None; items.len()];
 

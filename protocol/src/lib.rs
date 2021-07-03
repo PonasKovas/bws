@@ -20,7 +20,8 @@ pub trait Deserializable {
         Self: Sized;
 }
 
-/// this is used from the derive macros, not intended for any other use
+// this is used from the derive macros, not intended for any other use
+#[doc(hidden)]
 pub struct PeekedStream<D: Serializable, R: Read> {
     pub peeked: Option<D>,
     pub stream: R,
