@@ -530,8 +530,8 @@ async fn read_packet(
     })
 }
 
-struct Size;
-impl Write for Size {
+struct Noop;
+impl Write for Noop {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         Ok(buf.len())
     }
@@ -557,7 +557,7 @@ async fn write_packet<'a>(
         // use the compressed packet format
 
         // first check if the packet is long enough to actually be compressed
-        let uncompressed_length = packet.to_writer(&mut Size)?;
+        let uncompressed_length = packet.to_writer(&mut Noop)?;
 
         // if the packet is long enough be compressed
         if uncompressed_length as i32 >= GLOBAL_STATE.compression_treshold {
@@ -583,6 +583,7 @@ async fn write_packet<'a>(
         }
     } else {
         // the uncompressed packet format
+        // could get better performance if could serialize packets to AsyncWrite (todo?)
         packet.to_writer(buffer)?;
         let length = VarInt(buffer.len() as i32);
         write_varint(length, socket).await?;
