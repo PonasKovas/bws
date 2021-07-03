@@ -5,6 +5,7 @@
 
 #[macro_use]
 mod incl_macro;
+mod data;
 mod global_state;
 mod internal_communication;
 mod map;
@@ -33,7 +34,7 @@ use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 
 const SUPPORTED_PROTOCOL_VERSIONS: &[i32] = &[753, 754]; // 1.16.3+
-const VERSION_NAME: &str = "1.16 BWS";
+const VERSION_NAME: &str = "1.16.5 BWS";
 
 #[derive(Debug, StructOpt, Clone)]
 #[structopt(name = "bws", about = "Hello this is the description!")]
@@ -123,7 +124,9 @@ async fn main() -> Result<()> {
         .parse_default_env()
         .init();
 
+    info!("Initializing...");
     lazy_static::initialize(&GLOBAL_STATE);
+    lazy_static::initialize(&data::ITEMS_TO_BLOCKS);
 
     let join_handles = Arc::new(std::sync::Mutex::new(Vec::new()));
 

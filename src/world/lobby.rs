@@ -53,7 +53,6 @@ struct Player {
     loaded_chunks: Vec<(i8, i8)>, // i8s work because the worlds aren't going to be that big
     inventory: [Slot; 46],
     held_item: i16,
-    placing_block: i32,
 }
 
 pub struct LobbyWorld {
@@ -182,7 +181,6 @@ impl LobbyWorld {
                             loaded_chunks: Vec::new(),
                             inventory: [(); 46].map(|_| Slot(None)),
                             held_item: 0,
-                            placing_block: 1,
                         },
                     );
 
@@ -551,13 +549,13 @@ impl LobbyWorld {
         match packet {
             PlayServerBound::ChatMessage(message) => {
                 if message.starts_with('/') {
-                    if message.starts_with("/block ") {
-                        if let Some(block_id) = message.split(' ').nth(1) {
-                            if let Ok(block_id) = i32::from_str_radix(block_id, 10) {
-                                self.players.get_mut(&id).unwrap().placing_block = block_id;
-                            }
-                        }
-                    }
+                    // if message.starts_with("/block ") {
+                    //     if let Some(block_id) = message.split(' ').nth(1) {
+                    //         if let Ok(block_id) = i32::from_str_radix(block_id, 10) {
+                    //             self.players.get_mut(&id).unwrap().placing_block = block_id;
+                    //         }
+                    //     }
+                    // }
                 } else {
                     for (_, player) in &self.players {
                         let _ = player
@@ -689,18 +687,28 @@ impl LobbyWorld {
                 }
 
                 // get the item in hand of player
-                // let block = match hand {
-                //     Hand::Left => {
+                let slot = match hand {
+                    Hand::Left => 36 + self.players[&id].held_item as usize,
+                    Hand::Right => 45usize,
+                };
+                match self.players[&id].inventory[slot].0.as_ref() {
+                    Some(item) => {
+                        let item_id = item.item_id.0;
 
-                //     }
-                //     Hand::Right => {
-
-                //     }
-                // };
-                let block = self.players[&id].placing_block;
-
-                if let Err(e) = self.set_block(target, block).await {
-                    debug!("Error placing block: {:?}", e);
+                        if let Some(block) = crate::data::ITEMS_TO_BLOCKS[item_id as usize].as_ref()
+                        {
+                            if let Err(e) = self.set_block(target, block.default_state).await {
+                                debug!("Error placing block: {:?}", e);
+                            }
+                        } else {
+                            // might be a special case like buckets with fluids, so handle that TODO
+                            // but for now just remove whatever the client might have placed locally with air
+                            if let Err(e) = self.set_block(target, 0).await {
+                                debug!("Error placing block: {:?}", e);
+                            }
+                        }
+                    }
+                    None => {}
                 }
             }
             PlayServerBound::EntityAction {
@@ -894,7 +902,7 @@ impl LobbyWorld {
         }
 
         // save the changes
-        // TODO make this async somehow
+        // TODO move this out of here
         if let Err(e) = (Map {
             chunks: Cow::Borrowed(&self.chunks),
         }
