@@ -118,8 +118,6 @@ pub struct LoginWorld {
 impl LoginWorld {
     // might fail since this interacts with the filesystem for the accounts data
     pub fn new() -> Result<Self> {
-        // sadly this has to be sync
-        // Edit: but I already forgot why and I'm beginning to think that maybe it doesn't
         use std::fs::File;
         use std::io::BufReader;
         // read the accounts data

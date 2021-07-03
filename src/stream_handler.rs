@@ -287,7 +287,7 @@ async fn read_and_parse_packet(
                     },
                     players: StatusPlayers {
                         max: *GLOBAL_STATE.max_players.lock().await,
-                        online: GLOBAL_STATE.players.read().await.len() as i32,
+                        online: -(GLOBAL_STATE.players.read().await.len() as i32),
                         sample: GLOBAL_STATE.player_sample.lock().await.clone(),
                     },
                     description: if crate::SUPPORTED_PROTOCOL_VERSIONS
