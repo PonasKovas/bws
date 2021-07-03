@@ -29,4 +29,7 @@ md5 = "0.7"
 savefile = { git = "https://github.com/avl/savefile.git" }
 savefile-derive = "0.8"
 
+[build-dependencies]
+flate2 = "1.0"
+
 [workspace]
