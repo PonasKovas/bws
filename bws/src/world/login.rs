@@ -38,6 +38,8 @@ const ACCOUNTS_FILE: &str = "accounts.bwsdata";
 lazy_static! {
     static ref DIMENSION_CODEC: &'static [u8] = {
         let mut data = Vec::new();
+
+        // this file was taken from https://wiki.vg/index.php?title=Protocol&oldid=16681#Join_Game
         let nbt = quartz_nbt::NbtCompound::from_snbt(&match std::fs::read_to_string(
             "assets/dimension_codec.snbt",
         ) {
@@ -69,6 +71,7 @@ lazy_static! {
             entries: Vec<i32>,
         }
 
+        // this file was taken from https://github.com/PrismarineJS/minecraft-packets/blob/main/data/pc/1.16.5/from-server/tags/1.json
         let tags: AllTags =
             serde_json::from_str(&match std::fs::read_to_string("assets/tags.json") {
                 Ok(s) => s,
