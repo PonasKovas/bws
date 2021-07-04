@@ -278,13 +278,30 @@ impl LobbyWorld {
         stream.send(PlayClientBound::DeclareCommands {
             nodes: vec![
                 CommandNode::Root {
-                    children: vec![VarInt(1)],
+                    children: vec![VarInt(1), VarInt(2)],
                 },
                 CommandNode::Literal {
                     executable: true,
                     children: Vec::new(),
                     redirect: None,
                     name: "save".into(),
+                },
+                CommandNode::Literal {
+                    executable: false,
+                    children: vec![VarInt(3)],
+                    redirect: None,
+                    name: "setblock".into(),
+                },
+                CommandNode::Argument {
+                    executable: true,
+                    children: Vec::new(),
+                    redirect: None,
+                    name: "block_id".into(),
+                    parser: Parser::Integer(IntegerParserOptions {
+                        min: None,
+                        max: None,
+                    }),
+                    suggestions: None,
                 },
             ],
             root: VarInt(0),
@@ -561,6 +578,19 @@ impl LobbyWorld {
                         .save(MAP_PATH))
                         {
                             error!("Error saving map data: {}", e);
+                        }
+                    }
+                    if message.starts_with("/setblock ") {
+                        if let Ok(block_id) = message[10..].parse::<i32>() {
+                            let position = self.players[&id].position;
+                            let position = Position {
+                                x: position.0 as i32,
+                                y: position.1 as i32,
+                                z: position.2 as i32,
+                            };
+                            if let Err(e) = self.set_block(position, block_id).await {
+                                debug!("Error executing /setblock: {}", e);
+                            }
                         }
                     }
                 } else {

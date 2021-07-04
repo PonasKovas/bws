@@ -138,8 +138,55 @@ impl Serializable for Parser {
                 sum += "brigadier:string".to_writer(&mut *output)?;
                 sum += properties.to_writer(&mut *output)?;
             }
+            Parser::Integer(options) => {
+                sum += "brigadier:integer".to_writer(&mut *output)?;
+                sum += options.to_writer(&mut *output)?;
+            }
         }
         Ok(sum)
+    }
+}
+
+impl Serializable for IntegerParserOptions {
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
+        let mut flags = 0u8;
+        if self.min.is_some() {
+            flags |= 0x01;
+        }
+        if self.max.is_some() {
+            flags |= 0x02;
+        }
+
+        let mut written = 0;
+
+        written += flags.to_writer(output)?;
+        if let Some(val) = self.min {
+            written += val.to_writer(output)?;
+        }
+        if let Some(val) = self.max {
+            written += val.to_writer(output)?;
+        }
+
+        Ok(written)
+    }
+}
+impl Deserializable for IntegerParserOptions {
+    fn from_reader<R: Read>(input: &mut R) -> Result<Self> {
+        let flags = u8::from_reader(input)?;
+
+        let min = if flags & 0x01 == 0 {
+            None
+        } else {
+            Some(i32::from_reader(input)?)
+        };
+
+        let max = if flags & 0x02 == 0 {
+            None
+        } else {
+            Some(i32::from_reader(input)?)
+        };
+
+        Ok(Self { min, max })
     }
 }
 
