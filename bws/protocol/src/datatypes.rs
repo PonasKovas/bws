@@ -109,7 +109,7 @@ pub struct EntityMetadata<'a>(pub Vec<(u8, EntityMetadataEntry<'a>)>);
 
 #[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
 pub enum EntityMetadataEntry<'a> {
-    Byte(i8),
+    Byte(u8),
     VarInt(VarInt),
     Float(f32),
     String(Cow<'a, str>),

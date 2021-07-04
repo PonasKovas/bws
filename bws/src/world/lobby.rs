@@ -330,18 +330,18 @@ impl LobbyWorld {
 
         // inform all players of the new player
         for (_, player) in &self.players {
-            let _ = player.stream.lock().await.send(PlayClientBound::PlayerInfo(
-                PlayerInfo::AddPlayer(vec![(
-                    self.players[&id].uuid,
-                    PlayerInfoAddPlayer {
-                        name: self.players[&id].username.clone().into(),
-                        properties: GLOBAL_STATE.players.read().await[id].properties.clone(),
-                        gamemode: Gamemode::Creative,
-                        ping: VarInt(GLOBAL_STATE.players.read().await[id].ping as i32),
-                        display_name: None,
-                    },
-                )]),
-            ));
+            let packet = PlayClientBound::PlayerInfo(PlayerInfo::AddPlayer(vec![(
+                self.players[&id].uuid,
+                PlayerInfoAddPlayer {
+                    name: self.players[&id].username.clone().into(),
+                    properties: GLOBAL_STATE.players.read().await[id].properties.clone(),
+                    gamemode: Gamemode::Creative,
+                    ping: VarInt(GLOBAL_STATE.players.read().await[id].ping as i32),
+                    display_name: None,
+                },
+            )]));
+            info!("sending {:?}", packet);
+            let _ = player.stream.lock().await.send(packet);
         }
 
         // and now inform the new player of all the old players
@@ -395,6 +395,18 @@ impl LobbyWorld {
                 .stream
                 .lock()
                 .await
+                .send(PlayClientBound::EntityMetadata {
+                    entity_id: VarInt(id as i32),
+                    metadata: EntityMetadata(vec![(
+                        17,
+                        EntityMetadataEntry::Byte(SkinParts::all().bits()),
+                        // todo this is actually set in ClientSettings packet so probably should set according to that
+                    )]),
+                });
+            let _ = player
+                .stream
+                .lock()
+                .await
                 .send(PlayClientBound::EntityHeadLook {
                     entity_id: VarInt(id as i32),
                     head_yaw: Angle::from_degrees(self.players[&id].rotation.0),
@@ -412,6 +424,18 @@ impl LobbyWorld {
                     z: player.position.2,
                     yaw: Angle::from_degrees(player.rotation.0),
                     pitch: Angle::from_degrees(player.rotation.1),
+                })?;
+            self.players[&id]
+                .stream
+                .lock()
+                .await
+                .send(PlayClientBound::EntityMetadata {
+                    entity_id: VarInt(*old_id as i32),
+                    metadata: EntityMetadata(vec![(
+                        17,
+                        EntityMetadataEntry::Byte(SkinParts::all().bits()),
+                        // todo this is actually set in ClientSettings packet so probably should set according to that
+                    )]),
                 })?;
             self.players[&id]
                 .stream
