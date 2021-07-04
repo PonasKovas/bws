@@ -1,4 +1,6 @@
 #![feature(array_map)]
+#![feature(box_syntax)]
+#![feature(bench_black_box)]
 #![deny(unused_must_use)]
 // while developing (TODO remove)
 #![allow(unused_imports)]
@@ -29,6 +31,7 @@ use std::time::Duration;
 use structopt::StructOpt;
 use tokio::net::TcpListener;
 use tokio::signal;
+use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::Mutex;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
