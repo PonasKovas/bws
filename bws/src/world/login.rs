@@ -371,6 +371,15 @@ impl LoginWorld {
             id: VarInt(0),
         })?;
 
+        stream.send(PlayClientBound::EntityMetadata {
+            entity_id: VarInt(id as i32),
+            metadata: EntityMetadata(vec![(
+                16,
+                EntityMetadataEntry::Byte(SkinParts::all().bits()),
+                // todo this is actually set in ClientSettings packet so probably should set according to that
+            )]),
+        })?;
+
         stream.send(PlayClientBound::PluginMessage {
             channel: "minecraft:brand".into(),
             data: "\x03BWS".to_owned().into_bytes().into_boxed_slice(),

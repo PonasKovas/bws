@@ -362,7 +362,7 @@ impl LobbyWorld {
                 .send(PlayClientBound::EntityMetadata {
                     entity_id: VarInt(id as i32),
                     metadata: EntityMetadata(vec![(
-                        17,
+                        16,
                         EntityMetadataEntry::Byte(SkinParts::all().bits()),
                         // todo this is actually set in ClientSettings packet so probably should set according to that
                     )]),
@@ -396,7 +396,7 @@ impl LobbyWorld {
                 .send(PlayClientBound::EntityMetadata {
                     entity_id: VarInt(*old_id as i32),
                     metadata: EntityMetadata(vec![(
-                        17,
+                        16,
                         EntityMetadataEntry::Byte(SkinParts::all().bits()),
                         // todo this is actually set in ClientSettings packet so probably should set according to that
                     )]),
