@@ -354,6 +354,8 @@ impl LobbyWorld {
             .await
             .send(PlayClientBound::PlayerInfo(PlayerInfo::AddPlayer(entries)))?;
 
+        let global_state_lock = GLOBAL_STATE.players.read().await;
+
         for (old_id, player) in &self.players {
             if *old_id == id {
                 // dont spawn myself!
@@ -380,8 +382,16 @@ impl LobbyWorld {
                     entity_id: VarInt(id as i32),
                     metadata: EntityMetadata(vec![(
                         16,
-                        EntityMetadataEntry::Byte(SkinParts::all().bits()),
-                        // todo this is actually set in ClientSettings packet so probably should set according to that
+                        EntityMetadataEntry::Byte(
+                            global_state_lock
+                                .get(id)
+                                .context("player already disconnected")?
+                                .settings
+                                .as_ref()
+                                .map(|s| s.displayed_skin_parts)
+                                .unwrap_or(SkinParts::all())
+                                .bits(),
+                        ),
                     )]),
                 });
             let _ = player
@@ -414,8 +424,16 @@ impl LobbyWorld {
                     entity_id: VarInt(*old_id as i32),
                     metadata: EntityMetadata(vec![(
                         16,
-                        EntityMetadataEntry::Byte(SkinParts::all().bits()),
-                        // todo this is actually set in ClientSettings packet so probably should set according to that
+                        EntityMetadataEntry::Byte(
+                            global_state_lock
+                                .get(*old_id)
+                                .context("player already disconnected")?
+                                .settings
+                                .as_ref()
+                                .map(|s| s.displayed_skin_parts)
+                                .unwrap_or(SkinParts::all())
+                                .bits(),
+                        ),
                     )]),
                 })?;
             self.players[&id]
@@ -427,6 +445,30 @@ impl LobbyWorld {
                     head_yaw: Angle::from_degrees(player.rotation.0),
                 })?;
         }
+
+        // metadata about self
+        self.players[&id]
+            .stream
+            .lock()
+            .await
+            .send(PlayClientBound::EntityMetadata {
+                entity_id: VarInt(id as i32),
+                metadata: EntityMetadata(vec![(
+                    16,
+                    EntityMetadataEntry::Byte(
+                        global_state_lock
+                            .get(id)
+                            .context("player already disconnected")?
+                            .settings
+                            .as_ref()
+                            .map(|s| s.displayed_skin_parts)
+                            .unwrap_or(SkinParts::all())
+                            .bits(),
+                    ),
+                )]),
+            })?;
+
+        drop(global_state_lock);
 
         self.send_chunks(id).await?;
 
@@ -445,7 +487,9 @@ impl LobbyWorld {
             .await
             .get(id)
             .context("Player already disconnected")?
-            .view_distance
+            .settings
+            .as_ref()
+            .map(|s| s.view_distance)
             .unwrap_or(8);
 
         // the limit is 16, nerds

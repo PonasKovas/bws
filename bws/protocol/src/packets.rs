@@ -351,14 +351,7 @@ pub enum PlayServerBound<'a> {
     SetDifficulty(Difficulty),
     ChatMessage(Cow<'a, str>),
     ClientStatus(ClientStatusAction),
-    ClientSettings {
-        locale: Cow<'a, str>,
-        view_distance: i8,
-        chat_mode: ChatMode,
-        chat_colors: bool,
-        displayed_skin_parts: SkinParts,
-        main_hand: Hand,
-    },
+    ClientSettings(ClientSettings<'a>),
     TabComplete {
         transaction_id: VarInt,
         text: Cow<'a, str>,

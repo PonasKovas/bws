@@ -175,6 +175,16 @@ pub struct PlayerInfoAddPlayerProperty<'a> {
 }
 
 #[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
+pub struct ClientSettings<'a> {
+    pub locale: Cow<'a, str>,
+    pub view_distance: i8,
+    pub chat_mode: ChatMode,
+    pub chat_colors: bool,
+    pub displayed_skin_parts: SkinParts,
+    pub main_hand: Hand,
+}
+
+#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
 pub struct PlayerInfoUpdateGamemode {
     pub gamemode: Gamemode,
 }

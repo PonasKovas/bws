@@ -412,7 +412,7 @@ async fn read_and_parse_packet(
                 uuid,
                 properties,
                 ping: 0.0,
-                view_distance: None,
+                settings: None,
             });
             *state = State::Play(global_id);
 
@@ -434,32 +434,28 @@ async fn read_and_parse_packet(
                     / 1000.0;
             }
         }
-        ServerBound::Play(PlayServerBound::ClientSettings {
-            locale: _,
-            view_distance,
-            chat_mode: _,
-            chat_colors: _,
-            displayed_skin_parts: _,
-            main_hand: _,
-        }) => {
+        ServerBound::Play(PlayServerBound::ClientSettings(settings)) => {
             if let State::Play(id) = state {
+                // make the client think the server's view distance is the same
+                // (as long as its not higher than 16, since thats the limit of this server)
+                write_packet(
+                    socket,
+                    buffer,
+                    PlayClientBound::UpdateViewDistance(VarInt(min(
+                        16,
+                        settings.view_distance as i32 + 2,
+                    )))
+                    .cb(),
+                )
+                .await?;
+
                 GLOBAL_STATE
                     .players
                     .write()
                     .await
                     .get_mut(*id)
                     .unwrap()
-                    .view_distance = Some(view_distance);
-
-                // and make the client think the server's view distance is the same
-                // (as long as its not higher than 16, since thats the limit of this server)
-                write_packet(
-                    socket,
-                    buffer,
-                    PlayClientBound::UpdateViewDistance(VarInt(min(16, view_distance as i32 + 2)))
-                        .cb(),
-                )
-                .await?;
+                    .settings = Some(settings);
             }
         }
         ServerBound::Play(other) => {

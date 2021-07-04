@@ -41,7 +41,7 @@ pub struct Player {
     pub uuid: u128,
     pub properties: Vec<PlayerInfoAddPlayerProperty<'static>>,
     pub ping: f32, // in milliseconds
-    pub view_distance: Option<i8>,
+    pub settings: Option<ClientSettings<'static>>,
 }
 
 pub struct PlayerStream {
