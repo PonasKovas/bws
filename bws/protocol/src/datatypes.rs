@@ -313,6 +313,13 @@ pub enum CommandNode<'a> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Parser {
     String(StringParserType),
+    Integer(IntegerParserOptions),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct IntegerParserOptions {
+    pub min: Option<i32>,
+    pub max: Option<i32>,
 }
 
 #[derive(Serializable, Deserializable, Debug, Clone, Copy, PartialEq)]
