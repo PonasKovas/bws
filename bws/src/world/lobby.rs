@@ -57,7 +57,7 @@ struct Player {
 
 pub struct LobbyWorld {
     players: HashMap<usize, Player>,
-    chunks: [WorldChunk; 4 * MAP_SIZE as usize * MAP_SIZE as usize], // 16x16 chunks, resulting in 256x256 world
+    chunks: Box<[WorldChunk; 4 * MAP_SIZE as usize * MAP_SIZE as usize]>, // 16x16 chunks, resulting in 256x256 world
 }
 
 impl LobbyWorld {
@@ -69,53 +69,17 @@ impl LobbyWorld {
                 chunks: map.chunks.into_owned(),
             },
             Err(e) => {
-                error!("Couldn't load the lobby map: {}", e);
+                error!("Couldn't load the lobby map: {:?}", e);
                 warn!("Falling back to the default map");
 
                 Self {
                     players: HashMap::new(),
-                    chunks: {
-                        let mut i = 0;
-                        [(); 4 * MAP_SIZE as usize * MAP_SIZE as usize].map(|_| {
-                            i += 1;
-                            WorldChunk {
-                                biomes: Box::new([174; 1024]),
-                                sections: [
-                                    if i == (get_chunk_index(0, 0) + 1)
-                                        || i == (get_chunk_index(-1, 0) + 1)
-                                        || i == (get_chunk_index(0, -1) + 1)
-                                        || i == (get_chunk_index(-1, -1) + 1)
-                                    {
-                                        Some(WorldChunkSection {
-                                            block_mappings: vec![0, 4104],
-                                            blocks: {
-                                                let mut data = vec![0x1111111111111111; 16];
-                                                data.extend(vec![0; 240]);
-                                                data
-                                            },
-                                        })
-                                    } else {
-                                        None
-                                    },
-                                    None,
-                                    None,
-                                    None,
-                                    None,
-                                    None,
-                                    None,
-                                    None,
-                                    None,
-                                    None,
-                                    None,
-                                    None,
-                                    None,
-                                    None,
-                                    None,
-                                    None,
-                                ],
-                            }
-                        })
-                    },
+                    chunks: box [(); 4 * MAP_SIZE as usize * MAP_SIZE as usize].map(|_| {
+                        WorldChunk {
+                            biomes: box [174; 1024],
+                            sections: box [(); 16].map(|_| None),
+                        }
+                    }),
                 }
             }
         }
@@ -330,18 +294,18 @@ impl LobbyWorld {
 
         // inform all players of the new player
         for (_, player) in &self.players {
-            let packet = PlayClientBound::PlayerInfo(PlayerInfo::AddPlayer(vec![(
-                self.players[&id].uuid,
-                PlayerInfoAddPlayer {
-                    name: self.players[&id].username.clone().into(),
-                    properties: GLOBAL_STATE.players.read().await[id].properties.clone(),
-                    gamemode: Gamemode::Creative,
-                    ping: VarInt(GLOBAL_STATE.players.read().await[id].ping as i32),
-                    display_name: None,
-                },
-            )]));
-            info!("sending {:?}", packet);
-            let _ = player.stream.lock().await.send(packet);
+            let _ = player.stream.lock().await.send(PlayClientBound::PlayerInfo(
+                PlayerInfo::AddPlayer(vec![(
+                    self.players[&id].uuid,
+                    PlayerInfoAddPlayer {
+                        name: self.players[&id].username.clone().into(),
+                        properties: GLOBAL_STATE.players.read().await[id].properties.clone(),
+                        gamemode: Gamemode::Creative,
+                        ping: VarInt(GLOBAL_STATE.players.read().await[id].ping as i32),
+                        display_name: None,
+                    },
+                )]),
+            ));
         }
 
         // and now inform the new player of all the old players

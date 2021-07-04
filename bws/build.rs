@@ -1,10 +1,22 @@
-use flate2::{bufread::DeflateEncoder, Compression};
-use std::{
-    env::var_os,
-    fs::{read_dir, File},
-    io::{copy, BufReader},
-    path::Path,
-};
+use anyhow::{Context, Result};
+use flate2::{write::DeflateEncoder, Compression};
+use serde::Serialize;
+use serde_json::{Map, Value};
+use std::{env::var_os, fs::File, io::BufReader, path::Path};
+
+// These MUST match the structures defined in src/data.rs
+
+#[derive(Clone, Debug, Serialize)]
+pub struct Block {
+    pub default_state: i32,
+    pub states: Vec<BlockState>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct BlockState {
+    pub state_id: i32,
+    pub properties: Vec<(String, String)>,
+}
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
@@ -12,23 +24,93 @@ fn main() {
 
     let out_dir = var_os("OUT_DIR").unwrap();
 
-    // compress all files in data/ and save in the
-    // OUT_DIR for later to be loaded with include_bytes!
+    let blocks: Map<String, Value> = {
+        // this file was taken from https://gitlab.bixilon.de/bixilon/pixlyzer-data/-/blob/master/version/1.16.5/blocks.json
+        let blocks_file = BufReader::new(File::open("data/blocks.json").unwrap());
+        serde_json::from_reader(blocks_file).unwrap()
+    };
 
-    for input_file_dir_entry in read_dir("data").unwrap() {
-        let input_file_dir_entry = input_file_dir_entry.unwrap();
+    let items: Map<String, Value> = {
+        // this file was taken from https://gitlab.bixilon.de/bixilon/pixlyzer-data/-/blob/master/version/1.16.5/items.json
+        let items_file = BufReader::new(File::open("data/items.json").unwrap());
+        serde_json::from_reader(items_file).unwrap()
+    };
 
-        // open file
-        let input_file = File::open(input_file_dir_entry.path()).unwrap();
+    let items_to_blocks =
+        gen_items_to_blocks(&blocks, &items).expect("Couldn't generate items-to-blocks");
 
-        // compress
-        let mut encoder = DeflateEncoder::new(BufReader::new(input_file), Compression::best());
+    // write compressed bincode
+    let mut output = File::create(Path::new(&out_dir).join("items-to-blocks.bincode")).unwrap();
+    let encoder = DeflateEncoder::new(&mut output, Compression::best());
+    bincode::serialize_into(encoder, &items_to_blocks).unwrap();
+}
 
-        // write the compressed data to a file
-        copy(
-            &mut encoder,
-            &mut File::create(Path::new(&out_dir).join(input_file_dir_entry.file_name())).unwrap(),
-        )
-        .unwrap();
+fn gen_items_to_blocks(
+    blocks: &Map<String, Value>,
+    items: &Map<String, Value>,
+) -> Result<Vec<Option<Block>>> {
+    let mut mappings = vec![None; items.len()];
+
+    for (_block_id, block) in blocks {
+        let block = block
+            .as_object()
+            .context("blocks.json: blocks must be objects")?;
+
+        if let Some(id) = block.get("item") {
+            let id = id
+                .as_i64()
+                .context("blocks.json: Blocks' \"item\" field must be an integer")?
+                as usize;
+
+            let default_state = block
+                .get("default_state")
+                .context("blocks.json: Blocks must have a \"default_state\"")?
+                .as_i64()
+                .context("blocks.json: Blocks' field \"default_state\" must be an integer")?
+                as i32;
+
+            let mut states = Vec::new();
+
+            for (state_id, state) in block
+                .get("states")
+                .context("blocks.json: Blocks must have a \"states\"")?
+                .as_object()
+                .context("blocks.json: Blocks' field \"states\" must be an object")?
+            {
+                let state_id = state_id
+                    .parse::<i32>()
+                    .context("blocks.json: Block's state IDs must be legal integers")?;
+
+                let mut properties = Vec::new();
+
+                if let Some(raw_properties) = state.get("properties") {
+                    for (property_name, property_value) in raw_properties
+                        .as_object()
+                        .context("Block's state's \"properties\" field must be an object")?
+                    {
+                        properties.push((
+                            property_name.to_owned(),
+                            if property_value.is_string() {
+                                format!("{}", property_value)
+                            } else {
+                                format!("\"{}\"", property_value)
+                            },
+                        ));
+                    }
+                }
+
+                states.push(BlockState {
+                    state_id,
+                    properties,
+                });
+            }
+
+            mappings[id] = Some(Block {
+                default_state,
+                states,
+            });
+        }
     }
+
+    Ok(mappings)
 }
