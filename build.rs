@@ -39,6 +39,13 @@ fn main() {
     let items_to_blocks =
         gen_items_to_blocks(&blocks, &items).expect("Couldn't generate items-to-blocks");
 
+    // debug/dev
+    // serde_json::to_writer_pretty(
+    //     File::create(Path::new(&out_dir).join("items-to-blocks.json")).unwrap(),
+    //     &items_to_blocks,
+    // )
+    // .unwrap();
+
     // write compressed bincode
     let mut output = File::create(Path::new(&out_dir).join("items-to-blocks.bincode")).unwrap();
     let encoder = DeflateEncoder::new(&mut output, Compression::best());
@@ -90,10 +97,10 @@ fn gen_items_to_blocks(
                     {
                         properties.push((
                             property_name.to_owned(),
-                            if property_value.is_string() {
-                                format!("{}", property_value)
+                            if let Some(string) = property_value.as_str() {
+                                format!("{}", string)
                             } else {
-                                format!("\"{}\"", property_value)
+                                format!("{}", property_value)
                             },
                         ));
                     }

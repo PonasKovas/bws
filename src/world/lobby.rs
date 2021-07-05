@@ -533,59 +533,61 @@ impl LobbyWorld {
 
         // and then finally send all the chunks that are needed
         for chunk in needed_chunks {
-            let temp_chunk = if (-MAP_SIZE..MAP_SIZE).contains(&chunk.0)
-                && (-MAP_SIZE..MAP_SIZE).contains(&chunk.1)
-            {
-                let chunk_index = get_chunk_index(chunk.0, chunk.1);
-
-                let mut primary_bitmask = 0;
-                let mut chunk_sections = Vec::new();
-
-                for (i, section) in self.chunks[chunk_index].sections.iter().enumerate() {
-                    if let Some(section) = section {
-                        primary_bitmask |= 2i32.pow(i as u32);
-
-                        chunk_sections.push(ChunkSection {
-                            block_count: 16 * 16 * 16, // this is foolproof, but might want to send the real block count in the future
-                            palette: Palette::Indirect(
-                                section.block_mappings.iter().map(|v| VarInt(*v)).collect(),
-                            ),
-                            data: section.blocks.clone(),
-                        });
-                    }
-                }
-
-                Chunk::Full {
-                    primary_bitmask: VarInt(primary_bitmask),
-                    heightmaps: Nbt(quartz_nbt::NbtCompound::new()),
-                    biomes: ArrWithLen::new(
-                        self.chunks[chunk_index].biomes.clone().map(|e| VarInt(e)),
-                    ),
-                    sections: ChunkSections(chunk_sections),
-                    block_entities: Vec::new(),
-                }
-            } else {
-                // just an empty chunk
-                Chunk::Full {
-                    primary_bitmask: VarInt(0b0),
-                    heightmaps: Nbt(quartz_nbt::NbtCompound::new()),
-                    biomes: ArrWithLen::new([VarInt(174); 1024]),
-                    sections: ChunkSections(vec![]),
-                    block_entities: Vec::new(),
-                }
-            };
-            self.players[&id]
-                .stream
-                .lock()
-                .await
-                .send(PlayClientBound::ChunkData {
-                    chunk_x: chunk.0 as i32,
-                    chunk_z: chunk.1 as i32,
-                    chunk: temp_chunk,
-                })?;
+            self.send_chunk(id, chunk).await;
         }
 
         Ok(())
+    }
+    async fn send_chunk(&self, id: usize, chunk: (i8, i8)) {
+        let temp_chunk = if (-MAP_SIZE..MAP_SIZE).contains(&chunk.0)
+            && (-MAP_SIZE..MAP_SIZE).contains(&chunk.1)
+        {
+            let chunk_index = get_chunk_index(chunk.0, chunk.1);
+
+            let mut primary_bitmask = 0;
+            let mut chunk_sections = Vec::new();
+
+            for (i, section) in self.chunks[chunk_index].sections.iter().enumerate() {
+                if let Some(section) = section {
+                    primary_bitmask |= 2i32.pow(i as u32);
+
+                    chunk_sections.push(ChunkSection {
+                        block_count: 16 * 16 * 16, // this is foolproof, but might want to send the real block count in the future
+                        palette: Palette::Indirect(
+                            section.block_mappings.iter().map(|v| VarInt(*v)).collect(),
+                        ),
+                        data: section.blocks.clone(),
+                    });
+                }
+            }
+
+            Chunk::Full {
+                primary_bitmask: VarInt(primary_bitmask),
+                heightmaps: Nbt(quartz_nbt::NbtCompound::new()),
+                biomes: ArrWithLen::new(self.chunks[chunk_index].biomes.clone().map(|e| VarInt(e))),
+                sections: ChunkSections(chunk_sections),
+                block_entities: Vec::new(),
+            }
+        } else {
+            // just an empty chunk
+            Chunk::Full {
+                primary_bitmask: VarInt(0b0),
+                heightmaps: Nbt(quartz_nbt::NbtCompound::new()),
+                biomes: ArrWithLen::new([VarInt(174); 1024]),
+                sections: ChunkSections(vec![]),
+                block_entities: Vec::new(),
+            }
+        };
+
+        let _ = self.players[&id]
+            .stream
+            .lock()
+            .await
+            .send(PlayClientBound::ChunkData {
+                chunk_x: chunk.0 as i32,
+                chunk_z: chunk.1 as i32,
+                chunk: temp_chunk,
+            });
     }
     async fn process_client_packets(&mut self) {
         // forgive me father, for the borrow checker does not let me do it any other way
@@ -623,14 +625,54 @@ impl LobbyWorld {
                         {
                             error!("Error saving map data: {}", e);
                         }
-                    }
-                    if message.starts_with("/setblock ") {
+                    } else if message.starts_with("/printchunk") {
+                        let player_chunk = (
+                            (self.players[&id].position.0.floor() / 16.0).floor() as i8,
+                            (self.players[&id].position.1.floor() / 16.0).floor() as i8,
+                            (self.players[&id].position.2.floor() / 16.0).floor() as i8,
+                        );
+                        let chunk = &self.chunks[get_chunk_index(player_chunk.0, player_chunk.2)]
+                            .sections[player_chunk.1 as usize];
+
+                        for (_id, player) in &self.players {
+                            let _ = player
+                                .stream
+                                .lock()
+                                .await
+                                .send(PlayClientBound::ChatMessage {
+                                    message: chat_parse(format!(
+                                        "§l§8Chunk section [{}, {}, {}]: §r§7{:?}",
+                                        player_chunk.0, player_chunk.1, player_chunk.2, chunk
+                                    )),
+                                    position: ChatPosition::System,
+                                    sender: 0,
+                                });
+                        }
+                    } else if message.starts_with("/clearchunk") {
+                        let player_chunk = (
+                            (self.players[&id].position.0.floor() / 16.0).floor() as i8,
+                            (self.players[&id].position.1.floor() / 16.0).floor() as i8,
+                            (self.players[&id].position.2.floor() / 16.0).floor() as i8,
+                        );
+                        self.chunks[get_chunk_index(player_chunk.0, player_chunk.2)].sections
+                            [player_chunk.1 as usize] = None;
+
+                        // resend it to all players who had it loaded
+                        for (id, player) in &self.players {
+                            if player
+                                .loaded_chunks
+                                .contains(&(player_chunk.0, player_chunk.2))
+                            {
+                                self.send_chunk(*id, (player_chunk.0, player_chunk.2)).await;
+                            }
+                        }
+                    } else if message.starts_with("/setblock ") {
                         if let Ok(block_id) = message[10..].parse::<i32>() {
                             let position = self.players[&id].position;
                             let position = Position {
-                                x: position.0 as i32,
-                                y: position.1 as i32,
-                                z: position.2 as i32,
+                                x: position.0.floor() as i32,
+                                y: position.1.floor() as i32,
+                                z: position.2.floor() as i32,
                             };
                             if let Err(e) = self.set_block(position, block_id).await {
                                 debug!("Error executing /setblock: {}", e);
@@ -962,7 +1004,7 @@ impl LobbyWorld {
                         for y in 0..16 {
                             for x in 0..16 {
                                 let pos = Position { x, y, z };
-                                if get_section_block(section, pos) == air as i32 {
+                                if get_section_block(section, pos) != air as i32 {
                                     empty = false;
                                     break 'outermost;
                                 }
