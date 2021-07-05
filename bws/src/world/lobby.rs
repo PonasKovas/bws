@@ -851,7 +851,6 @@ impl LobbyWorld {
                             });
                     }
                 } else if action == EntityAction::StartSneaking {
-                    info!("[{}] started sneaking", id);
                     for (_id, player) in &self.players {
                         let _ = player
                             .stream
@@ -866,7 +865,6 @@ impl LobbyWorld {
                             });
                     }
                 } else if action == EntityAction::StopSneaking {
-                    info!("[{}] stopped sneaking", id);
                     for (_id, player) in &self.players {
                         let _ = player
                             .stream
@@ -937,89 +935,206 @@ impl LobbyWorld {
             z: ((position.z % 16) + 16) % 16,
         };
 
-        let section = &mut self.chunks[get_chunk_index(block_chunk.x as i8, block_chunk.z as i8)]
-            .sections[block_chunk.y as usize];
+        let opt_section = &mut self.chunks
+            [get_chunk_index(block_chunk.x as i8, block_chunk.z as i8)]
+        .sections[block_chunk.y as usize];
 
-        if section.is_none() {
+        if opt_section.is_none() {
+            // if the target block is air too, then no need to anything at all
+            if glob_block == 0 {
+                return Ok(());
+            }
+
             // initialize the section with air
-            section.replace(WorldChunkSection {
+            opt_section.replace(WorldChunkSection {
                 block_mappings: vec![0],
                 blocks: vec![0u64; 256],
             });
         }
 
-        let section = section.as_mut().unwrap();
+        let section = opt_section.as_mut().unwrap();
 
-        // removing blocks from the palette would require remapping of the whole chunk section
-        // with little benefit, so we're just not gonna do that right now.
-        // maybe later.
-        //
-        // // adjust palette
-        // // might want to remove a block from the palette if the block which was previously
-        // // in this position is no longer present in the whole section
-        // // so get the block that was in that position previously
-        // let old_block = get_section_block(section, position);
-        //
-        // // check if any other blocks of this type are in this section
-        // let mut more_of_old = false;
-        // for y in 0..16 {
-        //     for z in 0..16 {
-        //         for x in 0..16 {
-        //             let p = Position { x, y, z };
-        //             // don't compare to the self
-        //             if p == iblock {
-        //                 continue;
-        //             }
+        let old_block = get_section_block(section, iblock);
 
-        //             if old_block == get_section_block(section, p) {
-        //                 more_of_old = true;
-        //                 break;
-        //             }
-        //         }
-        //     }
-        // }
+        if section.block_mappings[old_block as usize] == glob_block {
+            // Trying to set the block to the same
+            return Ok(());
+        }
 
-        // add the new block to the palette, if not there already
-        let block = match section.block_mappings.iter().position(|v| *v == glob_block) {
-            Some(index) => index as i32,
-            None => {
-                // Insert the block into the pallete
-                section.block_mappings.push(glob_block);
-                (section.block_mappings.len() - 1) as i32
+        // if there are no more blocks of type that was in this position previously
+        // we will want to remove it from the palette
+        let old_block_to_be_removed_from_palette = {
+            let mut has_more = false;
+
+            'outermost: for z in 0..16 {
+                for y in 0..16 {
+                    for x in 0..16 {
+                        let pos = Position { x, y, z };
+                        if pos == iblock {
+                            continue;
+                        }
+
+                        if get_section_block(section, pos) == old_block {
+                            has_more = true;
+                            break 'outermost;
+                        }
+                    }
+                }
             }
+
+            !has_more
         };
 
-        set_section_block(section, iblock, block);
+        if old_block_to_be_removed_from_palette {
+            // if palette has the new block
+            match section.block_mappings.iter().position(|v| *v == glob_block) {
+                Some(new_block_palette_position) => {
+                    // Remove the old block from the palette and then remap it,
+                    // because all of the blocks that go after that block in the palette
+                    // will be shifted
+                    // PLUS the bits_per_block might change after removing a block too
 
-        // if the block was set to air, might want to remove the whole chunk section
-        // todo use a const or something
-        if glob_block == 0 {
-            // if there are no more non-air blocks we can just unload the chunk to save memory
-            let air_in_palette = section.block_mappings.iter().position(|v| *v == 0);
-            match air_in_palette {
-                Some(air) => {
-                    let mut empty = true;
+                    // these are the GLOBAL palette indexes
+                    let mut blocks = box [0i32; 16 * 16 * 16];
 
-                    'outermost: for z in 0..16 {
+                    for z in 0..16 {
                         for y in 0..16 {
                             for x in 0..16 {
-                                let pos = Position { x, y, z };
-                                if get_section_block(section, pos) != air as i32 {
-                                    empty = false;
-                                    break 'outermost;
-                                }
+                                let local_palette_block = get_section_block(
+                                    section,
+                                    Position {
+                                        x: x as i32,
+                                        y: y as i32,
+                                        z: z as i32,
+                                    },
+                                );
+                                let global_palette_block =
+                                    section.block_mappings[local_palette_block as usize];
+
+                                blocks[x | y << 4 | z << 8] = global_palette_block;
                             }
                         }
                     }
 
-                    if empty {
-                        self.chunks[get_chunk_index(block_chunk.x as i8, block_chunk.z as i8)]
-                            .sections[block_chunk.y as usize] = None;
+                    // remove the old block from the palette
+                    section.block_mappings.remove(old_block as usize);
+
+                    section.blocks.clear();
+                    let blocks_per_u64 = 64 / bits_per_block(section.block_mappings.len()) as usize;
+                    // needs to be rounded up `(x + y - 1) / y` is
+                    // equivalent of x / y except that its rounded up
+                    let u64s_needed = ((16 * 16 * 16) + blocks_per_u64 - 1) / blocks_per_u64;
+                    section.blocks.resize(u64s_needed, 0u64);
+
+                    for z in 0..16 {
+                        for y in 0..16 {
+                            for x in 0..16 {
+                                let global_palette_block = blocks[x | y << 4 | z << 8];
+                                let local_palette_block = section
+                                    .block_mappings
+                                    .iter()
+                                    .position(|i| *i == global_palette_block)
+                                    .unwrap_or(0); // the block that is being removed will not find itself in the palette, but we will set it later
+
+                                set_section_block(
+                                    section,
+                                    Position {
+                                        x: x as i32,
+                                        y: y as i32,
+                                        z: z as i32,
+                                    },
+                                    local_palette_block as i32,
+                                );
+                            }
+                        }
+                    }
+
+                    // set the new block
+                    set_section_block(section, iblock, new_block_palette_position as i32);
+
+                    // if the block was set to air, might want to remove the whole chunk section
+                    if glob_block == 0 {
+                        check_if_section_empty(opt_section);
                     }
                 }
                 None => {
-                    // what?
-                    // no air in the palette?
+                    // Since the old block needs to be removed from the palette and the new one
+                    // needs to be added we can simple change the global block id in the palette
+                    // and all will be done.
+                    section.block_mappings[old_block as usize] = glob_block;
+                }
+            }
+        } else {
+            // if palette has the new block
+            match section.block_mappings.iter().position(|v| *v == glob_block) {
+                Some(new_block_palette_position) => {
+                    // No need to do anything with the palette
+                    set_section_block(section, iblock, new_block_palette_position as i32);
+                }
+                None => {
+                    // We need to add the new block to the palette
+                    // If that changes the bits_per_block
+                    // We will need to remap the data
+                    let old_bits_per_block = bits_per_block(section.block_mappings.len());
+                    let new_bits_per_block = bits_per_block(section.block_mappings.len() + 1);
+
+                    if old_bits_per_block != new_bits_per_block {
+                        // need to remap the data to fit the new bits_per_block
+                        let mut blocks = box [0i32; 16 * 16 * 16];
+
+                        for z in 0..16 {
+                            for y in 0..16 {
+                                for x in 0..16 {
+                                    let block = get_section_block(
+                                        section,
+                                        Position {
+                                            x: x as i32,
+                                            y: y as i32,
+                                            z: z as i32,
+                                        },
+                                    );
+
+                                    blocks[x | y << 4 | z << 8] = block;
+                                }
+                            }
+                        }
+
+                        // add the new block to the palette
+                        section.block_mappings.push(glob_block);
+
+                        section.blocks.clear();
+                        let blocks_per_u64 = 64 / new_bits_per_block as usize;
+                        // needs to be rounded up `(x + y - 1) / y` is
+                        // equivalent of x / y except that its rounded up
+                        let u64s_needed = ((16 * 16 * 16) + blocks_per_u64 - 1) / blocks_per_u64;
+                        section.blocks.resize(u64s_needed, 0u64);
+
+                        for z in 0..16 {
+                            for y in 0..16 {
+                                for x in 0..16 {
+                                    let block = blocks[x | y << 4 | z << 8];
+
+                                    set_section_block(
+                                        section,
+                                        Position {
+                                            x: x as i32,
+                                            y: y as i32,
+                                            z: z as i32,
+                                        },
+                                        block,
+                                    );
+                                }
+                            }
+                        }
+
+                        // and finally set new block
+                        set_section_block(section, iblock, section.block_mappings.len() as i32 - 1);
+                    } else {
+                        // yay just simply add it to the palette
+                        section.block_mappings.push(glob_block);
+
+                        set_section_block(section, iblock, section.block_mappings.len() as i32 - 1);
+                    }
                 }
             }
         }
@@ -1267,28 +1382,28 @@ fn get_chunk_index(x: i8, z: i8) -> usize {
     (x + MAP_SIZE) as usize + 2 * MAP_SIZE as usize * (z + MAP_SIZE) as usize
 }
 
-fn bits_per_block(section: &WorldChunkSection) -> u8 {
+fn bits_per_block(palette_length: usize) -> u8 {
     max(
         4,
-        32u8 - max(section.block_mappings.len() as u32 - 1, 1).leading_zeros() as u8,
+        32u8 - max(palette_length as u32 - 1, 1).leading_zeros() as u8,
     )
 }
 
 // position is not global, but relative to the chunk. negative or bigger than 15 values are illegal
+// and returns the local palette block ID, not global
 fn get_section_block(section: &WorldChunkSection, position: Position) -> i32 {
-    let bits_per_block = bits_per_block(section);
-    let blocks_per_i64 = 64 / bits_per_block as usize;
+    let bits_per_block = bits_per_block(section.block_mappings.len());
+    let blocks_per_u64 = 64 / bits_per_block as usize;
 
-    let block_index =
-        position.x as usize + 16 * (position.z as usize) + 16 * 16 * (position.y as usize);
+    let block_index = position.x as usize | (position.z as usize) << 4 | (position.y as usize) << 8;
 
-    let mut t = section.blocks[block_index / blocks_per_i64] as u64;
+    let mut t = section.blocks[block_index / blocks_per_u64] as u64;
 
     let bits_to_the_right =
-        64 - bits_per_block as i32 * (block_index as i32 % blocks_per_i64 as i32 + 1);
+        64 - bits_per_block as i32 * (block_index as i32 % blocks_per_u64 as i32 + 1);
     t = t << bits_to_the_right;
 
-    let bits_to_the_left = bits_per_block as i32 * (block_index as i32 % blocks_per_i64 as i32);
+    let bits_to_the_left = bits_per_block as i32 * (block_index as i32 % blocks_per_u64 as i32);
     t = t >> (bits_to_the_right + bits_to_the_left);
 
     t as i32
@@ -1296,18 +1411,57 @@ fn get_section_block(section: &WorldChunkSection, position: Position) -> i32 {
 
 // position is not global, but relative to the chunk. negative or bigger than 15 values are illegal
 // and the block value is of the local pallete, not global
+// this function assumes that the block value is present in the palette and the data is mapped according to the size of the palette
 fn set_section_block(section: &mut WorldChunkSection, position: Position, block: i32) {
     let old_block = get_section_block(section, position);
 
-    let bits_per_block = bits_per_block(section);
-    let blocks_per_i64 = 64 / bits_per_block as usize;
+    let bits_per_block = bits_per_block(section.block_mappings.len());
+    let blocks_per_u64 = 64 / bits_per_block as usize;
 
-    let block_index =
-        position.x as usize + 16 * (position.z as usize) + 16 * 16 * (position.y as usize);
+    let block_index = position.x as usize | (position.z as usize) << 4 | (position.y as usize) << 8;
 
     // logic magic
-    section.blocks[block_index / blocks_per_i64] ^= ((block ^ old_block) as u64)
-        << (bits_per_block as i32 * (block_index as i32 % blocks_per_i64 as i32));
+    section.blocks[block_index / blocks_per_u64] ^= ((block ^ old_block) as u64)
+        << (bits_per_block as i32 * (block_index as i32 % blocks_per_u64 as i32));
+}
+
+// check if the section is empty, if so, removes it
+fn check_if_section_empty(section: &mut Option<WorldChunkSection>) {
+    let inner_section = match section {
+        Some(s) => s,
+        None => {
+            // its already empty
+            return;
+        }
+    };
+
+    // if there are no more non-air blocks we can just unload the chunk to save memory
+    let air_in_palette = inner_section.block_mappings.iter().position(|v| *v == 0);
+    match air_in_palette {
+        Some(air) => {
+            let mut empty = true;
+
+            'outermost: for z in 0..16 {
+                for y in 0..16 {
+                    for x in 0..16 {
+                        let pos = Position { x, y, z };
+                        if get_section_block(inner_section, pos) != air as i32 {
+                            empty = false;
+                            break 'outermost;
+                        }
+                    }
+                }
+            }
+
+            if empty {
+                *section = None;
+            }
+        }
+        None => {
+            // what?
+            // no air in the palette? these folks are dedicated!
+        }
+    }
 }
 
 pub fn start() -> WSender {
