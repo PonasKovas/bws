@@ -20,6 +20,7 @@ use std::borrow::Cow;
 use std::cmp::max;
 use std::cmp::min;
 use std::collections::HashMap;
+use std::convert::TryInto;
 use std::env::Vars;
 use std::fs::File;
 use std::io::BufRead;
@@ -33,6 +34,7 @@ use tokio::sync::mpsc::unbounded_channel;
 use tokio::task::unconstrained;
 use tokio::time::sleep;
 
+use super::WorldChunks;
 use super::{WorldChunk, MAP_SIZE};
 
 const MAP_PATH: &'static str = "assets/maps/lobby.map";
@@ -57,7 +59,7 @@ struct Player {
 
 pub struct LobbyWorld {
     players: HashMap<usize, Player>,
-    chunks: Box<[WorldChunk; 4 * MAP_SIZE as usize * MAP_SIZE as usize]>, // 16x16 chunks, resulting in 256x256 world
+    chunks: WorldChunks, // 16x16 chunks, resulting in 256x256 world
 }
 
 impl LobbyWorld {
@@ -74,10 +76,10 @@ impl LobbyWorld {
 
                 Self {
                     players: HashMap::new(),
-                    chunks: box [(); 4 * MAP_SIZE as usize * MAP_SIZE as usize].map(|_| {
-                        WorldChunk {
+                    chunks: [(); 4 * MAP_SIZE as usize * MAP_SIZE as usize].map(|_| {
+                        box WorldChunk {
                             biomes: box [174; 1024],
-                            sections: box [(); 16].map(|_| None),
+                            sections: [(); 16].map(|_| None),
                         }
                     }),
                 }

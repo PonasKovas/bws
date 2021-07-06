@@ -1,6 +1,6 @@
 use std::{borrow::Cow, io::Write};
 
-use crate::world::{WorldChunk, MAP_SIZE};
+use crate::world::{WorldChunk, WorldChunks, MAP_SIZE};
 use anyhow::Result;
 use savefile_derive::Savefile;
 
@@ -8,7 +8,7 @@ pub const VERSION: u32 = 0;
 
 #[derive(Savefile, Debug)]
 pub struct Map<'a> {
-    pub chunks: Cow<'a, Box<[WorldChunk; 4 * MAP_SIZE as usize * MAP_SIZE as usize]>>,
+    pub chunks: Cow<'a, WorldChunks>,
 }
 
 impl<'a> Map<'a> {
