@@ -11,6 +11,7 @@ use anyhow::Result;
 use futures::future::FutureExt;
 use lazy_static::lazy_static;
 use log::{debug, error, info, warn};
+use protocol::command;
 use protocol::datatypes::*;
 use protocol::packets::*;
 use sha2::{Digest, Sha256};
@@ -394,61 +395,20 @@ impl LoginWorld {
         );
 
         // declare commands
-        stream.send(PlayClientBound::DeclareCommands {
-            nodes: if password.is_some() {
-                // if the user is already registered
-                // only register the /login command
-                vec![
-                    CommandNode::Root {
-                        children: vec![VarInt(1)],
-                    },
-                    CommandNode::Literal {
-                        executable: false,
-                        children: vec![VarInt(2)],
-                        redirect: None,
-                        name: "login".into(),
-                    },
-                    CommandNode::Argument {
-                        executable: true,
-                        children: Vec::new(),
-                        redirect: None,
-                        name: "password".into(),
-                        parser: Parser::String(StringParserType::SingleWord),
-                        suggestions: None,
-                    },
-                ]
-            } else {
-                // and if the user is not registered yet
-                // only register the /register command
-                vec![
-                    CommandNode::Root {
-                        children: vec![VarInt(1)],
-                    },
-                    CommandNode::Literal {
-                        executable: false,
-                        children: vec![VarInt(2)],
-                        redirect: None,
-                        name: "register".into(),
-                    },
-                    CommandNode::Argument {
-                        executable: false,
-                        children: vec![VarInt(3)],
-                        redirect: None,
-                        name: "password".into(),
-                        parser: Parser::String(StringParserType::SingleWord),
-                        suggestions: None,
-                    },
-                    CommandNode::Argument {
-                        executable: true,
-                        children: vec![],
-                        redirect: None,
-                        name: "password".into(),
-                        parser: Parser::String(StringParserType::SingleWord),
-                        suggestions: None,
-                    },
-                ]
-            },
-            root: VarInt(0),
+        stream.send(if password.is_some() {
+            command!(
+                ("login", literal => [
+                    (X "password", argument (String: SingleWord) => [])
+                ])
+            )
+        } else {
+            command!(
+                ("register", literal => [
+                    ("password", argument (String: SingleWord) => [
+                        (X "password", argument (String: SingleWord) => [])
+                    ])
+                ])
+            )
         })?;
 
         stream.send(PlayClientBound::Title(TitleAction::Reset))?;

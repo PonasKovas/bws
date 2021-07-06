@@ -163,7 +163,7 @@ pub enum PlayClientBound<'a> {
     EntityStatus {
         // good job on making the protocol so consistent, mojang
         entity_id: i32,
-        /// see https://wiki.vg/Entity_statuses
+        /// see <https://wiki.vg/Entity_statuses>
         status: i8,
     },
     Explosion,       // todo

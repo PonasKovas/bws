@@ -129,6 +129,45 @@ impl<'a> Deserializable for CommandNode<'a> {
     }
 }
 
+impl Serializable for SuggestionsType {
+    fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
+        let mut written = 0;
+
+        match self {
+            Self::AskServer => {
+                written += "minecraft:ask_server".to_writer(output)?;
+            }
+            SuggestionsType::AllRecipes => {
+                written += "minecraft:all_recipes".to_writer(output)?;
+            }
+            SuggestionsType::AvailableSounds => {
+                written += "minecraft:available_sounds".to_writer(output)?;
+            }
+            SuggestionsType::SummonableEntities => {
+                written += "minecraft:summonable_entities".to_writer(output)?;
+            }
+        }
+
+        Ok(written)
+    }
+}
+impl Deserializable for SuggestionsType {
+    fn from_reader<R: Read>(input: &mut R) -> Result<Self> {
+        let string = String::from_reader(input)?;
+
+        match string.as_str() {
+            "minecraft:ask_server" => Ok(Self::AskServer),
+            "minecraft:all_recipes" => Ok(Self::AllRecipes),
+            "minecraft:available_sounds" => Ok(Self::AvailableSounds),
+            "minecraft:summonable_entities" => Ok(Self::SummonableEntities),
+            _ => Err(std::io::Error::new(
+                ErrorKind::InvalidData,
+                "Invalid suggestion type",
+            )),
+        }
+    }
+}
+
 impl Serializable for Parser {
     fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
         let mut sum = 0;

@@ -12,6 +12,7 @@ use anyhow::Result;
 use futures::executor::block_on;
 use futures::FutureExt;
 use log::{debug, error, info, warn};
+use protocol::command;
 use protocol::datatypes::*;
 use protocol::packets::*;
 use sha2::{Digest, Sha256};
@@ -277,37 +278,14 @@ impl LobbyWorld {
         })?;
 
         // declare commands
-        stream.send(PlayClientBound::DeclareCommands {
-            nodes: vec![
-                CommandNode::Root {
-                    children: vec![VarInt(1), VarInt(2)],
-                },
-                CommandNode::Literal {
-                    executable: true,
-                    children: Vec::new(),
-                    redirect: None,
-                    name: "save".into(),
-                },
-                CommandNode::Literal {
-                    executable: false,
-                    children: vec![VarInt(3)],
-                    redirect: None,
-                    name: "setblock".into(),
-                },
-                CommandNode::Argument {
-                    executable: true,
-                    children: Vec::new(),
-                    redirect: None,
-                    name: "block_id".into(),
-                    parser: Parser::Integer(IntegerParserOptions {
-                        min: None,
-                        max: None,
-                    }),
-                    suggestions: None,
-                },
-            ],
-            root: VarInt(0),
-        })?;
+        stream.send(command!(
+            (X "save", literal => []),
+            ("setblock", literal => [
+                (X "block id", argument (Integer: None, None) => []),
+            ]),
+            (X "printchunk", literal => []),
+            (X "clearchunk", literal => []),
+        ))?;
 
         drop(stream);
 

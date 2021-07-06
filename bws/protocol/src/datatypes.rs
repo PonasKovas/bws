@@ -316,8 +316,16 @@ pub enum CommandNode<'a> {
         redirect: Option<VarInt>,
         name: Cow<'a, str>,
         parser: Parser,
-        suggestions: Option<Cow<'a, str>>,
+        suggestions: Option<SuggestionsType>,
     },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum SuggestionsType {
+    AskServer,
+    AllRecipes,
+    AvailableSounds,
+    SummonableEntities,
 }
 
 #[derive(Debug, Clone, PartialEq)]
