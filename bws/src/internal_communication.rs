@@ -4,6 +4,9 @@ use protocol::packets::{PlayClientBound, PlayServerBound};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 pub type SHInputSender = UnboundedSender<PlayClientBound<'static>>;
+// just happens that this one isn't used anywhere because its only used from stream_handler.rs
+// where its not passed around and the type is implicit
+#[allow(dead_code)]
 pub type SHInputReceiver = UnboundedReceiver<PlayClientBound<'static>>;
 pub type SHOutputSender = UnboundedSender<PlayServerBound<'static>>;
 pub type SHOutputReceiver = UnboundedReceiver<PlayServerBound<'static>>;
