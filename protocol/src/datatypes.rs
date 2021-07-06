@@ -85,8 +85,10 @@ pub struct Position {
 
 /// Maybe static. Helps save resources when sending the same fixed data to many clients,
 /// because you don't have to clone the data for each one of them, you just serialize a byte slice
-/// Note that the static variant contains ALREADY SERIALIZED bytes
-/// Use with caution, nothing's going to stop you from sending invalid datatypes.
+///
+/// Note that the static variant contains **ALREADY SERIALIZED** bytes
+///
+/// **Use with caution**, nothing's going to stop you from sending invalid datatypes.
 #[derive(Debug, Clone, PartialEq)]
 pub enum MaybeStatic<'a, T> {
     Static(&'a [u8]),
