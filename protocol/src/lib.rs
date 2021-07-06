@@ -1,7 +1,10 @@
 #![feature(array_map)]
 #![feature(never_type)]
 
+pub mod commands_builder;
 pub mod datatypes;
+#[macro_use]
+pub mod macros;
 pub mod packets;
 
 pub use protocol_derive::{Deserializable, Serializable};
