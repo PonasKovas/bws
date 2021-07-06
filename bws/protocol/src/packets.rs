@@ -5,7 +5,7 @@ use std::io::{self, Write};
 
 use crate as protocol;
 
-/// Sent from the server to the client
+/// All packets that are sent from the server to the client
 #[derive(Debug, Clone, PartialEq, strum::ToString)]
 pub enum ClientBound<'a> {
     Status(StatusClientBound<'a>),
@@ -13,7 +13,7 @@ pub enum ClientBound<'a> {
     Play(PlayClientBound<'a>),
 }
 
-/// Sent from the client to the server
+/// All packets that are sent from the client to the server
 #[derive(Debug, Clone, PartialEq, strum::ToString)]
 pub enum ServerBound<'a> {
     Handshake(HandshakeServerBound<'a>),
@@ -22,6 +22,7 @@ pub enum ServerBound<'a> {
     Play(PlayServerBound<'a>),
 }
 
+/// `Client -> Server` packets during the **Handshake** phase
 #[derive(Serializable, Deserializable, Debug, Clone, PartialEq, strum::ToString)]
 pub enum HandshakeServerBound<'a> {
     Handshake {
@@ -32,18 +33,21 @@ pub enum HandshakeServerBound<'a> {
     },
 }
 
+/// `Server -> Client` packets during the **Status** phase
 #[derive(Serializable, Deserializable, Debug, Clone, PartialEq, strum::ToString)]
 pub enum StatusClientBound<'a> {
     Response(StatusResponse<'a>),
     Pong(i64),
 }
 
+/// `Client -> Server` packets during the **Status** phase
 #[derive(Serializable, Deserializable, Debug, Clone, PartialEq, strum::ToString)]
 pub enum StatusServerBound {
     Request,
     Ping(i64),
 }
 
+/// `Server -> Client` packets during the **Login** phase
 #[derive(Serializable, Deserializable, Debug, Clone, PartialEq, strum::ToString)]
 pub enum LoginClientBound<'a> {
     Disconnect(Chat<'a>),
@@ -68,6 +72,7 @@ pub enum LoginClientBound<'a> {
     },
 }
 
+/// `Client -> Server` packets during the **Login** phase
 #[derive(Serializable, Deserializable, Debug, Clone, PartialEq, strum::ToString)]
 pub enum LoginServerBound<'a> {
     LoginStart {
@@ -85,6 +90,7 @@ pub enum LoginServerBound<'a> {
     },
 }
 
+/// `Server -> Client` packets during the **Play** phase
 #[derive(Serializable, Deserializable, Debug, Clone, PartialEq, strum::ToString)]
 pub enum PlayClientBound<'a> {
     SpawnEntity {
@@ -342,6 +348,7 @@ pub enum PlayClientBound<'a> {
     },
 }
 
+/// `Client -> Server` packets during the **Play** phase
 #[derive(Serializable, Deserializable, Debug, Clone, PartialEq, strum::ToString)]
 pub enum PlayServerBound<'a> {
     TeleportConfirm {

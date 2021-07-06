@@ -5,8 +5,64 @@ use proc_macro2::Span;
 use quote::quote;
 use syn::{parse_macro_input, parse_quote, Attribute, Data, DeriveInput, Fields, LitInt, Path};
 
+/// Derives the `Serializable` trait for structs and enums.
+///
+/// Requires that all members of the given type already implement `Serializable`
+///
+/// # `#[discriminant_as]`
+///
+/// The `#[discriminant_as(TYPE)]` attribute can be used on enums to make them use the given `TYPE`
+/// when serializing their discriminants. `TYPE` must implement `TryInto<i32>` (for deserialization)
+/// and `TryFrom<i32>` (for serialization).
+///
+/// # `#[discriminant]`
+///
+/// `#[discriminant(DISCRIMINANT)]` can be used on individual variants of an enum to set specific
+/// discriminants when serializing. All variants that follow get increased discriminants by 1.
+///
+/// For example:
+///
+/// ```rust
+/// #[derive(Serializable)]
+/// enum Foo {
+///     FirstVariant,  // discriminant = 0
+///     SecondVariant, // discriminant = 1
+///     #[discriminant(6)]
+///     SpecialCase,   // discriminant = 6
+///     FourthVariant, // discriminant = 7
+/// }
+/// ```
+///
+/// # `#[inline_enum]`
+///
+/// `#[inline_enum]` can be used on a sinle variant of an enum that is a tuple with a single
+/// field which is another enum, and the inner enum will be "inlined".
+///
+/// It will behave as if the outer enum "extended" the inner one, they will use a shared discriminant,
+/// so it's recommended to use `#[inline_enum]` together with `#[discriminant]` on the variant that
+/// follows the inlined one, so discriminants don't overlap.
+///
+/// Example:
+///
+/// ```rust
+/// #[derive(Serializable)]
+/// enum Base {
+///     First,
+///     Second,
+/// }
+///
+/// #[derive(Serializable)]
+/// enum Child {
+///     // If this one get serialized, it will use the discriminant of Base instead of Child
+///     #[inline_enum]
+///     Base(Base),
+///     // So set the discriminant of the following variant to not overlap
+///     #[discriminant(2)]
+///     Third,
+/// }
+/// ```
+///
 #[proc_macro_derive(Serializable, attributes(discriminant_as, discriminant, inline_enum))]
-
 pub fn derive_serializable(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
@@ -173,6 +229,63 @@ pub fn derive_serializable(input: TokenStream) -> TokenStream {
     }
 }
 
+/// Derives the `Deserializable` trait for structs and enums.
+///
+/// Requires that all members of the given type already implement `Deserializable`
+///
+/// # `#[discriminant_as]`
+///
+/// The `#[discriminant_as(TYPE)]` attribute can be used on enums to make them use the given `TYPE`
+/// when deserializing their discriminants. `TYPE` must implement `TryInto<i32>` (for deserialization)
+/// and `TryFrom<i32>` (for serialization).
+///
+/// # `#[discriminant]`
+///
+/// `#[discriminant(DISCRIMINANT)]` can be used on individual variants of an enum to set specific
+/// discriminants when deserializing. All variants that follow get increased discriminants by 1.
+///
+/// For example:
+///
+/// ```rust
+/// #[derive(Deserializable)]
+/// enum Foo {
+///     FirstVariant,  // discriminant = 0
+///     SecondVariant, // discriminant = 1
+///     #[discriminant(6)]
+///     SpecialCase,   // discriminant = 6
+///     FourthVariant, // discriminant = 7
+/// }
+/// ```
+///
+/// # `#[inline_enum]`
+///
+/// `#[inline_enum]` can be used on a sinle variant of an enum that is a tuple with a single
+/// field which is another enum, and the inner enum will be "inlined".
+///
+/// It will behave as if the outer enum "extended" the inner one, they will use a shared discriminant,
+/// so it's recommended to use `#[inline_enum]` together with `#[discriminant]` on the variant that
+/// follows the inlined one, so discriminants don't overlap.
+///
+/// Example:
+///
+/// ```rust
+/// #[derive(Deserializable)]
+/// enum Base {
+///     First,
+///     Second,
+/// }
+///
+/// #[derive(Deserializable)]
+/// enum Child {
+///     // when serializing, this variant will be constructed if the discriminant is valid in Base
+///     #[inline_enum]
+///     Base(Base),
+///     // So set the discriminant of the following variant to not overlap
+///     #[discriminant(2)]
+///     Third,
+/// }
+/// ```
+///
 #[proc_macro_derive(Deserializable, attributes(discriminant_as, discriminant, inline_enum))]
 pub fn derive_deserializable(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);

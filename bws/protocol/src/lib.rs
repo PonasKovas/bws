@@ -1,15 +1,19 @@
 #![feature(array_map)]
 #![feature(never_type)]
 
+/// Used by the [`command!`] macro internally but can be used manually too
 pub mod commands_builder;
+/// Data types uesd in the Minecraft protocol
 pub mod datatypes;
-#[macro_use]
-pub mod macros;
+/// All packets of the Minecraft protocol
 pub mod packets;
+#[macro_use]
+mod macros;
 
 pub use protocol_derive::{Deserializable, Serializable};
 use std::io::{Read, Result, Write};
 
+/// A trait for types that can be serialized into bytes for use in the Minecraft protocol
 pub trait Serializable {
     /// Returns how many bytes were written.
     ///
@@ -17,6 +21,7 @@ pub trait Serializable {
     fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize>;
 }
 
+/// A trait for types that can be deserialized from bytes in the Minecraft protocol
 pub trait Deserializable {
     fn from_reader<R: Read>(input: &mut R) -> Result<Self>
     where
