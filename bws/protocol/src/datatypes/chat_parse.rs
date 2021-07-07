@@ -6,6 +6,9 @@ pub fn parse<'a, T: AsRef<str>>(input: T) -> Chat<'a> {
     let mut escaping = false;
     let mut modifying = false;
 
+    let mut hex_color_code = String::with_capacity(6);
+    let mut reading_hex_color_code = false;
+
     for character in input.as_ref().chars() {
         if !escaping && !modifying {
             if character == '\\' {
@@ -25,7 +28,23 @@ pub fn parse<'a, T: AsRef<str>>(input: T) -> Chat<'a> {
                     innermost = &mut innermost.extra[0];
                 }
 
+                if reading_hex_color_code {
+                    hex_color_code.push(character);
+                    if hex_color_code.len() == 6 {
+                        // finished reading the hex code
+                        innermost.color = Some(format!("#{}", hex_color_code).into());
+                        hex_color_code.clear();
+                        reading_hex_color_code = false;
+                        modifying = false;
+                    }
+                    continue;
+                }
+
                 match character {
+                    '#' => {
+                        reading_hex_color_code = true;
+                        continue;
+                    }
                     'l' => {
                         innermost.bold = Some(true);
                     }
