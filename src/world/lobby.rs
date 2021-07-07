@@ -186,6 +186,19 @@ impl LobbyWorld {
             let _ = player.stream.lock().await.send(PlayClientBound::PlayerInfo(
                 PlayerInfo::RemovePlayer(vec![(self.players[&disconnected_id].uuid)]),
             ));
+
+            let _ = player
+                .stream
+                .lock()
+                .await
+                .send(PlayClientBound::ChatMessage {
+                    message: chat_parse(format!(
+                        "§a{} §7 left.",
+                        self.players[&disconnected_id].username
+                    )),
+                    position: ChatPosition::System,
+                    sender: 0,
+                });
         }
     }
     // both this and player_leave dont actually add or remove the player to the hashmap
@@ -291,6 +304,15 @@ impl LobbyWorld {
 
         // inform all players of the new player
         for (_, player) in &self.players {
+            let _ = player
+                .stream
+                .lock()
+                .await
+                .send(PlayClientBound::ChatMessage {
+                    message: chat_parse(format!("§a{} §7joined.", self.players[&id].username)),
+                    position: ChatPosition::System,
+                    sender: 0,
+                });
             let _ = player.stream.lock().await.send(PlayClientBound::PlayerInfo(
                 PlayerInfo::AddPlayer(vec![(
                     self.players[&id].uuid,
