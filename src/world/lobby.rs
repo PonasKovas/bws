@@ -56,6 +56,7 @@ struct Player {
     loaded_chunks: Vec<(i8, i8)>, // i8s work because the worlds aren't going to be that big
     inventory: [Slot; 46],
     held_item: i16,
+    nickname_color: u32,
 }
 
 pub struct LobbyWorld {
@@ -148,6 +149,9 @@ impl LobbyWorld {
                             loaded_chunks: Vec::new(),
                             inventory: [(); 46].map(|_| Slot(None)),
                             held_item: 0,
+                            nickname_color: (rand::random::<u8>() as u32)
+                                | (rand::random::<u8>() as u32) << 8
+                                | (rand::random::<u8>() as u32) << 16,
                         },
                     );
 
@@ -193,7 +197,8 @@ impl LobbyWorld {
                 .await
                 .send(PlayClientBound::ChatMessage {
                     message: chat_parse(format!(
-                        "§a{} §7 left.",
+                        "§#{:06X}{} §7 left.",
+                        self.players[&disconnected_id].nickname_color,
                         self.players[&disconnected_id].username
                     )),
                     position: ChatPosition::System,
@@ -309,7 +314,10 @@ impl LobbyWorld {
                 .lock()
                 .await
                 .send(PlayClientBound::ChatMessage {
-                    message: chat_parse(format!("§a{} §7joined.", self.players[&id].username)),
+                    message: chat_parse(format!(
+                        "§#{:06X}{} §7joined.",
+                        self.players[&id].nickname_color, self.players[&id].username
+                    )),
                     position: ChatPosition::System,
                     sender: 0,
                 });
@@ -689,8 +697,10 @@ impl LobbyWorld {
                             .await
                             .send(PlayClientBound::ChatMessage {
                                 message: chat_parse(format!(
-                                    "§a§l{}§r§7: §f{}",
-                                    self.players[&id].username, message
+                                    "§#{:06X}§l{}§r§7: §f{}",
+                                    self.players[&id].nickname_color,
+                                    self.players[&id].username,
+                                    message
                                 )),
                                 position: ChatPosition::Chat,
                                 sender: self.players[&id].uuid,
