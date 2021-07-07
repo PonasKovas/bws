@@ -822,38 +822,37 @@ impl LobbyWorld {
                     }
                 }
 
-                let player_pos = self.players[&id].position;
-                let player_height = 1.8;
-                let player_width = 0.6;
-                if is_colliding(
-                    player_pos.0 - player_width / 2.0,
-                    player_pos.1,
-                    player_pos.2 - player_width / 2.0,
-                    player_width,
-                    player_height,
-                    player_width,
-                    target.x as f64,
-                    target.y as f64,
-                    target.z as f64,
-                    1.0,
-                    1.0,
-                    1.0,
-                ) {
-                    // the player is standing in the way :/
-                    // dont place it
-                    //
-                    // and since the server is more strict (because we assume all blocks are 1x1x1, even slabs)
-                    // send the server-side block to the client in case they placed something locally
-                    let _ =
-                        self.players[&id]
-                            .stream
-                            .lock()
-                            .await
-                            .send(PlayClientBound::BlockChange {
+                for (_, player) in &self.players {
+                    let player_pos = player.position;
+                    let player_height = 1.8;
+                    let player_width = 0.6;
+                    if is_colliding(
+                        player_pos.0 - player_width / 2.0,
+                        player_pos.1,
+                        player_pos.2 - player_width / 2.0,
+                        player_width,
+                        player_height,
+                        player_width,
+                        target.x as f64,
+                        target.y as f64,
+                        target.z as f64,
+                        1.0,
+                        1.0,
+                        1.0,
+                    ) {
+                        // a player is standing in the way :/
+                        // dont place it
+                        //
+                        // and since the server is more strict (because we assume all blocks are 1x1x1, even slabs)
+                        // send the server-side block to the client in case they placed something locally
+                        let _ = self.players[&id].stream.lock().await.send(
+                            PlayClientBound::BlockChange {
                                 location: target,
                                 new_block_id: VarInt(self.get_block(target).await.unwrap_or(0)),
-                            });
-                    return;
+                            },
+                        );
+                        return;
+                    }
                 }
 
                 // get the item in hand of player
@@ -1043,6 +1042,7 @@ impl LobbyWorld {
             }
         }
     }
+    // takes a global position and returns a global block state
     async fn get_block(&self, position: Position) -> Result<i32> {
         // sanity checks
         if !(0..256).contains(&position.y)
@@ -1073,7 +1073,9 @@ impl LobbyWorld {
         match &self.chunks[get_chunk_index(block_chunk.x as i8, block_chunk.z as i8)].sections
             [block_chunk.y as usize]
         {
-            Some(section) => Ok(get_section_block(section, iblock)),
+            Some(section) => {
+                Ok(section.block_mappings[get_section_block(section, iblock) as usize])
+            }
             None => Ok(0),
         }
     }
