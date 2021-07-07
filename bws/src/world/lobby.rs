@@ -1,4 +1,5 @@
 use crate::chat_parse;
+use crate::collision::is_colliding;
 use crate::global_state::PStream;
 use crate::internal_communication::WBound;
 use crate::internal_communication::WReceiver;
@@ -795,7 +796,7 @@ impl LobbyWorld {
                 location,
                 face,
                 cursor_position_x: _,
-                cursor_position_y: _,
+                cursor_position_y,
                 cursor_position_z: _,
                 inside_block: _,
             } => {
@@ -821,6 +822,40 @@ impl LobbyWorld {
                     }
                 }
 
+                let player_pos = self.players[&id].position;
+                let player_height = 1.8;
+                let player_width = 0.6;
+                if is_colliding(
+                    player_pos.0 - player_width / 2.0,
+                    player_pos.1,
+                    player_pos.2 - player_width / 2.0,
+                    player_width,
+                    player_height,
+                    player_width,
+                    target.x as f64,
+                    target.y as f64,
+                    target.z as f64,
+                    1.0,
+                    1.0,
+                    1.0,
+                ) {
+                    // the player is standing in the way :/
+                    // dont place it
+                    //
+                    // and since the server is more strict (because we assume all blocks are 1x1x1, even slabs)
+                    // send the server-side block to the client in case they placed something locally
+                    let _ =
+                        self.players[&id]
+                            .stream
+                            .lock()
+                            .await
+                            .send(PlayClientBound::BlockChange {
+                                location: target,
+                                new_block_id: VarInt(self.get_block(target).await.unwrap_or(0)),
+                            });
+                    return;
+                }
+
                 // get the item in hand of player
                 let slot = match hand {
                     Hand::Left => 36 + self.players[&id].held_item as usize,
@@ -832,7 +867,95 @@ impl LobbyWorld {
 
                         if let Some(block) = crate::data::ITEMS_TO_BLOCKS[item_id as usize].as_ref()
                         {
-                            if let Err(e) = self.set_block(target, block.default_state).await {
+                            // todo put this in a function
+                            // this is definetely no the correct way to do this TODO
+                            // figure out properties of the block
+                            // to place the correct one
+                            let potential_properties: Vec<(&str, &str)> = vec![
+                                ("waterlogged", "false"),
+                                ("snowy", "false"),
+                                ("triggered", "false"),
+                                ("powered", "false"),
+                                ("shape", "straight"), // todo?
+                                (
+                                    "axis",
+                                    match face {
+                                        Direction::Down | Direction::Up => "y",
+                                        Direction::North | Direction::South => "z",
+                                        Direction::West | Direction::East => "x",
+                                    },
+                                ),
+                                (
+                                    "type",
+                                    match face {
+                                        Direction::Down => "top",
+                                        Direction::Up => "bottom",
+                                        _ => {
+                                            if cursor_position_y < 0.5 {
+                                                "bottom"
+                                            } else {
+                                                "top"
+                                            }
+                                        }
+                                    },
+                                ),
+                                (
+                                    "half",
+                                    match face {
+                                        Direction::Down => "top",
+                                        Direction::Up => "bottom",
+                                        _ => {
+                                            if cursor_position_y < 0.5 {
+                                                "bottom"
+                                            } else {
+                                                "top"
+                                            }
+                                        }
+                                    },
+                                ),
+                                (
+                                    "facing",
+                                    match face {
+                                        Direction::Down => "up",
+                                        Direction::Up => "down",
+                                        Direction::North => "south",
+                                        Direction::South => "north",
+                                        Direction::West => "east",
+                                        Direction::East => "west",
+                                    },
+                                ),
+                            ];
+
+                            let state = block
+                                .states
+                                .iter()
+                                .find(|state| {
+                                    let mut matches = true;
+                                    for property in &state.properties {
+                                        let potential = match potential_properties
+                                            .iter()
+                                            .find(|e| e.0 == property.0.as_str())
+                                        {
+                                            Some(e) => e,
+                                            None => {
+                                                error!("Target property \"{}\" not found in potential properties! (block placed by item {})", property.0, item_id);
+                                                matches = false;
+                                                continue;
+                                            }
+                                        };
+
+                                        if potential.1 != property.1.as_str() {
+                                            matches = false;
+                                            break;
+                                        }
+                                    }
+
+                                    matches
+                                })
+                                .map(|state| state.state_id)
+                                .unwrap_or(block.default_state);
+
+                            if let Err(e) = self.set_block(target, state).await {
                                 debug!("Error placing block: {:?}", e);
                             }
                         } else {
@@ -918,6 +1041,40 @@ impl LobbyWorld {
             other => {
                 debug!("[{}] received {:?}", id, other);
             }
+        }
+    }
+    async fn get_block(&self, position: Position) -> Result<i32> {
+        // sanity checks
+        if !(0..256).contains(&position.y)
+            || !((-MAP_SIZE as i32 * 16)..(MAP_SIZE as i32 * 16)).contains(&position.x)
+            || !((-MAP_SIZE as i32 * 16)..(MAP_SIZE as i32 * 16)).contains(&position.z)
+        {
+            bail!("Position out of bounds");
+        }
+
+        let mut block_chunk = position;
+        if position.x < 0 {
+            block_chunk.x -= 15;
+        }
+        if position.z < 0 {
+            block_chunk.z -= 15;
+        }
+        block_chunk.x /= 16;
+        block_chunk.y /= 16;
+        block_chunk.z /= 16;
+
+        // block position relative to the chunk
+        let iblock = Position {
+            x: ((position.x % 16) + 16) % 16,
+            y: ((position.y % 16) + 16) % 16,
+            z: ((position.z % 16) + 16) % 16,
+        };
+
+        match &self.chunks[get_chunk_index(block_chunk.x as i8, block_chunk.z as i8)].sections
+            [block_chunk.y as usize]
+        {
+            Some(section) => Ok(get_section_block(section, iblock)),
+            None => Ok(0),
         }
     }
     async fn set_block(&mut self, position: Position, glob_block: i32) -> Result<()> {

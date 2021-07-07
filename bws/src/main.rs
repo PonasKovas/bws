@@ -7,6 +7,7 @@
 
 #[macro_use]
 mod incl_macro;
+mod collision;
 mod data;
 mod global_state;
 mod internal_communication;
