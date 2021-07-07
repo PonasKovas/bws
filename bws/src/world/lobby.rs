@@ -281,7 +281,7 @@ impl LobbyWorld {
         stream.send(command!(
             (X "save", literal => []),
             ("setblock", literal => [
-                (X "block id", argument (Integer: None, None) => []),
+                (X "block id", argument (Integer: Some(0), None) => []),
             ]),
             (X "printchunk", literal => []),
             (X "clearchunk", literal => []),
@@ -896,6 +896,9 @@ impl LobbyWorld {
         {
             bail!("Position out of bounds");
         }
+        if glob_block < 0 {
+            bail!("Block IDs can't be negative");
+        }
 
         let mut block_chunk = position;
         if position.x < 0 {
@@ -968,7 +971,7 @@ impl LobbyWorld {
         if old_block_to_be_removed_from_palette {
             // if palette has the new block
             match section.block_mappings.iter().position(|v| *v == glob_block) {
-                Some(new_block_palette_position) => {
+                Some(_new_block_palette_position) => {
                     // Remove the old block from the palette and then remap it,
                     // because all of the blocks that go after that block in the palette
                     // will be shifted
@@ -998,6 +1001,10 @@ impl LobbyWorld {
 
                     // remove the old block from the palette
                     section.block_mappings.remove(old_block as usize);
+                    // and set the new block
+                    blocks[(iblock.x as usize)
+                        | (iblock.y as usize) << 4
+                        | (iblock.z as usize) << 8] = glob_block;
 
                     section.blocks.clear();
                     let blocks_per_u64 = 64 / bits_per_block(section.block_mappings.len()) as usize;
@@ -1014,7 +1021,7 @@ impl LobbyWorld {
                                     .block_mappings
                                     .iter()
                                     .position(|i| *i == global_palette_block)
-                                    .unwrap_or(0); // the block that is being removed will not find itself in the palette, but we will set it later
+                                    .unwrap();
 
                                 set_section_block(
                                     section,
@@ -1028,9 +1035,6 @@ impl LobbyWorld {
                             }
                         }
                     }
-
-                    // set the new block
-                    set_section_block(section, iblock, new_block_palette_position as i32);
 
                     // if the block was set to air, might want to remove the whole chunk section
                     if glob_block == 0 {
@@ -1079,6 +1083,11 @@ impl LobbyWorld {
                             }
                         }
 
+                        // add the new block to the section
+                        blocks[(iblock.x as usize)
+                            | (iblock.y as usize) << 4
+                            | (iblock.z as usize) << 8] = section.block_mappings.len() as i32;
+
                         // add the new block to the palette
                         section.block_mappings.push(glob_block);
 
@@ -1106,9 +1115,6 @@ impl LobbyWorld {
                                 }
                             }
                         }
-
-                        // and finally set new block
-                        set_section_block(section, iblock, section.block_mappings.len() as i32 - 1);
                     } else {
                         // yay just simply add it to the palette
                         section.block_mappings.push(glob_block);
@@ -1181,20 +1187,6 @@ impl LobbyWorld {
                 ));
             }
         }
-
-        // test
-        // for (_id, player) in &self.players {
-        //     for (id, _player) in &self.players {
-        //         let _ = player
-        //             .stream
-        //             .lock()
-        //             .await
-        //             .send(PlayClientBound::EntityStatus {
-        //                 entity_id: *id as i32,
-        //                 status: 43,
-        //             });
-        //     }
-        // }
 
         // sync all the player positions and rotation
         for id in self.players.keys().copied().collect::<Vec<usize>>() {
