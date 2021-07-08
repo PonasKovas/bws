@@ -12,6 +12,7 @@ mod data;
 mod global_state;
 mod internal_communication;
 mod map;
+mod shared;
 mod stream_handler;
 mod world;
 

@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use flate2::{write::DeflateEncoder, Compression};
 use serde::Serialize;
 use serde_json::{Map, Value};
@@ -9,6 +9,7 @@ use std::{env::var_os, fs::File, path::Path};
 #[derive(Clone, Debug, Serialize)]
 pub struct Block {
     pub default_state: i32,
+    pub class: String,
     pub states: Vec<BlockState>,
 }
 
@@ -36,14 +37,14 @@ fn main() {
     };
 
     let items_to_blocks =
-        gen_items_to_blocks(&blocks, &items).expect("Couldn't generate items-to-blocks");
+        gen_items_to_blocks(blocks, items).expect("Couldn't generate items-to-blocks");
 
     // debug/dev
-    // serde_json::to_writer_pretty(
-    //     File::create(Path::new(&out_dir).join("items-to-blocks.json")).unwrap(),
-    //     &items_to_blocks,
-    // )
-    // .unwrap();
+    serde_json::to_writer_pretty(
+        File::create(Path::new(&out_dir).join("items-to-blocks.json")).unwrap(),
+        &items_to_blocks,
+    )
+    .unwrap();
 
     // write compressed bincode
     let mut output = File::create(Path::new(&out_dir).join("items-to-blocks.bincode")).unwrap();
@@ -52,15 +53,17 @@ fn main() {
 }
 
 fn gen_items_to_blocks(
-    blocks: &Map<String, Value>,
-    items: &Map<String, Value>,
+    blocks: Map<String, Value>,
+    items: Map<String, Value>,
 ) -> Result<Vec<Option<Block>>> {
     let mut mappings = vec![None; items.len()];
 
     for (_block_id, block) in blocks {
-        let block = block
-            .as_object()
-            .context("blocks.json: blocks must be objects")?;
+        let mut block = if let Value::Object(obj) = block {
+            obj
+        } else {
+            bail!("blocks.json: blocks must be objects");
+        };
 
         if let Some(id) = block.get("item") {
             let id = id
@@ -74,6 +77,16 @@ fn gen_items_to_blocks(
                 .as_i64()
                 .context("blocks.json: Blocks' field \"default_state\" must be an integer")?
                 as i32;
+
+            let class = if let Value::String(string) = block
+                .get_mut("class")
+                .context("blocks.json: Blocks must have a \"class\"")?
+                .take()
+            {
+                string
+            } else {
+                bail!("blocks.json: Blocks' field \"class\" must be a string");
+            };
 
             let mut states = Vec::new();
 
@@ -113,6 +126,7 @@ fn gen_items_to_blocks(
 
             mappings[id] = Some(Block {
                 default_state,
+                class,
                 states,
             });
         }
