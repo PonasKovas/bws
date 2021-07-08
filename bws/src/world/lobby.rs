@@ -1,10 +1,12 @@
 use crate::chat_parse;
 use crate::collision::is_colliding;
+use crate::data::Block;
 use crate::global_state::PStream;
 use crate::internal_communication::WBound;
 use crate::internal_communication::WReceiver;
 use crate::internal_communication::WSender;
 use crate::map::Map;
+use crate::shared::*;
 use crate::world::WorldChunkSection;
 use crate::GLOBAL_STATE;
 use anyhow::bail;
@@ -822,6 +824,18 @@ impl LobbyWorld {
                     }
                 }
 
+                // target must be air, so we dont replace blocks by accident
+                match self.get_block(target).await {
+                    Ok(old_block) => {
+                        if old_block != 0 {
+                            return;
+                        }
+                    }
+                    Err(_) => {
+                        return;
+                    }
+                }
+
                 for (_, player) in &self.players {
                     let player_pos = player.position;
                     let player_height = 1.8;
@@ -848,7 +862,7 @@ impl LobbyWorld {
                         let _ = self.players[&id].stream.lock().await.send(
                             PlayClientBound::BlockChange {
                                 location: target,
-                                new_block_id: VarInt(self.get_block(target).await.unwrap_or(0)),
+                                new_block_id: VarInt(self.get_block(target).await.unwrap()),
                             },
                         );
                         return;
@@ -866,93 +880,12 @@ impl LobbyWorld {
 
                         if let Some(block) = crate::data::ITEMS_TO_BLOCKS[item_id as usize].as_ref()
                         {
-                            // todo put this in a function
-                            // this is definetely no the correct way to do this TODO
-                            // figure out properties of the block
-                            // to place the correct one
-                            let potential_properties: Vec<(&str, &str)> = vec![
-                                ("waterlogged", "false"),
-                                ("snowy", "false"),
-                                ("triggered", "false"),
-                                ("powered", "false"),
-                                ("shape", "straight"), // todo?
-                                (
-                                    "axis",
-                                    match face {
-                                        Direction::Down | Direction::Up => "y",
-                                        Direction::North | Direction::South => "z",
-                                        Direction::West | Direction::East => "x",
-                                    },
-                                ),
-                                (
-                                    "type",
-                                    match face {
-                                        Direction::Down => "top",
-                                        Direction::Up => "bottom",
-                                        _ => {
-                                            if cursor_position_y < 0.5 {
-                                                "bottom"
-                                            } else {
-                                                "top"
-                                            }
-                                        }
-                                    },
-                                ),
-                                (
-                                    "half",
-                                    match face {
-                                        Direction::Down => "top",
-                                        Direction::Up => "bottom",
-                                        _ => {
-                                            if cursor_position_y < 0.5 {
-                                                "bottom"
-                                            } else {
-                                                "top"
-                                            }
-                                        }
-                                    },
-                                ),
-                                (
-                                    "facing",
-                                    match face {
-                                        Direction::Down => "up",
-                                        Direction::Up => "down",
-                                        Direction::North => "south",
-                                        Direction::South => "north",
-                                        Direction::West => "east",
-                                        Direction::East => "west",
-                                    },
-                                ),
-                            ];
-
-                            let state = block
-                                .states
-                                .iter()
-                                .find(|state| {
-                                    let mut matches = true;
-                                    for property in &state.properties {
-                                        let potential = match potential_properties
-                                            .iter()
-                                            .find(|e| e.0 == property.0.as_str())
-                                        {
-                                            Some(e) => e,
-                                            None => {
-                                                error!("Target property \"{}\" not found in potential properties! (block placed by item {})", property.0, item_id);
-                                                matches = false;
-                                                continue;
-                                            }
-                                        };
-
-                                        if potential.1 != property.1.as_str() {
-                                            matches = false;
-                                            break;
-                                        }
-                                    }
-
-                                    matches
-                                })
-                                .map(|state| state.state_id)
-                                .unwrap_or(block.default_state);
+                            let state = get_placed_state(
+                                block,
+                                &face,
+                                &cursor_position_y,
+                                self.players[&id].new_rotation.0,
+                            );
 
                             if let Err(e) = self.set_block(target, state).await {
                                 debug!("Error placing block: {:?}", e);
@@ -1537,6 +1470,119 @@ impl LobbyWorld {
                     let _ = r_player.stream.lock().await.send(packet.clone());
                 }
             }
+        }
+    }
+}
+
+// returns a global palette block state based on the circumstances
+fn get_placed_state(
+    block: &Block,
+    face: &Direction,
+    cursor_position_y: &f32,
+    player_yaw: f32,
+) -> i32 {
+    match block.class.as_str() {
+        "Block" | "BambooBlock" => {
+            // these either have no properties or the properties are irrelevant when placing
+            block.default_state
+        }
+        "AnvilBlock" => {
+            // these only have the "facing" property with 4 values
+            // and the direction is to the right of the direction the player is facing
+            let facing = match (player_yaw + 360.0) % 360.0 {
+                x if x.in_range(0.0, 45.0) | x.in_range(315.0, 360.0) => "west",
+                x if x.in_range(45.0, 135.0) => "north",
+                x if x.in_range(135.0, 225.0) => "east",
+                x if x.in_range(225.0, 315.0) => "south",
+                _ => "north", // default
+            };
+
+            block
+                .states
+                .iter()
+                .find(|e| e.properties.search("facing").as_str() == facing)
+                .unwrap()
+                .state_id
+        }
+        "StairsBlock" => {
+            let half = match face {
+                Direction::Down => "top",
+                Direction::Up => "bottom",
+                _ => {
+                    if *cursor_position_y > 0.5 {
+                        "top"
+                    } else {
+                        "bottom"
+                    }
+                }
+            };
+
+            let shape = "straight"; // todo
+
+            let facing = match (player_yaw + 360.0) % 360.0 {
+                x if x.in_range(0.0, 45.0) | x.in_range(315.0, 360.0) => "south",
+                x if x.in_range(45.0, 135.0) => "west",
+                x if x.in_range(135.0, 225.0) => "north",
+                x if x.in_range(225.0, 315.0) => "east",
+                _ => "north", // default
+            };
+
+            block
+                .states
+                .iter()
+                .find(|e| {
+                    e.properties.search("facing").as_str() == facing
+                        && e.properties.search("shape").as_str() == shape
+                        && e.properties.search("half").as_str() == half
+                        && e.properties.search("waterlogged").as_str() == "false"
+                })
+                .unwrap()
+                .state_id
+        }
+        "SlabBlock" => {
+            // doesnt support double slabs, just use the normal block
+            let slab_type = match face {
+                Direction::Down => "top",
+                Direction::Up => "bottom",
+                _ => {
+                    if *cursor_position_y > 0.5 {
+                        "top"
+                    } else {
+                        "bottom"
+                    }
+                }
+            };
+
+            block
+                .states
+                .iter()
+                .find(|e| {
+                    e.properties.search("type").as_str() == slab_type
+                        && e.properties.search("waterlogged").as_str() == "false"
+                })
+                .unwrap()
+                .state_id
+        }
+        "PillarBlock" => {
+            let axis = match face {
+                Direction::Down | Direction::Up => "y",
+                Direction::West | Direction::East => "x",
+                Direction::South | Direction::North => "z",
+            };
+
+            block
+                .states
+                .iter()
+                .find(|e| e.properties.search("axis").as_str() == axis)
+                .unwrap()
+                .state_id
+        }
+        other => {
+            error!(
+                "Class \"{}\" not handled in get_placed_state(). Returning default state.",
+                other
+            );
+            block.default_state
         }
     }
 }

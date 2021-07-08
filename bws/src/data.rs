@@ -12,6 +12,7 @@ use std::{
 #[derive(Clone, Debug, Deserialize)]
 pub struct Block {
     pub default_state: i32,
+    pub class: String,
     pub states: Vec<BlockState>,
 }
 
