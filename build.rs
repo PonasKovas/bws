@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use flate2::{write::DeflateEncoder, Compression};
 use serde::Serialize;
 use serde_json::{Map, Value};
-use std::{env::var_os, fs::File, io::BufReader, path::Path};
+use std::{env::var_os, fs::File, path::Path};
 
 // These MUST match the structures defined in src/data.rs
 
@@ -20,20 +20,19 @@ pub struct BlockState {
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changed=data/");
 
     let out_dir = var_os("OUT_DIR").unwrap();
 
     let blocks: Map<String, Value> = {
-        // this file was taken from https://gitlab.bixilon.de/bixilon/pixlyzer-data/-/blob/master/version/1.16.5/blocks.json
-        let blocks_file = BufReader::new(File::open("data/blocks.json").unwrap());
-        serde_json::from_reader(blocks_file).unwrap()
+        // this file was taken from
+        let blocks_file = reqwest::blocking::get("https://gitlab.bixilon.de/bixilon/pixlyzer-data/-/raw/master/version/1.16.5/blocks.min.json").unwrap().bytes().unwrap();
+        serde_json::from_reader(blocks_file.as_ref()).unwrap()
     };
 
     let items: Map<String, Value> = {
-        // this file was taken from https://gitlab.bixilon.de/bixilon/pixlyzer-data/-/blob/master/version/1.16.5/items.json
-        let items_file = BufReader::new(File::open("data/items.json").unwrap());
-        serde_json::from_reader(items_file).unwrap()
+        // this file was taken from
+        let items_file = reqwest::blocking::get("https://gitlab.bixilon.de/bixilon/pixlyzer-data/-/raw/master/version/1.16.5/items.min.json").unwrap().bytes().unwrap();
+        serde_json::from_reader(items_file.as_ref()).unwrap()
     };
 
     let items_to_blocks =
