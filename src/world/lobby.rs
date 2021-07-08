@@ -1578,10 +1578,10 @@ fn get_placed_state(
                 .state_id
         }
         other => {
-            error!(
-                "Class \"{}\" not handled in get_placed_state(). Returning default state.",
-                other
-            );
+            // debug!(
+            //     "Class \"{}\" not handled in get_placed_state(). Returning default state.",
+            //     other
+            // );
             block.default_state
         }
     }
