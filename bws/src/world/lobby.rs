@@ -2,37 +2,28 @@ use crate::chat_parse;
 use crate::collision::is_colliding;
 use crate::data::Block;
 use crate::global_state::PStream;
-use crate::internal_communication::WBound;
-use crate::internal_communication::WReceiver;
-use crate::internal_communication::WSender;
+use crate::internal_communication::{WBound, WReceiver, WSender};
 use crate::map::Map;
 use crate::shared::*;
 use crate::world::WorldChunkSection;
 use crate::GLOBAL_STATE;
-use anyhow::bail;
-use anyhow::Context;
-use anyhow::Result;
-use futures::executor::block_on;
-use futures::FutureExt;
+use anyhow::{bail, Context, Result};
+use futures::{executor::block_on, FutureExt};
 use log::{debug, error, info, warn};
-use protocol::command;
-use protocol::datatypes::*;
-use protocol::packets::*;
+use protocol::{command, datatypes::*, packets::*};
 use sha2::{Digest, Sha256};
 use slab::Slab;
 use std::borrow::Cow;
 use std::cmp::max;
-use std::cmp::min;
-use std::collections::HashMap;
 use std::convert::TryInto;
 use std::env::Vars;
-use std::fs::File;
-use std::io::BufRead;
-use std::io::BufReader;
-use std::io::Write;
 use std::path::Path;
-use std::time::Duration;
-use std::time::Instant;
+use std::time::{Duration, Instant};
+use std::{cmp::min, collections::HashMap};
+use std::{
+    fs::File,
+    io::{BufRead, BufReader, Write},
+};
 use tokio::spawn;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::task::unconstrained;
@@ -1578,10 +1569,10 @@ fn get_placed_state(
                 .state_id
         }
         other => {
-            // debug!(
-            //     "Class \"{}\" not handled in get_placed_state(). Returning default state.",
-            //     other
-            // );
+            debug!(
+                "Class \"{}\" not handled in get_placed_state(). Returning default state.",
+                other
+            );
             block.default_state
         }
     }
