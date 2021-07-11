@@ -458,7 +458,9 @@ pub enum PlayServerBound<'a> {
         cursor_position_z: f32,
         inside_block: bool,
     },
-    UseItem, // todo
+    UseItem {
+        hand: Hand, // hand used for the animation
+    },
 }
 
 impl<'a> StatusClientBound<'a> {

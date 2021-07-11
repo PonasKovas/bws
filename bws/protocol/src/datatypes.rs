@@ -76,7 +76,7 @@ impl Angle {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd)]
 pub struct Position {
     pub x: i32,
     pub y: i32,
