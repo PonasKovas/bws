@@ -393,22 +393,22 @@ impl Deserializable for VarInt {
         Self: Sized,
     {
         let mut i = 0;
-        let mut result: i32 = 0;
+        let mut result: i64 = 0;
 
         loop {
             let mut number = [0];
             input.read_exact(&mut number)?;
 
-            let value = (number[0] & 0b01111111) as i32;
+            let value = (number[0] & 0b01111111) as i64;
             result = result | (value << (7 * i));
 
-            if (number[0] & 0b10000000) == 0 {
+            if (number[0] & 0b10000000) == 0 || i == 4 {
                 break;
             }
             i += 1;
         }
 
-        Ok(Self(result))
+        Ok(Self(result as i32))
     }
 }
 

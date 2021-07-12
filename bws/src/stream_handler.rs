@@ -30,6 +30,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::pin;
 use tokio::sync::mpsc;
+use tokio::sync::mpsc::channel;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::oneshot;
 use tokio::sync::Mutex;
@@ -76,29 +77,29 @@ struct Property {
     value: String,
 }
 
-async fn read_varint(input: &mut BufReader<TcpStream>) -> std::io::Result<VarInt> {
-    use tokio::io::AsyncReadExt;
-
+async fn read_varint(
+    first_byte: std::io::Result<u8>,
+    input: &mut BufReader<TcpStream>,
+) -> std::io::Result<VarInt> {
+    let mut byte = first_byte?;
     let mut i = 0;
-    let mut result: i32 = 0;
+    let mut result: i64 = 0;
 
     loop {
-        let number = input.read_u8().await?;
-
-        let value = (number & 0b01111111) as i32;
+        let value = (byte & 0b01111111) as i64;
         result = result | (value << (7 * i));
 
-        if (number & 0b10000000) == 0 {
+        if (byte & 0b10000000) == 0 || i == 4 {
             break;
         }
         i += 1;
+
+        byte = input.read_u8().await?;
     }
 
-    Ok(VarInt(result))
+    Ok(VarInt(result as i32))
 }
 async fn write_varint(varint: VarInt, output: &mut BufReader<TcpStream>) -> std::io::Result<()> {
-    use tokio::io::AsyncWriteExt;
-
     let mut number = varint.0 as u32;
 
     loop {
@@ -146,7 +147,7 @@ async fn handle(socket: TcpStream, state: &mut State) -> Result<()> {
 
     // create the internal communication channels
     let (shinput_sender, mut shinput_receiver) = unbounded_channel::<PlayClientBound<'static>>();
-    let (mut shoutput_sender, shoutput_receiver) = unbounded_channel::<PlayServerBound<'static>>();
+    let (mut shoutput_sender, shoutput_receiver) = channel::<PlayServerBound<'static>>(64);
     let (dc_sender, mut dc_receiver) = oneshot::channel();
 
     // get the stream ready, even thought it might not be used.
@@ -233,20 +234,7 @@ async fn read_and_parse_packet(
     first_byte: Result<u8, tokio::io::Error>,
 ) -> Result<()> {
     // read the rest of the VarInt
-    let mut number = first_byte?;
-    let mut i: usize = 0;
-    let mut length: i32 = 0;
-    loop {
-        let value = (number & 0b01111111) as i32;
-        length = length | (value << (7 * i));
-
-        if (number & 0b10000000) == 0 {
-            break;
-        }
-
-        number = socket.read_u8().await?;
-        i += 1;
-    }
+    let length = read_varint(first_byte, socket).await?.0;
 
     // read the rest of the packet
     let packet = read_packet(socket, buffer, &*state, length as usize).await?;
@@ -459,7 +447,7 @@ async fn read_and_parse_packet(
             }
         }
         ServerBound::Play(other) => {
-            shoutput_sender.send(other).context(
+            shoutput_sender.send(other).await.context(
                 "The PlayerStream was dropped even before the actual stream handler task finished.",
             )?;
         }
@@ -472,10 +460,17 @@ async fn read_packet(
     buffer: &mut Vec<u8>,
     state: &State,
     length: usize,
-) -> tokio::io::Result<ServerBound<'static>> {
+) -> Result<ServerBound<'static>> {
+    if length > 0x1F_FFFF {
+        bail!("Packet too big. Max size allowed: 0x1F FFFF bytes.");
+    }
     if GLOBAL_STATE.compression_treshold >= 0 && matches!(state, State::Play(_)) {
         // compressed packet format
-        let uncompressed_size = read_varint(socket).await?;
+        let uncompressed_size = read_varint(socket.read_u8().await, socket).await?;
+
+        if uncompressed_size.0 > 0x1F_FFFF {
+            bail!("Uncompressed packet too big. Max size allowed: 0x1F FFFF bytes.");
+        }
 
         if uncompressed_size.0 == 0 {
             // that means the data isnt actually compressed so we can just read it normally
