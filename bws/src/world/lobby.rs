@@ -558,13 +558,47 @@ impl LobbyWorld {
                 if let Some(section) = section {
                     primary_bitmask |= 2i32.pow(i as u32);
 
-                    chunk_sections.push(ChunkSection {
-                        block_count: 16 * 16 * 16, // this is foolproof, but might want to send the real block count in the future
-                        palette: Palette::Indirect(
-                            section.block_mappings.iter().map(|v| VarInt(*v)).collect(),
-                        ),
-                        data: section.blocks.clone(),
-                    });
+                    if bits_per_block(section.block_mappings.len()) > 8 {
+                        // honestly frick you mojang.
+                        // they don't accept palettes with more than 256 blocks, and we must use a global palette
+                        // but i don't want to overcomplicate the whole server side logic so i will just
+                        // convert it here when sending, which is inefficient but I don't suspect there
+                        // will be many chunks with that many different blocks
+                        chunk_sections.push(ChunkSection {
+                            block_count: 16 * 16 * 16, // this is foolproof, but might want to send the real block count in the future
+                            palette: Palette::Direct,
+                            data: {
+                                let mut data = vec![0u64; 1024];
+                                let local_bits_per_block =
+                                    bits_per_block(section.block_mappings.len());
+                                let local_blocks_per_u64 = 64 / local_bits_per_block as usize;
+                                for i in 0..(16 * 16 * 16) {
+                                    let mut t = section.blocks[i / local_blocks_per_u64];
+                                    let bits_to_the_right = 64
+                                        - local_bits_per_block as i32
+                                            * (i as i32 % local_blocks_per_u64 as i32 + 1);
+                                    t = t << bits_to_the_right;
+
+                                    let bits_to_the_left = local_bits_per_block as i32
+                                        * (i as i32 % local_blocks_per_u64 as i32);
+                                    t = t >> (bits_to_the_right + bits_to_the_left);
+
+                                    data[i / 4] |= (section.block_mappings[t as usize] as u64)
+                                        << ((i % 4) * 15) as usize;
+                                }
+
+                                data
+                            },
+                        });
+                    } else {
+                        chunk_sections.push(ChunkSection {
+                            block_count: 16 * 16 * 16, // this is foolproof, but might want to send the real block count in the future
+                            palette: Palette::Indirect(
+                                section.block_mappings.iter().map(|v| VarInt(*v)).collect(),
+                            ),
+                            data: section.blocks.clone(),
+                        });
+                    }
                 }
             }
 
@@ -1368,7 +1402,7 @@ impl LobbyWorld {
 
         Ok(())
     }
-    async fn set_player_rotation(&mut self, id: usize, mut rotation: (f32, f32)) {
+    async fn set_player_rotation(&mut self, id: usize, rotation: (f32, f32)) {
         self.players.get_mut(&id).unwrap().new_rotation = rotation;
     }
     async fn set_player_on_ground(&mut self, id: usize, on_ground: bool) {
