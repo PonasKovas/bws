@@ -1368,7 +1368,7 @@ impl LobbyWorld {
 
         Ok(())
     }
-    async fn set_player_rotation(&mut self, id: usize, rotation: (f32, f32)) {
+    async fn set_player_rotation(&mut self, id: usize, mut rotation: (f32, f32)) {
         self.players.get_mut(&id).unwrap().new_rotation = rotation;
     }
     async fn set_player_on_ground(&mut self, id: usize, on_ground: bool) {
@@ -1753,7 +1753,7 @@ fn get_placed_state(
         "AnvilBlock" => {
             // these only have the "facing" property with 4 values
             // and the direction is to the right of the direction the player is facing
-            let facing = match (player_yaw + 360.0) % 360.0 {
+            let facing = match player_yaw.rem_euclid(360.0) {
                 x if x.in_range(0.0, 45.0) | x.in_range(315.0, 360.0) => "west",
                 x if x.in_range(45.0, 135.0) => "north",
                 x if x.in_range(135.0, 225.0) => "east",
@@ -1783,7 +1783,7 @@ fn get_placed_state(
 
             let shape = "straight"; // todo
 
-            let facing = match (player_yaw + 360.0) % 360.0 {
+            let facing = match player_yaw.rem_euclid(360.0) {
                 x if x.in_range(0.0, 45.0) | x.in_range(315.0, 360.0) => "south",
                 x if x.in_range(45.0, 135.0) => "west",
                 x if x.in_range(135.0, 225.0) => "north",
