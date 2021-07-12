@@ -941,18 +941,16 @@ impl LobbyWorld {
                                         }
                                         // and add it to the flowing fluid list so it spreads
                                         self.flowing_liquids.push(target);
+
+                                        self.update_nearby_liquids(target);
                                     } else {
-                                        // check if old block can be waterlogged TODO
-                                        let can_be_waterlogged = false;
-                                        if can_be_waterlogged {
-                                        } else {
-                                            let _ = self.players[&id].stream.lock().await.send(
-                                                PlayClientBound::BlockChange {
-                                                    location: target,
-                                                    new_block_id: VarInt(old_block),
-                                                },
-                                            );
-                                        }
+                                        // undo client local changes
+                                        let _ = self.players[&id].stream.lock().await.send(
+                                            PlayClientBound::BlockChange {
+                                                location: target,
+                                                new_block_id: VarInt(old_block),
+                                            },
+                                        );
                                     }
                                 }
                             } else if item_id == 660 {
