@@ -890,25 +890,7 @@ impl LobbyWorld {
                             }
 
                             // if there are any neighbor liquids, may need to update them
-                            for neighbor in &[
-                                (-1, 0, 0),
-                                (1, 0, 0),
-                                (0, 0, -1),
-                                (0, 0, 1),
-                                (0, 1, 0),
-                                (0, -1, 0),
-                            ] {
-                                let mut neighbor_block = target;
-                                neighbor_block.x += neighbor.0;
-                                neighbor_block.y += neighbor.1;
-                                neighbor_block.z += neighbor.2;
-
-                                if let Ok(block) = self.get_block(neighbor_block) {
-                                    if parse_fluid_state(block).is_some() {
-                                        self.flowing_liquids.push(neighbor_block)
-                                    }
-                                }
-                            }
+                            self.update_nearby_liquids(target);
                         } else {
                             // might be a special case like buckets with fluids
 
@@ -937,6 +919,28 @@ impl LobbyWorld {
                                                 },
                                             );
                                         }
+                                    }
+                                }
+                            } else if item_id == 660 {
+                                // empty bucket
+                                if let Ok(old_block) = self.get_block(target) {
+                                    if let Some((_is_lava, 0, false)) = parse_fluid_state(old_block)
+                                    {
+                                        // remove the water
+                                        if let Err(e) = self.set_block(target, 0).await {
+                                            debug!("Error placing block: {:?}", e);
+                                        }
+                                        self.update_nearby_liquids(target);
+                                        // and fill the bucket TODO
+                                        //
+                                    } else {
+                                        // undo whatever the client may have done locally
+                                        let _ = self.players[&id].stream.lock().await.send(
+                                            PlayClientBound::BlockChange {
+                                                location: target,
+                                                new_block_id: VarInt(old_block),
+                                            },
+                                        );
                                     }
                                 }
                             } else {
@@ -1012,25 +1016,7 @@ impl LobbyWorld {
                         debug!("Error breaking block: {:?}", e);
                     }
                     // if there are any neighbor liquids, may need to update them
-                    for neighbor in &[
-                        (-1, 0, 0),
-                        (1, 0, 0),
-                        (0, 0, -1),
-                        (0, 0, 1),
-                        (0, 1, 0),
-                        (0, -1, 0),
-                    ] {
-                        let mut neighbor_block = location;
-                        neighbor_block.x += neighbor.0;
-                        neighbor_block.y += neighbor.1;
-                        neighbor_block.z += neighbor.2;
-
-                        if let Ok(block) = self.get_block(neighbor_block) {
-                            if parse_fluid_state(block).is_some() {
-                                self.flowing_liquids.push(neighbor_block)
-                            }
-                        }
-                    }
+                    self.update_nearby_liquids(location);
                 }
                 _ => {
                     debug!(
@@ -1046,6 +1032,27 @@ impl LobbyWorld {
             },
             other => {
                 debug!("[{}] received {:?}", id, other);
+            }
+        }
+    }
+    fn update_nearby_liquids(&mut self, position: Position) {
+        for neighbor in &[
+            (-1, 0, 0),
+            (1, 0, 0),
+            (0, 0, -1),
+            (0, 0, 1),
+            (0, 1, 0),
+            (0, -1, 0),
+        ] {
+            let mut neighbor_block = position;
+            neighbor_block.x += neighbor.0;
+            neighbor_block.y += neighbor.1;
+            neighbor_block.z += neighbor.2;
+
+            if let Ok(block) = self.get_block(neighbor_block) {
+                if parse_fluid_state(block).is_some() {
+                    self.flowing_liquids.push(neighbor_block)
+                }
             }
         }
     }
@@ -1546,25 +1553,7 @@ impl LobbyWorld {
                         }
 
                         // if there are any neighbor liquids, may need to update them
-                        for neighbor in &[
-                            (-1, 0, 0),
-                            (1, 0, 0),
-                            (0, 0, -1),
-                            (0, 0, 1),
-                            (0, 1, 0),
-                            (0, -1, 0),
-                        ] {
-                            let mut neighbor_block = liquid;
-                            neighbor_block.x += neighbor.0;
-                            neighbor_block.y += neighbor.1;
-                            neighbor_block.z += neighbor.2;
-
-                            if let Ok(block) = self.get_block(neighbor_block) {
-                                if parse_fluid_state(block).is_some() {
-                                    self.flowing_liquids.push(neighbor_block)
-                                }
-                            }
-                        }
+                        self.update_nearby_liquids(liquid);
                     }
                 }
             }
