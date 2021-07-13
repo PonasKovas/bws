@@ -1,5 +1,7 @@
 use crate::chat_parse;
 use crate::global_state::PStream;
+use crate::global_state::PlayerData;
+use crate::global_state::PlayerPermissions;
 use crate::global_state::PlayerStream;
 use crate::internal_communication::WBound;
 use crate::internal_communication::WReceiver;
@@ -223,6 +225,25 @@ impl LoginWorld {
                             // and compare to the correct hash
                             if *correct_password_hash == hash {
                                 // they match, so login successful
+
+                                if !GLOBAL_STATE
+                                    .player_data
+                                    .read()
+                                    .await
+                                    .contains_key(&self.players[&id].0)
+                                {
+                                    GLOBAL_STATE.player_data.write().await.insert(
+                                        self.players[&id].0.to_string(),
+                                        PlayerData {
+                                            permissions: PlayerPermissions {
+                                                owner: false,
+                                                edit_lobby: false,
+                                            },
+                                        },
+                                    );
+                                    GLOBAL_STATE.save_player_data().await;
+                                }
+
                                 GLOBAL_STATE
                                     .w_login
                                     .send(WBound::MovePlayer {
@@ -267,6 +288,18 @@ impl LoginWorld {
                                 if let Err(e) = self.save_accounts().await {
                                     error!("Error saving accounts data: {}", e);
                                 }
+
+                                // also add an entry to the player data
+                                GLOBAL_STATE.player_data.write().await.insert(
+                                    self.players[&id].0.to_string(),
+                                    PlayerData {
+                                        permissions: PlayerPermissions {
+                                            owner: false,
+                                            edit_lobby: true,
+                                        },
+                                    },
+                                );
+                                GLOBAL_STATE.save_player_data().await;
 
                                 GLOBAL_STATE
                                     .w_login
