@@ -1,5 +1,4 @@
-/// A macro that expands to a [`PlayClientBound::DeclareCommands`][crate::packets::PlayClientBound::DeclareCommands] packet
-/// ready to be sent.
+/// A macro that expands to a [`CommandsBuilder`][crate::commands_builder::CommandsBuilder] instance ready to be built.
 ///
 /// Syntax:
 ///
@@ -25,7 +24,7 @@
 ///     ("string", literal => [
 ///         (X "value", argument (String: SingleWord) suggestions=AskServer => [])
 ///     ])
-/// );
+/// ).build();
 /// ```
 ///
 /// ---
@@ -40,13 +39,10 @@
 #[macro_export]
 macro_rules! command {
     ($($node:tt),* $(,)?) => {
-        $crate::packets::PlayClientBound::DeclareCommands {
-            nodes: {
-                let mut res = $crate::commands_builder::CommandsBuilder::new();
-                $(res.add($crate::single_node!($node));)*
-                res.build()
-            },
-            root: $crate::datatypes::VarInt(0),
+        {
+            let mut res = $crate::commands_builder::CommandsBuilder::new();
+            $(res.add($crate::single_node!($node));)*
+            res
         }
     };
     // create a DeclareCommands with no commands
