@@ -1,4 +1,4 @@
-use crate::datatypes::*;
+use crate::{datatypes::*, packets::PlayClientBound};
 use std::borrow::Cow;
 
 pub struct CommandsBuilder<'a> {
@@ -14,9 +14,12 @@ impl<'a> CommandsBuilder<'a> {
     pub fn add(&mut self, node: BuilderNode<'a>) {
         self.children.push(node);
     }
-    /// Returns a vector of command nodes ready to be used directly in the `PlayClientBound::DeclareCommands`
-    /// with the root_node set to 0.
-    pub fn build(self) -> Vec<CommandNode<'a>> {
+    /// Concatenates the two `CommandsBuilder`s.
+    pub fn extend(&mut self, other: CommandsBuilder<'a>) {
+        self.children.extend(other.children);
+    }
+    /// Returns a `PlayClientBound::DeclareCommands` packet completely ready to be sent
+    pub fn build(self) -> PlayClientBound<'a> {
         let mut res = Vec::new();
 
         // first add the root node
@@ -27,7 +30,10 @@ impl<'a> CommandsBuilder<'a> {
 
         add_children(&mut res, 0, self.children);
 
-        res
+        crate::packets::PlayClientBound::DeclareCommands {
+            nodes: res,
+            root: VarInt(0),
+        }
     }
 }
 

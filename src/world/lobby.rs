@@ -51,6 +51,7 @@ struct Player {
     inventory: [Slot; 46],
     held_item: i16,
     nickname_color: u32,
+    editing_lobby: bool,
 }
 
 pub struct LobbyWorld {
@@ -149,6 +150,7 @@ impl LobbyWorld {
                             nickname_color: (rand::random::<u8>() as u32)
                                 | (rand::random::<u8>() as u32) << 8
                                 | (rand::random::<u8>() as u32) << 16,
+                            editing_lobby: false,
                         },
                     );
 
@@ -227,7 +229,7 @@ impl LobbyWorld {
             dimension: Nbt(dimension),
             world_name: "lobby".into(),
             hashed_seed: 0,
-            gamemode: Gamemode::Creative,
+            gamemode: Gamemode::Adventure,
             previous_gamemode: Gamemode::Spectator,
             debug: false,
             flat: true,
@@ -270,11 +272,11 @@ impl LobbyWorld {
         stream.send(PlayClientBound::Title(TitleAction::Reset))?;
 
         stream.send(PlayClientBound::Title(TitleAction::SetTitle(chat_parse(
-            "§aLogged in§7!",
+            "§alogged in!",
         ))))?;
 
         stream.send(PlayClientBound::Title(TitleAction::SetSubtitle(
-            chat_parse("§bhave fun§7!"),
+            chat_parse("§bhave fun!"),
         )))?;
 
         stream.send(PlayClientBound::Title(TitleAction::SetActionBar(
@@ -289,18 +291,42 @@ impl LobbyWorld {
 
         stream.send(PlayClientBound::PlayerListHeaderAndFooter {
             header: chat_parse("\n                    §f§lBWS §rlobby                    \n"),
-            footer: chat_parse(""),
+            footer: chat_parse("\n"),
         })?;
 
         // declare commands
-        stream.send(command!(
+        let mut commands = command!(
             (X "save", literal => []),
             ("setblock", literal => [
                 (X "block id", argument (Integer: Some(0), None) => []),
             ]),
             (X "printchunk", literal => []),
             (X "clearchunk", literal => []),
-        ))?;
+        );
+
+        let permissions =
+            GLOBAL_STATE.player_data.read().await[&self.players[&id].username].permissions;
+
+        if permissions.edit_lobby {
+            commands.extend(command!(
+                (X "editmode", literal => []),
+            ));
+        }
+        if permissions.ban_ips {
+            commands.extend(command!(
+                ("banip", literal => [
+                    (X "ip address", argument (String: SingleWord) => []),
+                ]),
+            ));
+        }
+        if permissions.ban_usernames {
+            commands.extend(command!(
+                ("ban", literal => [
+                    (X "username", argument (String: SingleWord) => []),
+                ]),
+            ));
+        }
+        stream.send(commands.build())?;
 
         drop(stream);
 

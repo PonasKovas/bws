@@ -436,21 +436,24 @@ impl LoginWorld {
         );
 
         // declare commands
-        stream.send(if password.is_some() {
-            command!(
-                ("login", literal => [
-                    (X "password", argument (String: SingleWord) => [])
-                ])
-            )
-        } else {
-            command!(
-                ("register", literal => [
-                    ("password", argument (String: SingleWord) => [
+        stream.send(
+            if password.is_some() {
+                command!(
+                    ("login", literal => [
                         (X "password", argument (String: SingleWord) => [])
                     ])
-                ])
-            )
-        })?;
+                )
+            } else {
+                command!(
+                    ("register", literal => [
+                        ("password", argument (String: SingleWord) => [
+                            (X "password", argument (String: SingleWord) => [])
+                        ])
+                    ])
+                )
+            }
+            .build(),
+        )?;
 
         stream.send(PlayClientBound::Title(TitleAction::Reset))?;
 
