@@ -295,20 +295,19 @@ impl LobbyWorld {
         })?;
 
         // declare commands
-        let mut commands = command!(
-            ("setblock", literal => [
-                (X "block id", argument (Integer: Some(0), None) => []),
-            ]),
-            (X "printchunk", literal => []),
-            (X "clearchunk", literal => []),
-        );
+        let mut commands = command!();
 
         let permissions =
             GLOBAL_STATE.player_data.read().await[&self.players[&id].username].permissions;
 
         if permissions.edit_lobby {
             commands.extend(command!(
-                (X "editmode", literal => []),
+            (X "editmode", literal => []),
+            ("setblock", literal => [
+                (X "block id", argument (Integer: Some(0), None) => []),
+            ]),
+            (X "printchunk", literal => []),
+            (X "clearchunk", literal => []),
             ));
         }
         // other non-world specific commands
@@ -671,6 +670,9 @@ impl LobbyWorld {
             PlayServerBound::ChatMessage(message) => {
                 if message.starts_with('/') {
                     if message.starts_with("/printchunk") {
+                        if !self.players[&id].editing_lobby {
+                            return;
+                        }
                         let player_chunk = (
                             (self.players[&id].position.0.floor() / 16.0).floor() as i8,
                             (self.players[&id].position.1.floor() / 16.0).floor() as i8,
@@ -694,6 +696,9 @@ impl LobbyWorld {
                                 });
                         }
                     } else if message.starts_with("/clearchunk") {
+                        if !self.players[&id].editing_lobby {
+                            return;
+                        }
                         let player_chunk = (
                             (self.players[&id].position.0.floor() / 16.0).floor() as i8,
                             (self.players[&id].position.1.floor() / 16.0).floor() as i8,
@@ -712,6 +717,9 @@ impl LobbyWorld {
                             }
                         }
                     } else if message.starts_with("/setblock ") {
+                        if !self.players[&id].editing_lobby {
+                            return;
+                        }
                         if let Ok(block_id) = message[10..].parse::<i32>() {
                             let position = self.players[&id].position;
                             let position = Position {
