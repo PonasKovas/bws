@@ -19,7 +19,7 @@ mod world;
 use anyhow::{Context, Result};
 use futures::select;
 use futures::FutureExt;
-use global_state::GlobalState;
+use global_state::{read_banned_ips, read_player_data, GlobalState};
 use lazy_static::lazy_static;
 use log::{debug, error, info, warn};
 use protocol::datatypes::chat_parse::parse as chat_parse;
@@ -113,6 +113,20 @@ lazy_static! {
             w_lobby: world::lobby::start(),
             compression_treshold: OPT.compression_treshold,
             port: OPT.port,
+            player_data: RwLock::new(match read_player_data() {
+                Ok(d) => d,
+                Err(e) => {
+                    error!("Error reading player data: {}", e);
+                    std::process::exit(1);
+                },
+            }),
+            banned_addresses: RwLock::new(match read_banned_ips() {
+                Ok(d) => d,
+                Err(e) => {
+                    error!("Error reading banned addresses: {}", e);
+                    std::process::exit(1);
+                },
+            }),
         }
     };
 }

@@ -559,7 +559,6 @@ impl LobbyWorld {
                     primary_bitmask |= 2i32.pow(i as u32);
 
                     if bits_per_block(section.block_mappings.len()) > 8 {
-                        // honestly frick you mojang.
                         // they don't accept palettes with more than 256 blocks, and we must use a global palette
                         // but i don't want to overcomplicate the whole server side logic so i will just
                         // convert it here when sending, which is inefficient but I don't suspect there
@@ -1504,10 +1503,11 @@ impl LobbyWorld {
 
         if counter % 5 == 0 {
             // every 5 ticks, liquids update
-            let mut liquids = self.flowing_liquids.clone();
             // remove duplications
-            liquids.sort();
-            liquids.dedup();
+            self.flowing_liquids.sort();
+            self.flowing_liquids.dedup();
+
+            let liquids = self.flowing_liquids.clone();
             self.flowing_liquids.clear();
             for liquid in liquids {
                 if let Ok(fluid_id) = self.get_block(liquid) {
