@@ -172,9 +172,12 @@ pub enum PlayClientBound<'a> {
         /// see <https://wiki.vg/Entity_statuses>
         status: i8,
     },
-    Explosion,       // todo
-    UnloadChunk,     // todo
-    ChangeGameState, // todo
+    Explosion,   // todo
+    UnloadChunk, // todo
+    ChangeGameState {
+        reason: GameStateChangeReason,
+        value: f32,
+    },
     OpenHorseWindow, // todo
     KeepAlive(i64),
     ChunkData {

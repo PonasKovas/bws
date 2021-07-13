@@ -151,6 +151,23 @@ pub enum Pose {
     Dying,
 }
 
+#[derive(Serializable, Deserializable, Debug, Clone, Copy, PartialEq)]
+#[discriminant_as(u8)]
+pub enum GameStateChangeReason {
+    NoRespawnBlockAvailable,
+    EndRaining,
+    BeginRaining,
+    ChangeGamemode,
+    WinGame,
+    DemoEvent,
+    ArrowHitPlayer,
+    RainLevelChange,
+    ThunderLevelChange,
+    PlayPufferfishStingSound,
+    PlayElderGuardianMobAppearance,
+    EnableRespawnScreen,
+}
+
 #[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
 pub enum PlayerInfo<'a> {
     AddPlayer(Vec<(u128, PlayerInfoAddPlayer<'a>)>),
