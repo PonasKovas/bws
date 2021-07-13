@@ -2,8 +2,8 @@ use crate::internal_communication as ic;
 use anyhow::bail;
 use anyhow::{Context, Result};
 use futures::FutureExt;
-use log::debug;
 use log::info;
+use log::{debug, error, warn};
 use protocol::datatypes::*;
 use protocol::packets::*;
 use serde::{Deserialize, Serialize};
@@ -58,16 +58,24 @@ pub struct Player {
 
 #[derive(Serialize, Deserialize)]
 pub struct PlayerData {
-    permissions: PlayerPermissions,
+    pub permissions: PlayerPermissions,
     // banned: Option<UntilWhatDate>,
     // groups: PlayerGroups,
     // score, statistics...
 }
 
+fn is_false(arg: &bool) -> bool {
+    !arg
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct PlayerPermissions {
-    owner: bool,
-    edit_lobby: bool,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "is_false")]
+    pub owner: bool,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "is_false")]
+    pub edit_lobby: bool,
 }
 
 pub struct PlayerStream {
@@ -116,11 +124,23 @@ impl PlayerStream {
 }
 
 impl GlobalState {
-    pub async fn save_player_data(&self) -> Result<()> {
+    pub async fn save_player_data(&self) {
+        if let Err(e) = self.inner_save_player_data().await {
+            error!("Error saving player data: {}", e);
+            warn!("Make sure to save it before closing the server, otherwise data might be lost.");
+        }
+    }
+    pub async fn save_banned_ips(&self) {
+        if let Err(e) = self.inner_save_banned_ips().await {
+            error!("Error saving banned IPs: {}", e);
+            warn!("Make sure to save them before closing the server, otherwise changes might be lost.");
+        }
+    }
+    async fn inner_save_player_data(&self) -> Result<()> {
         use tokio::fs::File;
         use tokio::io::AsyncWriteExt;
 
-        let data = ron::to_string(&*self.player_data.read().await)?;
+        let data = ron::ser::to_string_pretty(&*self.player_data.read().await, Default::default())?;
 
         let mut f = File::create(PLAYER_DATA_FILE)
             .await
@@ -132,7 +152,7 @@ impl GlobalState {
 
         Ok(())
     }
-    pub async fn save_banned_ips(&self) -> Result<()> {
+    async fn inner_save_banned_ips(&self) -> Result<()> {
         use tokio::fs::File;
         use tokio::io::AsyncWriteExt;
 
