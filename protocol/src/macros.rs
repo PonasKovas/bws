@@ -23,7 +23,10 @@
 ///     ]),
 ///     ("string", literal => [
 ///         (X "value", argument (String: SingleWord) suggestions=AskServer => [])
-///     ])
+///     ]),
+///     ("bool", literal => [
+///         (X "value", argument (Bool) => [])
+///     ]),
 /// ).build();
 /// ```
 ///
@@ -35,6 +38,7 @@
 /// |------------------------------------------------|---------------------------------------------------------------------|
 /// | [`String`][crate::datatypes::Parser::String]   | [`datatypes::StringParserType`][crate::datatypes::StringParserType] |
 /// | [`Integer`][crate::datatypes::Parser::Integer] | `Option<i32>, Option<i32>` (minimum and maximum integers)           |
+/// | [`Bool`][crate::datatypes::Parser::Bool]       | None                                                                |
 ///
 #[macro_export]
 macro_rules! command {
@@ -158,5 +162,8 @@ macro_rules! handle_parser {
             min: $min,
             max: $max,
         })
+    };
+    ((Bool)) => {
+        $crate::datatypes::Parser::Bool
     };
 }

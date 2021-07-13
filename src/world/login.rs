@@ -236,10 +236,7 @@ impl LoginWorld {
                                         self.players[&id].0.to_string(),
                                         PlayerData {
                                             permissions: PlayerPermissions {
-                                                owner: false,
-                                                edit_lobby: false,
-                                                ban_usernames: false,
-                                                ban_ips: false,
+                                                ..Default::default()
                                             },
                                         },
                                     );
@@ -298,10 +295,7 @@ impl LoginWorld {
                                     self.players[&id].0.to_string(),
                                     PlayerData {
                                         permissions: PlayerPermissions {
-                                            owner: false,
-                                            edit_lobby: true,
-                                            ban_usernames: false,
-                                            ban_ips: false,
+                                            ..Default::default()
                                         },
                                     },
                                 );

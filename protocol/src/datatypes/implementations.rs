@@ -174,12 +174,15 @@ impl Serializable for Parser {
 
         match self {
             Parser::String(properties) => {
-                sum += "brigadier:string".to_writer(&mut *output)?;
-                sum += properties.to_writer(&mut *output)?;
+                sum += "brigadier:string".to_writer(output)?;
+                sum += properties.to_writer(output)?;
             }
             Parser::Integer(options) => {
-                sum += "brigadier:integer".to_writer(&mut *output)?;
-                sum += options.to_writer(&mut *output)?;
+                sum += "brigadier:integer".to_writer(output)?;
+                sum += options.to_writer(output)?;
+            }
+            Parser::Bool => {
+                sum += "brigadier:bool".to_writer(output)?;
             }
         }
         Ok(sum)
