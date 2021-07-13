@@ -4,8 +4,9 @@ use anyhow::{Context, Result};
 use futures::FutureExt;
 use log::info;
 use log::{debug, error, warn};
-use protocol::datatypes::*;
+use protocol::commands_builder::CommandsBuilder;
 use protocol::packets::*;
+use protocol::{command, datatypes::*};
 use serde::{Deserialize, Serialize};
 use slab::Slab;
 use std::collections::{HashMap, HashSet};
@@ -69,17 +70,27 @@ fn is_false(arg: &bool) -> bool {
     !arg
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default)]
 pub struct PlayerPermissions {
+    /// Has a fat OWNER prefix and can execute the most powerful server commands
+    /// Can set the admin permission for anyone
     #[serde(default)]
     #[serde(skip_serializing_if = "is_false")]
     pub owner: bool,
+    /// Has a badass prefix and is very scary
+    /// can set any permissions except for "owner" and "admin" for anyone (again, except for owners and admins) (add/remove)
+    #[serde(default)]
+    #[serde(skip_serializing_if = "is_false")]
+    pub admin: bool,
+    /// Can use the /editmode command in the lobby
     #[serde(default)]
     #[serde(skip_serializing_if = "is_false")]
     pub edit_lobby: bool,
+    /// Can ban (and unban) usernames, permanently or for a specific duration
     #[serde(default)]
     #[serde(skip_serializing_if = "is_false")]
     pub ban_usernames: bool,
+    /// Can ban (and unban) IPs
     #[serde(default)]
     #[serde(skip_serializing_if = "is_false")]
     pub ban_ips: bool,
@@ -96,6 +107,36 @@ pub struct PlayerStream {
 pub enum StreamError {
     #[error("client already disconnected")]
     StreamError,
+}
+
+impl PlayerPermissions {
+    pub fn extend_permission_commands(&self, commands: &mut CommandsBuilder) {
+        if self.ban_ips {
+            commands.extend(command!(
+                ("banip", literal => [
+                    (X "ip address", argument (String: SingleWord) => []),
+                ]),
+            ));
+        }
+        if self.ban_usernames {
+            commands.extend(command!(
+                ("ban", literal => [
+                    (X "username", argument (String: SingleWord) suggestions=AskServer => []),
+                ]),
+            ));
+        }
+        if self.admin {
+            commands.extend(command!(
+                ("setperm", literal => [
+                    ("username", argument (String: SingleWord) suggestions=AskServer => [
+                        ("permission", argument (String: SingleWord) suggestions=AskServer => [
+                            (X "value", argument (Bool) => [])
+                        ])
+                    ]),
+                ]),
+            ));
+        }
+    }
 }
 
 impl PlayerStream {

@@ -351,6 +351,7 @@ pub enum SuggestionsType {
 pub enum Parser {
     String(StringParserType),
     Integer(IntegerParserOptions),
+    Bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

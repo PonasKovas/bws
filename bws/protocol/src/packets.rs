@@ -142,7 +142,13 @@ pub enum PlayClientBound<'a> {
         position: ChatPosition,
         sender: u128,
     },
-    TabComplete, // todo
+    TabComplete {
+        transaction_id: VarInt,
+        start: VarInt,
+        end: VarInt,
+        /// The value to insert and an optional tooltip
+        matches: Vec<(Cow<'a, str>, Option<Chat<'a>>)>,
+    },
     DeclareCommands {
         nodes: Vec<CommandNode<'a>>,
         root: VarInt,

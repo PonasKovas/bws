@@ -311,20 +311,9 @@ impl LobbyWorld {
                 (X "editmode", literal => []),
             ));
         }
-        if permissions.ban_ips {
-            commands.extend(command!(
-                ("banip", literal => [
-                    (X "ip address", argument (String: SingleWord) => []),
-                ]),
-            ));
-        }
-        if permissions.ban_usernames {
-            commands.extend(command!(
-                ("ban", literal => [
-                    (X "username", argument (String: SingleWord) => []),
-                ]),
-            ));
-        }
+        // other non-world specific commands
+        permissions.extend_permission_commands(&mut commands);
+
         stream.send(commands.build())?;
 
         drop(stream);
@@ -786,6 +775,9 @@ impl LobbyWorld {
                         }
                     }
                 } else {
+                    let permissions = GLOBAL_STATE.player_data.read().await
+                        [&self.players[&id].username]
+                        .permissions;
                     for (_, player) in &self.players {
                         let _ = player
                             .stream
@@ -793,17 +785,15 @@ impl LobbyWorld {
                             .await
                             .send(PlayClientBound::ChatMessage {
                                 message: chat_parse(format!(
-                                    "{prefix}§#{:06X}§l{}§r§7: §f{}",
+                                    "{prefix}§#{:06X}§l{}§r§7: §#eeeeee{}",
                                     self.players[&id].nickname_color,
                                     self.players[&id].username,
                                     message,
                                     prefix = {
-                                        if GLOBAL_STATE.player_data.read().await
-                                            [&self.players[&id].username]
-                                            .permissions
-                                            .owner
-                                        {
+                                        if permissions.owner {
                                             "§f§l[Owner] §r"
+                                        } else if permissions.admin {
+                                            "§c§l[§4Admin§c] §r"
                                         } else {
                                             ""
                                         }

@@ -453,6 +453,31 @@ async fn read_and_parse_packet(
                     .settings = Some(settings);
             }
         }
+        ServerBound::Play(PlayServerBound::TabComplete {
+            transaction_id,
+            text,
+        }) => {
+            let id = match state {
+                State::Play(id) => *id,
+                _ => panic!(), // can't receive a Play packet if the state is not Play
+            };
+
+            // handle not world-specific command tabcompletes
+            if GLOBAL_STATE.players.read().await[id].logged_in {
+                if text.starts_with("/") {
+                    if handle_tabcomplete(socket, buffer, id, transaction_id, &text).await? {
+                        return Ok(());
+                    }
+                }
+            }
+
+            shoutput_sender.send(PlayServerBound::TabComplete {
+                transaction_id,
+                text,
+            }).await.context(
+                "The PlayerStream was dropped even before the actual stream handler task finished.",
+            )?;
+        }
         ServerBound::Play(PlayServerBound::ChatMessage(message)) => {
             let id = match state {
                 State::Play(id) => *id,
@@ -541,10 +566,200 @@ async fn handle_command(
 
             Ok(true)
         }
+        "/setperm" => {
+            // attempt to get the 3 arguments
+            if let Some(username) = message.split(' ').nth(1) {
+                if let Some(permission) = message.split(' ').nth(2) {
+                    if let Some(value) = message.split(' ').nth(3) {
+                        // try to parse the 3rd argument into a bool
+                        if let Ok(value) = value.parse() {
+                            // try to find a player with the given name
+                            let mut lock = GLOBAL_STATE.player_data.write().await;
+                            let player = if let Some(player) = lock.get_mut(username) {
+                                player
+                            } else {
+                                say!("§4No such player.");
+                                return Ok(true);
+                            };
+
+                            match permission {
+                                "owner" => {
+                                    if permissions.owner {
+                                        player.permissions.owner = value;
+                                    } else {
+                                        say!("§4Only owners can set the owner permission.");
+                                        return Ok(true);
+                                    }
+                                }
+                                "admin" => {
+                                    if permissions.owner {
+                                        player.permissions.admin = value;
+                                    } else {
+                                        say!("§4Only owners can set the admin permission.");
+                                        return Ok(true);
+                                    }
+                                }
+                                "edit_lobby" => {
+                                    if permissions.admin {
+                                        player.permissions.edit_lobby = value;
+                                    } else {
+                                        say!("§4Only admins can set permissions.");
+                                        return Ok(true);
+                                    }
+                                }
+                                "ban_usernames" => {
+                                    if permissions.admin {
+                                        player.permissions.ban_usernames = value;
+                                    } else {
+                                        say!("§4Only admins can set permissions.");
+                                        return Ok(true);
+                                    }
+                                }
+                                "ban_ips" => {
+                                    if permissions.admin {
+                                        player.permissions.ban_ips = value;
+                                    } else {
+                                        say!("§4Only admins can set permissions.");
+                                        return Ok(true);
+                                    }
+                                }
+                                _ => {
+                                    say!("§4No such permission.");
+                                    return Ok(true);
+                                }
+                            }
+                            drop(player);
+                            drop(lock);
+
+                            say!("§2Success.");
+                            info!(
+                                "{} set the {} permission of {} to {}",
+                                GLOBAL_STATE.players.read().await[id].username,
+                                permission,
+                                username,
+                                value,
+                            );
+
+                            drop(permissions);
+
+                            GLOBAL_STATE.save_player_data().await;
+                        } else {
+                            say!("§4Couldn't parse the value");
+                        }
+                    }
+                }
+            }
+
+            Ok(true)
+        }
         "/ban" => {
             if permissions.ban_usernames {
                 // todo
                 say!("§4Not implemented yet.");
+            }
+            Ok(true)
+        }
+        _ => Ok(false),
+    }
+}
+
+// returns whether the tabcomplete was handled or not
+async fn handle_tabcomplete(
+    socket: &mut BufReader<TcpStream>,
+    buffer: &mut Vec<u8>,
+    id: usize,
+    transaction_id: VarInt,
+    text: &str,
+) -> Result<bool> {
+    let permissions = GLOBAL_STATE.player_data.read().await
+        [&GLOBAL_STATE.players.read().await[id].username]
+        .permissions;
+
+    let mut segments = text.split(' ');
+
+    match segments.nth(0).unwrap() {
+        "/ban" => {
+            if !permissions.ban_usernames {
+                return Ok(true);
+            }
+            if let Some(next) = segments.next() {
+                if next.len() == 0 {
+                    // list all names registered in the server
+                    write_packet(
+                        socket,
+                        buffer,
+                        PlayClientBound::TabComplete {
+                            transaction_id,
+                            start: VarInt(5),
+                            end: VarInt(5),
+                            matches: GLOBAL_STATE
+                                .player_data
+                                .read()
+                                .await
+                                .iter()
+                                .map(|p| (p.0.to_owned().into(), None))
+                                .collect(),
+                        }
+                        .cb(),
+                    )
+                    .await?;
+                }
+            }
+            Ok(true)
+        }
+        "/setperm" => {
+            if !permissions.admin {
+                return Ok(true);
+            }
+            if let Some(username) = segments.next() {
+                if username.len() == 0 {
+                    // list all names registered in the server
+                    write_packet(
+                        socket,
+                        buffer,
+                        PlayClientBound::TabComplete {
+                            transaction_id,
+                            start: VarInt(9),
+                            end: VarInt(9),
+                            matches: GLOBAL_STATE
+                                .player_data
+                                .read()
+                                .await
+                                .iter()
+                                .map(|p| (p.0.to_owned().into(), None))
+                                .collect(),
+                        }
+                        .cb(),
+                    )
+                    .await?;
+                } else {
+                    if let Some(permission) = segments.next() {
+                        if permission.len() == 0 {
+                            // list all permissions
+                            write_packet(
+                                socket,
+                                buffer,
+                                PlayClientBound::TabComplete {
+                                    transaction_id,
+                                    start: VarInt(10 + username.len() as i32),
+                                    end: VarInt(10 + username.len() as i32),
+                                    matches: vec![
+                                        "owner",
+                                        "admin",
+                                        "edit_lobby",
+                                        "ban_usernames",
+                                        "ban_ips",
+                                    ]
+                                    .iter()
+                                    .map(|p| ((*p).into(), None))
+                                    .collect(),
+                                }
+                                .cb(),
+                            )
+                            .await?;
+                        }
+                    }
+                }
             }
             Ok(true)
         }
