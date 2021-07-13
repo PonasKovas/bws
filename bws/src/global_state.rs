@@ -3,13 +3,14 @@ use anyhow::bail;
 use anyhow::{Context, Result};
 use futures::FutureExt;
 use log::debug;
+use log::info;
 use protocol::datatypes::*;
 use protocol::packets::*;
 use serde::{Deserialize, Serialize};
 use slab::Slab;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
-use std::io::{BufRead, BufReader, Read};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{IpAddr, SocketAddr};
 use std::path::Path;
 use std::str::FromStr;
@@ -114,6 +115,42 @@ impl PlayerStream {
     }
 }
 
+impl GlobalState {
+    pub async fn save_player_data(&self) -> Result<()> {
+        use tokio::fs::File;
+        use tokio::io::AsyncWriteExt;
+
+        let data = ron::to_string(&*self.player_data.read().await)?;
+
+        let mut f = File::create(PLAYER_DATA_FILE)
+            .await
+            .context(format!("Failed to create {}.", PLAYER_DATA_FILE))?;
+
+        f.write_all(data.as_bytes())
+            .await
+            .context(format!("Couldn't write to {}", PLAYER_DATA_FILE))?;
+
+        Ok(())
+    }
+    pub async fn save_banned_ips(&self) -> Result<()> {
+        use tokio::fs::File;
+        use tokio::io::AsyncWriteExt;
+
+        let mut f = File::create(BANNED_IPS_FILE)
+            .await
+            .context(format!("Failed to create {}.", BANNED_IPS_FILE))?;
+
+        let addresses = self.banned_addresses.read().await;
+        for ip in addresses.iter() {
+            f.write_all(format!("{}\n", &ip).as_bytes())
+                .await
+                .context(format!("Error writing to {}", BANNED_IPS_FILE))?;
+        }
+
+        Ok(())
+    }
+}
+
 pub fn read_player_data() -> Result<HashMap<String, PlayerData>> {
     if Path::new(PLAYER_DATA_FILE).exists() {
         // read the data
@@ -130,8 +167,9 @@ pub fn read_player_data() -> Result<HashMap<String, PlayerData>> {
             PLAYER_DATA_FILE
         ))?)
     } else {
+        info!("Creating {}", PLAYER_DATA_FILE);
         // create the file
-        File::create(PLAYER_DATA_FILE)?;
+        File::create(PLAYER_DATA_FILE)?.write_all("{}".as_bytes())?;
 
         Ok(HashMap::new())
     }
@@ -153,6 +191,7 @@ pub fn read_banned_ips() -> Result<HashSet<IpAddr>> {
             addresses.insert(ip);
         }
     } else {
+        info!("Creating {}", BANNED_IPS_FILE);
         // create the file
         File::create(BANNED_IPS_FILE)?;
     }

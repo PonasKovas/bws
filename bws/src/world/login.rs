@@ -437,15 +437,9 @@ impl LoginWorld {
         let mut f = File::create(ACCOUNTS_FILE).await?;
 
         for account in &self.accounts {
-            // I wish to apologize for the readability of the following statement
-            #[rustfmt::skip]
-            f.write_all(account.0.as_bytes()).await.and(
-                f.write_all(b" ").await.and(
-                    f.write_all(account.1.as_bytes()).await.and(
-                        f.write_all(b"\n").await
-                    )
-                ),
-            ).context(format!("Couldn't write to {}", ACCOUNTS_FILE))?;
+            f.write_all(format!("{} {}\n", account.0, account.1).as_bytes())
+                .await
+                .context(format!("Couldn't write to {}", ACCOUNTS_FILE))?;
         }
 
         Ok(())
