@@ -238,11 +238,15 @@ impl LoginWorld {
                                             permissions: PlayerPermissions {
                                                 owner: false,
                                                 edit_lobby: false,
+                                                ban_usernames: false,
+                                                ban_ips: false,
                                             },
                                         },
                                     );
                                     GLOBAL_STATE.save_player_data().await;
                                 }
+
+                                GLOBAL_STATE.players.write().await[id].logged_in = true;
 
                                 GLOBAL_STATE
                                     .w_login
@@ -296,10 +300,14 @@ impl LoginWorld {
                                         permissions: PlayerPermissions {
                                             owner: false,
                                             edit_lobby: true,
+                                            ban_usernames: false,
+                                            ban_ips: false,
                                         },
                                     },
                                 );
                                 GLOBAL_STATE.save_player_data().await;
+
+                                GLOBAL_STATE.players.write().await[id].logged_in = true;
 
                                 GLOBAL_STATE
                                     .w_login

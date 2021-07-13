@@ -1,14 +1,10 @@
-use crate::global_state::Player;
-use crate::global_state::PlayerStream;
+use crate::global_state::{Player, PlayerStream};
 use crate::internal_communication as ic;
-use crate::internal_communication::SHOutputSender;
-use crate::internal_communication::WBound;
-use crate::internal_communication::WSender;
+use crate::internal_communication::{SHOutputSender, WBound, WSender};
 use crate::world;
 use crate::GLOBAL_STATE;
 use anyhow::{bail, Context, Result};
-use flate2::write::ZlibDecoder;
-use flate2::write::ZlibEncoder;
+use flate2::write::{ZlibDecoder, ZlibEncoder};
 use flate2::Compression;
 use log::{debug, error, info, warn};
 use protocol::datatypes::chat_parse::parse as chat_parse;
@@ -16,24 +12,19 @@ use protocol::datatypes::*;
 use protocol::packets::*;
 use protocol::{Deserializable, Serializable};
 use serde::Deserialize;
-use serde_json::to_string_pretty;
-use serde_json::{json, to_string};
+use serde_json::{json, to_string, to_string_pretty};
 use std::cmp::min;
-use std::io::Cursor;
-use std::io::Write;
-use std::net::SocketAddr;
+use std::io::{Cursor, Write};
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::sync::RwLock;
-use tokio::io::AsyncBufRead;
-use tokio::io::BufReader;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncBufRead, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::pin;
-use tokio::sync::mpsc;
-use tokio::sync::mpsc::channel;
-use tokio::sync::mpsc::unbounded_channel;
-use tokio::sync::oneshot;
-use tokio::sync::Mutex;
+use tokio::sync::{
+    mpsc::{self, channel, unbounded_channel},
+    oneshot, Mutex,
+};
 use tokio::time::{Duration, Instant};
 
 #[derive(Clone, Copy)]
@@ -121,6 +112,21 @@ async fn write_varint(varint: VarInt, output: &mut BufReader<TcpStream>) -> std:
 }
 
 pub async fn handle_stream(socket: TcpStream) {
+    // first check if the ip isnt banned
+    if let Ok(addr) = socket.peer_addr() {
+        if GLOBAL_STATE
+            .banned_addresses
+            .read()
+            .await
+            .contains(&addr.ip())
+        {
+            // banned :/
+            return;
+        }
+    } else {
+        return;
+    }
+
     let mut state = State::Handshake;
 
     if let Err(e) = handle(socket, &mut state).await {
@@ -401,6 +407,7 @@ async fn read_and_parse_packet(
                 properties,
                 ping: 0.0,
                 settings: None,
+                logged_in: false,
             });
             *state = State::Play(global_id);
 
@@ -446,6 +453,25 @@ async fn read_and_parse_packet(
                     .settings = Some(settings);
             }
         }
+        ServerBound::Play(PlayServerBound::ChatMessage(message)) => {
+            let id = match state {
+                State::Play(id) => *id,
+                _ => panic!(), // can't receive a Play packet if the state is not Play
+            };
+
+            if GLOBAL_STATE.players.read().await[id].logged_in {
+                // handle not world-specific commands
+                if message.starts_with("/") {
+                    if handle_command(socket, buffer, id, &message).await? {
+                        return Ok(());
+                    }
+                }
+            }
+
+            shoutput_sender.send(PlayServerBound::ChatMessage(message)).await.context(
+                "The PlayerStream was dropped even before the actual stream handler task finished.",
+            )?;
+        }
         ServerBound::Play(other) => {
             shoutput_sender.send(other).await.context(
                 "The PlayerStream was dropped even before the actual stream handler task finished.",
@@ -453,6 +479,80 @@ async fn read_and_parse_packet(
         }
         _ => {}
     })
+}
+
+// returns whether a command was processed, because if not, it will be forwarded to the world
+// so it can handle it
+async fn handle_command(
+    socket: &mut BufReader<TcpStream>,
+    buffer: &mut Vec<u8>,
+    id: usize,
+    message: &str,
+) -> Result<bool> {
+    // convenience macro
+    macro_rules! say {
+        ($message:expr) => {
+            write_packet(
+                socket,
+                buffer,
+                PlayClientBound::ChatMessage {
+                    message: chat_parse($message),
+                    position: ChatPosition::System,
+                    sender: 0,
+                }
+                .cb(),
+            )
+            .await?;
+        };
+    }
+
+    let permissions = GLOBAL_STATE.player_data.read().await
+        [&GLOBAL_STATE.players.read().await[id].username]
+        .permissions;
+
+    match message.split(' ').nth(0).unwrap() {
+        "/banip" => {
+            if permissions.ban_ips {
+                // ban the ip
+
+                if let Some(ip) = message.split(' ').nth(1) {
+                    use std::str::FromStr;
+                    if let Ok(ip) = IpAddr::from_str(ip) {
+                        info!(
+                            "{} banned {}",
+                            GLOBAL_STATE.players.read().await[id].username,
+                            ip
+                        );
+
+                        say!(format!("§2IP {} banned.", &ip));
+
+                        GLOBAL_STATE.banned_addresses.write().await.insert(ip);
+                        GLOBAL_STATE.save_banned_ips().await;
+
+                        // if anyone is already connected with that ip, disconnect them
+                        for (_id, player) in &*GLOBAL_STATE.players.read().await {
+                            if player.address.ip() == ip {
+                                player.stream.lock().await.disconnect();
+                            }
+                        }
+                    }
+                }
+            } else {
+                say!("§4Insufficient permissions.");
+            }
+
+            Ok(true)
+        }
+        "/ban" => {
+            if permissions.ban_usernames {
+                //
+            } else {
+                say!("§4Insufficient permissions.");
+            }
+            Ok(true)
+        }
+        _ => Ok(false),
+    }
 }
 
 async fn read_packet(

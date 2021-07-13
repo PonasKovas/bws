@@ -54,9 +54,10 @@ pub struct Player {
     pub properties: Vec<PlayerInfoAddPlayerProperty<'static>>,
     pub ping: f32, // in milliseconds
     pub settings: Option<ClientSettings<'static>>,
+    pub logged_in: bool,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct PlayerData {
     pub permissions: PlayerPermissions,
     // banned: Option<UntilWhatDate>,
@@ -68,7 +69,7 @@ fn is_false(arg: &bool) -> bool {
     !arg
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 pub struct PlayerPermissions {
     #[serde(default)]
     #[serde(skip_serializing_if = "is_false")]
@@ -76,6 +77,12 @@ pub struct PlayerPermissions {
     #[serde(default)]
     #[serde(skip_serializing_if = "is_false")]
     pub edit_lobby: bool,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "is_false")]
+    pub ban_usernames: bool,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "is_false")]
+    pub ban_ips: bool,
 }
 
 pub struct PlayerStream {
