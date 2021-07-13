@@ -291,12 +291,11 @@ impl LobbyWorld {
 
         stream.send(PlayClientBound::PlayerListHeaderAndFooter {
             header: chat_parse("\n                    §f§lBWS §rlobby                    \n"),
-            footer: chat_parse("\n"),
+            footer: chat_parse(" "),
         })?;
 
         // declare commands
         let mut commands = command!(
-            (X "save", literal => []),
             ("setblock", literal => [
                 (X "block id", argument (Integer: Some(0), None) => []),
             ]),
@@ -682,16 +681,7 @@ impl LobbyWorld {
         match packet {
             PlayServerBound::ChatMessage(message) => {
                 if message.starts_with('/') {
-                    if message.starts_with("/save") {
-                        // save the map
-                        if let Err(e) = (Map {
-                            chunks: Cow::Borrowed(&self.chunks),
-                        }
-                        .save(MAP_PATH))
-                        {
-                            error!("Error saving map data: {}", e);
-                        }
-                    } else if message.starts_with("/printchunk") {
+                    if message.starts_with("/printchunk") {
                         let player_chunk = (
                             (self.players[&id].position.0.floor() / 16.0).floor() as i8,
                             (self.players[&id].position.1.floor() / 16.0).floor() as i8,
@@ -742,6 +732,56 @@ impl LobbyWorld {
                             };
                             if let Err(e) = self.set_block(position, block_id).await {
                                 debug!("Error executing /setblock: {}", e);
+                            }
+                        }
+                    } else if message.starts_with("/editmode") {
+                        let permissions = GLOBAL_STATE.player_data.read().await
+                            [&self.players[&id].username]
+                            .permissions;
+
+                        if permissions.edit_lobby {
+                            // toggle it
+                            let old = self.players[&id].editing_lobby;
+                            self.players.get_mut(&id).unwrap().editing_lobby = !old;
+
+                            if self.players[&id].editing_lobby {
+                                // turn on creative mode
+                                let _ = self.players[&id].stream.lock().await.send(
+                                    PlayClientBound::ChangeGameState {
+                                        reason: GameStateChangeReason::ChangeGamemode,
+                                        value: Gamemode::Creative as u8 as f32,
+                                    },
+                                );
+                            } else {
+                                // save the lobby
+                                if let Err(e) = (Map {
+                                    chunks: Cow::Borrowed(&self.chunks),
+                                }
+                                .save(MAP_PATH))
+                                {
+                                    error!("Error saving map data: {}", e);
+                                }
+
+                                // turn on adventure mode
+                                let _ = self.players[&id].stream.lock().await.send(
+                                    PlayClientBound::ChangeGameState {
+                                        reason: GameStateChangeReason::ChangeGamemode,
+                                        value: Gamemode::Adventure as u8 as f32,
+                                    },
+                                );
+                                // show an elder guardian
+                                let _ =
+                                    self.players[&id]
+                                        .stream
+                                        .lock()
+                                        .await
+                                        .send(PlayClientBound::ChangeGameState {
+                                        reason:
+                                            GameStateChangeReason::PlayElderGuardianMobAppearance,
+                                        value: 0f32,
+                                    });
+                                // and clear inventory?
+                                // todo
                             }
                         }
                     }
@@ -828,7 +868,9 @@ impl LobbyWorld {
             }
             PlayServerBound::CreativeInventoryAction { slot, item } => {
                 // first make sure the client even has the permissions
-                // (todo)
+                if !self.players[&id].editing_lobby {
+                    return;
+                }
 
                 // some sanity checks
                 if !(-1..=45).contains(&slot) {
@@ -866,6 +908,10 @@ impl LobbyWorld {
                 cursor_position_z: _,
                 inside_block: _,
             } => {
+                if !self.players[&id].editing_lobby {
+                    return;
+                }
+
                 let mut target = location.clone();
                 match face {
                     Direction::Down => {
@@ -1080,6 +1126,10 @@ impl LobbyWorld {
             } => match status {
                 // this means block broken but only when in creative mode
                 PlayerDiggingStatus::StartedDigging => {
+                    if !self.players[&id].editing_lobby {
+                        return;
+                    }
+
                     if let Err(e) = self.set_block(location, 0).await {
                         debug!("Error breaking block: {:?}", e);
                     }

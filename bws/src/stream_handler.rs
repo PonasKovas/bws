@@ -537,8 +537,6 @@ async fn handle_command(
                         }
                     }
                 }
-            } else {
-                say!("§4Insufficient permissions.");
             }
 
             Ok(true)
@@ -547,8 +545,6 @@ async fn handle_command(
             if permissions.ban_usernames {
                 // todo
                 say!("§4Not implemented yet.");
-            } else {
-                say!("§4Insufficient permissions.");
             }
             Ok(true)
         }
