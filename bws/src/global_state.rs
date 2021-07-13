@@ -5,14 +5,23 @@ use futures::FutureExt;
 use log::debug;
 use protocol::datatypes::*;
 use protocol::packets::*;
+use serde::{Deserialize, Serialize};
 use slab::Slab;
-use std::net::SocketAddr;
+use std::collections::{HashMap, HashSet};
+use std::fs::File;
+use std::io::{BufRead, BufReader, Read};
+use std::net::{IpAddr, SocketAddr};
+use std::path::Path;
+use std::str::FromStr;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot;
 use tokio::sync::{Mutex, RwLock};
 use tokio::task::unconstrained;
+
+const BANNED_IPS_FILE: &'static str = "banned.addresses";
+const PLAYER_DATA_FILE: &'static str = "player_data.ron";
 
 pub type PStream = Arc<Mutex<PlayerStream>>;
 
@@ -29,6 +38,8 @@ pub struct GlobalState {
     pub w_login: ic::WSender,
     pub w_lobby: ic::WSender,
     pub players: RwLock<Slab<Player>>,
+    pub player_data: RwLock<HashMap<String, PlayerData>>,
+    pub banned_addresses: RwLock<HashSet<IpAddr>>,
 }
 
 pub struct Player {
@@ -42,6 +53,20 @@ pub struct Player {
     pub properties: Vec<PlayerInfoAddPlayerProperty<'static>>,
     pub ping: f32, // in milliseconds
     pub settings: Option<ClientSettings<'static>>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct PlayerData {
+    permissions: PlayerPermissions,
+    // banned: Option<UntilWhatDate>,
+    // groups: PlayerGroups,
+    // score, statistics...
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct PlayerPermissions {
+    owner: bool,
+    edit_lobby: bool,
 }
 
 pub struct PlayerStream {
@@ -87,4 +112,50 @@ impl PlayerStream {
             }
         }
     }
+}
+
+pub fn read_player_data() -> Result<HashMap<String, PlayerData>> {
+    if Path::new(PLAYER_DATA_FILE).exists() {
+        // read the data
+        let mut f = File::open(PLAYER_DATA_FILE)
+            .context(format!("Failed to open {}.", PLAYER_DATA_FILE))?;
+
+        let mut data = String::new();
+
+        f.read_to_string(&mut data)
+            .context(format!("Error reading {}.", PLAYER_DATA_FILE))?;
+
+        Ok(ron::from_str(&data).context(format!(
+            "Error deserializing {}. (bad format)",
+            PLAYER_DATA_FILE
+        ))?)
+    } else {
+        // create the file
+        File::create(PLAYER_DATA_FILE)?;
+
+        Ok(HashMap::new())
+    }
+}
+
+pub fn read_banned_ips() -> Result<HashSet<IpAddr>> {
+    let mut addresses = HashSet::new();
+    if Path::new(BANNED_IPS_FILE).exists() {
+        // read the data
+        let f =
+            File::open(BANNED_IPS_FILE).context(format!("Failed to open {}.", BANNED_IPS_FILE))?;
+
+        let lines = BufReader::new(f).lines();
+        for line in lines {
+            let line = line.context(format!("Error reading {}.", BANNED_IPS_FILE))?;
+
+            let ip = IpAddr::from_str(&line).context("Couldn't parse address")?;
+
+            addresses.insert(ip);
+        }
+    } else {
+        // create the file
+        File::create(BANNED_IPS_FILE)?;
+    }
+
+    Ok(addresses)
 }
