@@ -727,10 +727,21 @@ impl LobbyWorld {
                             .await
                             .send(PlayClientBound::ChatMessage {
                                 message: chat_parse(format!(
-                                    "§#{:06X}§l{}§r§7: §f{}",
+                                    "{prefix}§#{:06X}§l{}§r§7: §f{}",
                                     self.players[&id].nickname_color,
                                     self.players[&id].username,
-                                    message
+                                    message,
+                                    prefix = {
+                                        if GLOBAL_STATE.player_data.read().await
+                                            [&self.players[&id].username]
+                                            .permissions
+                                            .owner
+                                        {
+                                            "§f§l[Owner] §r"
+                                        } else {
+                                            ""
+                                        }
+                                    }
                                 )),
                                 position: ChatPosition::Chat,
                                 sender: self.players[&id].uuid,
