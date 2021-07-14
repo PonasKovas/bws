@@ -683,27 +683,26 @@ async fn handle_tabcomplete(
                 return Ok(true);
             }
             if let Some(next) = segments.next() {
-                if next.len() == 0 {
-                    // list all names registered in the server
-                    write_packet(
-                        socket,
-                        buffer,
-                        PlayClientBound::TabComplete {
-                            transaction_id,
-                            start: VarInt(5),
-                            end: VarInt(5),
-                            matches: GLOBAL_STATE
-                                .player_data
-                                .read()
-                                .await
-                                .iter()
-                                .map(|p| (p.0.to_owned().into(), None))
-                                .collect(),
-                        }
-                        .cb(),
-                    )
-                    .await?;
-                }
+                // list all names registered in the server
+                write_packet(
+                    socket,
+                    buffer,
+                    PlayClientBound::TabComplete {
+                        transaction_id,
+                        start: VarInt(5),
+                        end: VarInt(5 + next.len() as i32),
+                        matches: GLOBAL_STATE
+                            .player_data
+                            .read()
+                            .await
+                            .iter()
+                            .filter(|e| e.0.starts_with(&next))
+                            .map(|p| (p.0.to_owned().into(), None))
+                            .collect(),
+                    }
+                    .cb(),
+                )
+                .await?;
             }
             Ok(true)
         }
@@ -711,56 +710,57 @@ async fn handle_tabcomplete(
             if !permissions.admin {
                 return Ok(true);
             }
-            if let Some(username) = segments.next() {
-                if username.len() == 0 {
-                    // list all names registered in the server
+            if let Some((i, last)) = segments.clone().enumerate().last() {
+                if i == 0 {
+                    // usernames
                     write_packet(
                         socket,
                         buffer,
                         PlayClientBound::TabComplete {
                             transaction_id,
                             start: VarInt(9),
-                            end: VarInt(9),
+                            end: VarInt(9 + last.len() as i32),
                             matches: GLOBAL_STATE
                                 .player_data
                                 .read()
                                 .await
                                 .iter()
+                                .filter(|e| e.0.starts_with(&last))
                                 .map(|p| (p.0.to_owned().into(), None))
                                 .collect(),
                         }
                         .cb(),
                     )
                     .await?;
-                } else {
-                    if let Some(permission) = segments.next() {
-                        if permission.len() == 0 {
-                            // list all permissions
-                            write_packet(
-                                socket,
-                                buffer,
-                                PlayClientBound::TabComplete {
-                                    transaction_id,
-                                    start: VarInt(10 + username.len() as i32),
-                                    end: VarInt(10 + username.len() as i32),
-                                    matches: vec![
-                                        "owner",
-                                        "admin",
-                                        "edit_lobby",
-                                        "ban_usernames",
-                                        "ban_ips",
-                                    ]
-                                    .iter()
-                                    .map(|p| ((*p).into(), None))
-                                    .collect(),
-                                }
-                                .cb(),
-                            )
-                            .await?;
+                } else if i == 1 {
+                    // permissions
+                    write_packet(
+                        socket,
+                        buffer,
+                        PlayClientBound::TabComplete {
+                            transaction_id,
+                            start: VarInt(10 + segments.nth(0).unwrap().len() as i32),
+                            end: VarInt(
+                                10 + segments.nth(0).unwrap().len() as i32 + last.len() as i32,
+                            ),
+                            matches: vec![
+                                "owner",
+                                "admin",
+                                "edit_lobby",
+                                "ban_usernames",
+                                "ban_ips",
+                            ]
+                            .iter()
+                            .filter(|e| e.starts_with(&last))
+                            .map(|p| ((*p).into(), None))
+                            .collect(),
                         }
-                    }
+                        .cb(),
+                    )
+                    .await?;
                 }
             }
+
             Ok(true)
         }
         _ => Ok(false),
