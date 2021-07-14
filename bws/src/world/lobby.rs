@@ -29,8 +29,10 @@ use tokio::sync::mpsc::unbounded_channel;
 use tokio::task::unconstrained;
 use tokio::time::sleep;
 
-use super::WorldChunks;
-use super::{WorldChunk, MAP_SIZE};
+use super::{WorldChunk, WorldChunks};
+
+const MAP_SIZE: i8 = 4;
+const MAP_CHUNKS: usize = MAP_SIZE as usize * MAP_SIZE as usize * 4;
 
 const MAP_PATH: &'static str = "assets/maps/lobby.map";
 
@@ -56,14 +58,14 @@ struct Player {
 
 pub struct LobbyWorld {
     players: HashMap<usize, Player>,
-    chunks: WorldChunks,            // 16x16 chunks, resulting in 256x256 world
+    chunks: WorldChunks<MAP_CHUNKS>, // 16x16 chunks, resulting in 256x256 world
     flowing_liquids: Vec<Position>, // positions of blocks that are liquids and need to be updated every 5 ticks
 }
 
 impl LobbyWorld {
     pub async fn new() -> Self {
         // try reading the map data from the fs
-        match Map::load(MAP_PATH) {
+        match Map::load(MAP_PATH).await {
             Ok(map) => Self {
                 players: HashMap::new(),
                 chunks: map.chunks.into_owned(),
@@ -753,8 +755,10 @@ impl LobbyWorld {
                                 // save the lobby
                                 if let Err(e) = (Map {
                                     chunks: Cow::Borrowed(&self.chunks),
+                                    extra: HashMap::new(),
                                 }
-                                .save(MAP_PATH))
+                                .save(MAP_PATH)
+                                .await)
                                 {
                                     error!("Error saving map data: {}", e);
                                 }
