@@ -1,22 +1,34 @@
 use anyhow::{bail, Context, Result};
-use flate2::{write::DeflateEncoder, Compression};
-use serde::Serialize;
+use bytecheck::CheckBytes;
+use rkyv::{
+    check_archived_root,
+    ser::{serializers::AllocSerializer, Serializer},
+    Archive, Serialize,
+};
 use serde_json::{Map, Value};
+use std::io::Write;
 use std::{env::var_os, fs::File, path::Path};
 
 // These MUST match the structures defined in src/data.rs
 
-#[derive(Clone, Debug, Serialize)]
+// Can't use normal tuples since their ABI is not defined
+#[derive(Clone, Debug, Archive, Serialize)]
+#[archive_attr(derive(CheckBytes))]
+pub struct Tuple<T1, T2>(pub T1, pub T2);
+
+#[derive(Clone, Debug, Archive, Serialize)]
+#[archive_attr(derive(CheckBytes))]
 pub struct Block {
     pub default_state: i32,
     pub class: String,
     pub states: Vec<BlockState>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Archive, Serialize)]
+#[archive_attr(derive(CheckBytes))]
 pub struct BlockState {
     pub state_id: i32,
-    pub properties: Vec<(String, String)>,
+    pub properties: Vec<Tuple<String, String>>,
 }
 
 fn main() {
@@ -39,17 +51,29 @@ fn main() {
     let items_to_blocks =
         gen_items_to_blocks(blocks, items).expect("Couldn't generate items-to-blocks");
 
-    // debug/dev
-    serde_json::to_writer_pretty(
-        File::create(Path::new(&out_dir).join("items-to-blocks.json")).unwrap(),
-        &items_to_blocks,
-    )
-    .unwrap();
+    // // debug/dev
+    // serde_json::to_writer_pretty(
+    //     File::create(Path::new(&out_dir).join("items-to-blocks.json")).unwrap(),
+    //     &items_to_blocks,
+    // )
+    // .unwrap();
 
-    // write compressed bincode
-    let mut output = File::create(Path::new(&out_dir).join("items-to-blocks.bincode")).unwrap();
-    let encoder = DeflateEncoder::new(&mut output, Compression::best());
-    bincode::serialize_into(encoder, &items_to_blocks).unwrap();
+    let mut output = File::create(Path::new(&out_dir).join("items-to-blocks.rkyv")).unwrap();
+
+    let buf = {
+        let mut serializer = AllocSerializer::<4096>::default();
+        serializer.serialize_value(&items_to_blocks).unwrap();
+
+        serializer.into_serializer().into_inner()
+    };
+
+    output.write_all(&buf).unwrap();
+
+    // debug
+    println!(
+        "{:?}",
+        check_archived_root::<Vec<Option<Block>>>(buf.as_slice()).is_ok()
+    );
 }
 
 fn gen_items_to_blocks(
@@ -107,7 +131,7 @@ fn gen_items_to_blocks(
                         .as_object()
                         .context("Block's state's \"properties\" field must be an object")?
                     {
-                        properties.push((
+                        properties.push(Tuple(
                             property_name.to_owned(),
                             if let Some(string) = property_value.as_str() {
                                 format!("{}", string)

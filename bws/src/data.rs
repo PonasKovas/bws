@@ -1,48 +1,59 @@
 use anyhow::{Context, Result};
-use flate2::write::DeflateDecoder;
+use bytecheck::CheckBytes;
 use lazy_static::lazy_static;
 use log::{error, info};
-use serde::{Deserialize, Serialize};
+use rkyv::{
+    check_archived_root,
+    ser::{serializers::AllocSerializer, Serializer},
+    with::{ArchiveWith, DeserializeWith, SerializeWith},
+    Archive, ArchiveUnsized, Archived, Deserialize, DeserializeUnsized, Fallible, Infallible,
+    Serialize, SerializeUnsized,
+};
 use serde_json::{Map, Value};
 use std::{
     fs::File,
     io::{Cursor, Read, Write},
 };
 
-#[derive(Clone, Debug, Deserialize)]
+// Can't use normal tuples since their ABI is not defined
+#[derive(Clone, Debug, Archive)]
+#[archive_attr(derive(CheckBytes))]
+pub struct Tuple<T1, T2>(pub T1, pub T2);
+
+#[derive(Clone, Debug, Archive)]
+#[archive_attr(derive(CheckBytes))]
 pub struct Block {
     pub default_state: i32,
     pub class: String,
     pub states: Vec<BlockState>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Archive)]
+#[archive_attr(derive(CheckBytes))]
 pub struct BlockState {
     pub state_id: i32,
-    pub properties: Vec<(String, String)>,
+    pub properties: Vec<Tuple<String, String>>,
 }
 
 lazy_static! {
     // maps item IDs to the corresponding block states
-    // damn takes a long time to initialize, whats the problem?
-    pub static ref ITEMS_TO_BLOCKS: Vec<Option<Block>> = {
-        match read_items_to_blocks() {
-            Ok(d) => d,
-            Err(e) => {
-                error!("Error reading ITEMS_TO_BLOCKS: {:?}", e);
-                std::process::exit(1);
-            }
-        }
-    };
-
+    pub static ref ITEMS_TO_BLOCKS: &'static Archived<Vec<Option<Block>>> = read_items_to_blocks();
 }
 
-fn read_items_to_blocks() -> Result<Vec<Option<Block>>> {
-    let compressed = include_bytes!(concat!(env!("OUT_DIR"), "/items-to-blocks.bincode"));
-    let mut uncompressed: Vec<u8> = Vec::new();
-    let mut decoder = DeflateDecoder::new(&mut uncompressed);
-    decoder.write_all(compressed)?;
-    decoder.finish()?;
+fn read_items_to_blocks() -> &'static Archived<Vec<Option<Block>>> {
+    #[repr(C, align(16))]
+    struct Aligned<T: ?Sized>(T);
 
-    Ok(bincode::deserialize(&uncompressed).context("bincode deserialization")?)
+    static DATA: &'static Aligned<[u8]> = &Aligned(*include_bytes!(concat!(
+        env!("OUT_DIR"),
+        "/items-to-blocks.rkyv"
+    )));
+
+    match check_archived_root::<Vec<Option<Block>>>(&DATA.0[..]) {
+        Ok(r) => r,
+        Err(e) => {
+            error!("Error reading ITEMS_TO_BLOCKS: {}", e);
+            std::process::exit(1);
+        }
+    }
 }
