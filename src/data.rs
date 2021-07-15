@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use bytecheck::CheckBytes;
+use include_bytes_aligned::include_bytes_aligned;
 use lazy_static::lazy_static;
 use log::{error, info};
 use rkyv::{
@@ -41,15 +42,9 @@ lazy_static! {
 }
 
 fn read_items_to_blocks() -> &'static Archived<Vec<Option<Block>>> {
-    #[repr(C, align(16))]
-    struct Aligned<T: ?Sized>(T);
-
-    static DATA: &'static Aligned<[u8]> = &Aligned(*include_bytes!(concat!(
-        env!("OUT_DIR"),
-        "/items-to-blocks.rkyv"
-    )));
-
-    match check_archived_root::<Vec<Option<Block>>>(&DATA.0[..]) {
+    match check_archived_root::<Vec<Option<Block>>>(
+        &include_bytes_aligned!(16, concat!(env!("OUT_DIR"), "/items-to-blocks.rkyv"))[..],
+    ) {
         Ok(r) => r,
         Err(e) => {
             error!("Error reading ITEMS_TO_BLOCKS: {}", e);

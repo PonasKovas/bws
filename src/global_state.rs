@@ -116,11 +116,17 @@ impl PlayerPermissions {
                 ("banip", literal => [
                     (X "ip address", argument (String: SingleWord) => []),
                 ]),
+                ("unbanip", literal => [
+                    (X "ip address", argument (String: SingleWord) => []),
+                ]),
             ));
         }
         if self.ban_usernames {
             commands.extend(command!(
                 ("ban", literal => [
+                    (X "username", argument (String: SingleWord) suggestions=AskServer => []),
+                ]),
+                ("unban", literal => [
                     (X "username", argument (String: SingleWord) suggestions=AskServer => []),
                 ]),
             ));
@@ -133,6 +139,9 @@ impl PlayerPermissions {
                             (X "value", argument (Bool) => [])
                         ])
                     ]),
+                ]),
+                (X "perms", literal => [
+                    (X "username", argument (String: SingleWord) suggestions=AskServer => [])
                 ]),
             ));
         }

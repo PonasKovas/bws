@@ -535,21 +535,34 @@ async fn handle_command(
         [&GLOBAL_STATE.players.read().await[id].username]
         .permissions;
 
-    match message.split(' ').nth(0).unwrap() {
-        "/banip" => {
-            if permissions.ban_ips {
-                // ban the ip
+    let mut segments = message.split(' ');
 
-                if let Some(ip) = message.split(' ').nth(1) {
-                    use std::str::FromStr;
-                    if let Ok(ip) = IpAddr::from_str(ip) {
+    let command = segments.next().unwrap();
+    match command {
+        "/banip" | "/unbanip" => {
+            if !permissions.ban_ips {
+                return Ok(false);
+            }
+
+            match segments.next() {
+                Some(ip) => {
+                    let ip = match ip.parse() {
+                        Ok(ip) => ip,
+                        Err(e) => {
+                            say!(format!("§6Couldn't parse ip: {}", e));
+                            return Ok(true);
+                        }
+                    };
+
+                    if command == "/banip" {
+                        // ban
                         info!(
                             "{} banned {}",
                             GLOBAL_STATE.players.read().await[id].username,
                             ip
                         );
 
-                        say!(format!("§2IP {} banned.", &ip));
+                        say!(format!("§7IP {} banned.", &ip));
 
                         GLOBAL_STATE.banned_addresses.write().await.insert(ip);
                         GLOBAL_STATE.save_banned_ips().await;
@@ -560,107 +573,186 @@ async fn handle_command(
                                 player.stream.lock().await.disconnect();
                             }
                         }
-                    }
-                }
-            }
-
-            Ok(true)
-        }
-        "/setperm" => {
-            // attempt to get the 3 arguments
-            if let Some(username) = message.split(' ').nth(1) {
-                if let Some(permission) = message.split(' ').nth(2) {
-                    if let Some(value) = message.split(' ').nth(3) {
-                        // try to parse the 3rd argument into a bool
-                        if let Ok(value) = value.parse() {
-                            // try to find a player with the given name
-                            let mut lock = GLOBAL_STATE.player_data.write().await;
-                            let player = if let Some(player) = lock.get_mut(username) {
-                                player
-                            } else {
-                                say!("§4No such player.");
-                                return Ok(true);
-                            };
-
-                            match permission {
-                                "owner" => {
-                                    if permissions.owner {
-                                        player.permissions.owner = value;
-                                    } else {
-                                        say!("§4Only owners can set the owner permission.");
-                                        return Ok(true);
-                                    }
-                                }
-                                "admin" => {
-                                    if permissions.owner {
-                                        player.permissions.admin = value;
-                                    } else {
-                                        say!("§4Only owners can set the admin permission.");
-                                        return Ok(true);
-                                    }
-                                }
-                                "edit_lobby" => {
-                                    if permissions.admin {
-                                        player.permissions.edit_lobby = value;
-                                    } else {
-                                        say!("§4Only admins can set permissions.");
-                                        return Ok(true);
-                                    }
-                                }
-                                "ban_usernames" => {
-                                    if permissions.admin {
-                                        player.permissions.ban_usernames = value;
-                                    } else {
-                                        say!("§4Only admins can set permissions.");
-                                        return Ok(true);
-                                    }
-                                }
-                                "ban_ips" => {
-                                    if permissions.admin {
-                                        player.permissions.ban_ips = value;
-                                    } else {
-                                        say!("§4Only admins can set permissions.");
-                                        return Ok(true);
-                                    }
-                                }
-                                _ => {
-                                    say!("§4No such permission.");
-                                    return Ok(true);
-                                }
-                            }
-                            drop(player);
-                            drop(lock);
-
-                            say!("§2Success.");
+                    } else {
+                        // unban
+                        if GLOBAL_STATE.banned_addresses.write().await.remove(&ip) {
                             info!(
-                                "{} set the {} permission of {} to {}",
+                                "{} unbanned {}",
                                 GLOBAL_STATE.players.read().await[id].username,
-                                permission,
-                                username,
-                                value,
+                                ip
                             );
 
-                            drop(permissions);
+                            say!(format!("§7IP {} unbanned.", &ip));
 
-                            GLOBAL_STATE.save_player_data().await;
+                            GLOBAL_STATE.save_banned_ips().await;
                         } else {
-                            say!("§4Couldn't parse the value");
+                            say!(format!("§7IP {} is not banned.", &ip));
                         }
                     }
                 }
+                None => {
+                    say!("§6Usage: /banip §e<ip address>");
+                    return Ok(true);
+                }
+            }
+        }
+        "/setperm" => {
+            if !permissions.admin {
+                return Ok(false);
             }
 
-            Ok(true)
+            let username = match segments.next() {
+                Some(arg) => arg,
+                None => {
+                    say!("§6Usage: /setperm §e<username> <permission> <true|false>");
+                    return Ok(true);
+                }
+            };
+
+            let mut lock = GLOBAL_STATE.player_data.write().await;
+            let player = if let Some(player) = lock.get_mut(username) {
+                player
+            } else {
+                say!(format!("§6No such player \"{}\".", username));
+                return Ok(true);
+            };
+
+            let permission_str = match segments.next() {
+                Some(arg) => arg,
+                None => {
+                    say!("§6Usage: /setperm §e<username> <permission> <true|false>");
+                    return Ok(true);
+                }
+            };
+            let permission = match permission_str {
+                "owner" => {
+                    if permissions.owner {
+                        &mut player.permissions.owner
+                    } else {
+                        say!("§6Only owners can set the owner permission.");
+                        return Ok(true);
+                    }
+                }
+                "admin" => {
+                    if permissions.owner {
+                        &mut player.permissions.admin
+                    } else {
+                        say!("§6Only owners can set the admin permission.");
+                        return Ok(true);
+                    }
+                }
+                "edit_lobby" => {
+                    if permissions.admin {
+                        &mut player.permissions.edit_lobby
+                    } else {
+                        say!("§6Only admins can set permissions.");
+                        return Ok(true);
+                    }
+                }
+                "ban_usernames" => {
+                    if permissions.admin {
+                        &mut player.permissions.ban_usernames
+                    } else {
+                        say!("§6Only admins can set permissions.");
+                        return Ok(true);
+                    }
+                }
+                "ban_ips" => {
+                    if permissions.admin {
+                        &mut player.permissions.ban_ips
+                    } else {
+                        say!("§6Only admins can set permissions.");
+                        return Ok(true);
+                    }
+                }
+                other => {
+                    say!(format!("§6No such permission \"{}\".", other));
+                    return Ok(true);
+                }
+            };
+
+            let value = match segments.next() {
+                Some(arg) => match arg.parse() {
+                    Ok(value) => value,
+                    Err(e) => {
+                        say!(format!("§6Couldn't parse value: {}", e));
+                        return Ok(true);
+                    }
+                },
+                None => {
+                    say!("§6Usage: /setperm §e<username> <permission> <true|false>");
+                    return Ok(true);
+                }
+            };
+
+            info!(
+                "{} set the permission \"{}\" of {} to {}",
+                GLOBAL_STATE.players.read().await[id].username,
+                permission_str,
+                username,
+                value
+            );
+            say!("§7Permission set.");
+            *permission = value;
+
+            drop(permission);
+            drop(player);
+            drop(lock);
+
+            GLOBAL_STATE.save_player_data().await;
+        }
+        "/perms" => {
+            if !permissions.ban_usernames {
+                return Ok(false);
+            }
+            match segments.next() {
+                Some(username) => {
+                    // query the permissions of the given player
+                    let lock = GLOBAL_STATE.player_data.read().await;
+                    let player = if let Some(player) = lock.get(username) {
+                        player
+                    } else {
+                        say!(format!("§6No such player \"{}\".", username));
+                        return Ok(true);
+                    };
+
+                    say!(format!(
+                        "§l§7§nPermissions of {}:\n§r§o§7{:#?}",
+                        username, player.permissions
+                    ));
+                }
+                None => {
+                    // return the permissions of self
+                    let username = &GLOBAL_STATE.players.read().await[id].username;
+
+                    say!(format!(
+                        "§l§7§nPermissions of {}:\n§r§o§7{:#?}",
+                        username,
+                        GLOBAL_STATE.player_data.read().await[username].permissions
+                    ));
+                }
+            }
         }
         "/ban" => {
-            if permissions.ban_usernames {
-                // todo
-                say!("§4Not implemented yet.");
+            if !permissions.ban_usernames {
+                return Ok(false);
             }
-            Ok(true)
+
+            // todo
+            say!("§6Not implemented yet.");
         }
-        _ => Ok(false),
+        "/unban" => {
+            if !permissions.ban_usernames {
+                return Ok(false);
+            }
+
+            // todo
+            say!("§6Not implemented yet.");
+        }
+        _ => return Ok(false),
     }
+
+    Ok(true)
 }
 
 // returns whether the tabcomplete was handled or not
@@ -677,26 +769,38 @@ async fn handle_tabcomplete(
 
     let mut segments = text.split(' ');
 
-    match segments.nth(0).unwrap() {
-        "/ban" => {
+    let command = segments.next().unwrap();
+    let (last_segment_index, last_segment) = match segments.enumerate().last() {
+        Some(s) => s,
+        None => return Ok(true),
+    };
+
+    // pointer arithmetics! *evil laugh*...
+    // this is the start of the last segment relative to the whole command
+    let last_segment_offset =
+        (last_segment.as_ptr() as usize as i64 - text.as_ptr() as usize as usize as i64) as i32;
+
+    match command {
+        "/ban" | "/unban" | "/perms" => {
             if !permissions.ban_usernames {
                 return Ok(true);
             }
-            if let Some(next) = segments.next() {
+            if last_segment_index == 0 {
                 // list all names registered in the server
+
                 write_packet(
                     socket,
                     buffer,
                     PlayClientBound::TabComplete {
                         transaction_id,
-                        start: VarInt(5),
-                        end: VarInt(5 + next.len() as i32),
+                        start: VarInt(last_segment_offset),
+                        end: VarInt(last_segment_offset + last_segment.len() as i32),
                         matches: GLOBAL_STATE
                             .player_data
                             .read()
                             .await
                             .iter()
-                            .filter(|e| e.0.starts_with(&next))
+                            .filter(|e| e.0.starts_with(&last_segment))
                             .map(|p| (p.0.to_owned().into(), None))
                             .collect(),
                     }
@@ -704,67 +808,57 @@ async fn handle_tabcomplete(
                 )
                 .await?;
             }
-            Ok(true)
         }
         "/setperm" => {
             if !permissions.admin {
                 return Ok(true);
             }
-            if let Some((i, last)) = segments.clone().enumerate().last() {
-                if i == 0 {
-                    // usernames
-                    write_packet(
-                        socket,
-                        buffer,
-                        PlayClientBound::TabComplete {
-                            transaction_id,
-                            start: VarInt(9),
-                            end: VarInt(9 + last.len() as i32),
-                            matches: GLOBAL_STATE
-                                .player_data
-                                .read()
-                                .await
-                                .iter()
-                                .filter(|e| e.0.starts_with(&last))
-                                .map(|p| (p.0.to_owned().into(), None))
-                                .collect(),
-                        }
-                        .cb(),
-                    )
-                    .await?;
-                } else if i == 1 {
-                    // permissions
-                    write_packet(
-                        socket,
-                        buffer,
-                        PlayClientBound::TabComplete {
-                            transaction_id,
-                            start: VarInt(10 + segments.nth(0).unwrap().len() as i32),
-                            end: VarInt(
-                                10 + segments.nth(0).unwrap().len() as i32 + last.len() as i32,
-                            ),
-                            matches: vec![
-                                "owner",
-                                "admin",
-                                "edit_lobby",
-                                "ban_usernames",
-                                "ban_ips",
-                            ]
+
+            if last_segment_index == 0 {
+                // usernames
+                write_packet(
+                    socket,
+                    buffer,
+                    PlayClientBound::TabComplete {
+                        transaction_id,
+                        start: VarInt(last_segment_offset),
+                        end: VarInt(last_segment_offset + last_segment.len() as i32),
+                        matches: GLOBAL_STATE
+                            .player_data
+                            .read()
+                            .await
                             .iter()
-                            .filter(|e| e.starts_with(&last))
+                            .filter(|e| e.0.starts_with(&last_segment))
+                            .map(|p| (p.0.to_owned().into(), None))
+                            .collect(),
+                    }
+                    .cb(),
+                )
+                .await?;
+            } else if last_segment_index == 1 {
+                // permissions
+                write_packet(
+                    socket,
+                    buffer,
+                    PlayClientBound::TabComplete {
+                        transaction_id,
+                        start: VarInt(last_segment_offset),
+                        end: VarInt(last_segment_offset + last_segment.len() as i32),
+                        matches: vec!["owner", "admin", "edit_lobby", "ban_usernames", "ban_ips"]
+                            .iter()
+                            .filter(|e| e.starts_with(&last_segment))
                             .map(|p| ((*p).into(), None))
                             .collect(),
-                        }
-                        .cb(),
-                    )
-                    .await?;
-                }
+                    }
+                    .cb(),
+                )
+                .await?;
             }
-
-            Ok(true)
         }
-        _ => Ok(false),
+        _ => return Ok(false),
     }
+
+    Ok(true)
 }
 
 async fn read_packet(
@@ -833,8 +927,8 @@ async fn read_packet(
     })
 }
 
-struct Noop;
-impl Write for Noop {
+struct NoOp;
+impl Write for NoOp {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         Ok(buf.len())
     }
@@ -860,7 +954,7 @@ async fn write_packet<'a>(
         // use the compressed packet format
 
         // first check if the packet is long enough to actually be compressed
-        let uncompressed_length = packet.to_writer(&mut Noop)?;
+        let uncompressed_length = packet.to_writer(&mut NoOp)?;
 
         // if the packet is long enough be compressed
         if uncompressed_length as i32 >= GLOBAL_STATE.compression_treshold {
