@@ -38,6 +38,7 @@
 /// |------------------------------------------------|---------------------------------------------------------------------|
 /// | [`String`][crate::datatypes::Parser::String]   | [`datatypes::StringParserType`][crate::datatypes::StringParserType] |
 /// | [`Integer`][crate::datatypes::Parser::Integer] | `Option<i32>, Option<i32>` (minimum and maximum integers)           |
+/// | [`Float`][crate::datatypes::Parser::Float]     | `Option<i32>, Option<i32>` (minimum and maximum values)             |
 /// | [`Bool`][crate::datatypes::Parser::Bool]       | None                                                                |
 ///
 #[macro_export]
@@ -159,6 +160,12 @@ macro_rules! handle_parser {
     };
     ((Integer: $min:expr, $max:expr)) => {
         $crate::datatypes::Parser::Integer($crate::datatypes::IntegerParserOptions {
+            min: $min,
+            max: $max,
+        })
+    };
+    ((Float: $min:expr, $max:expr)) => {
+        $crate::datatypes::Parser::Float($crate::datatypes::FloatParserOptions {
             min: $min,
             max: $max,
         })

@@ -351,6 +351,7 @@ pub enum SuggestionsType {
 pub enum Parser {
     String(StringParserType),
     Integer(IntegerParserOptions),
+    Float(FloatParserOptions),
     Bool,
 }
 
@@ -358,6 +359,12 @@ pub enum Parser {
 pub struct IntegerParserOptions {
     pub min: Option<i32>,
     pub max: Option<i32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FloatParserOptions {
+    pub min: Option<f32>,
+    pub max: Option<f32>,
 }
 
 #[derive(Serializable, Deserializable, Debug, Clone, Copy, PartialEq)]

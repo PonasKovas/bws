@@ -36,6 +36,8 @@ const MAP_CHUNKS: usize = MAP_SIZE as usize * MAP_SIZE as usize * 4;
 
 const MAP_PATH: &'static str = "assets/maps/lobby.map";
 
+const DEFAULT_CREATIVE_BOUNDS: (f32, f32, f32, f32) = (-30., -30., 30., 30.);
+
 struct Player {
     username: String,
     stream: PStream,
@@ -60,6 +62,8 @@ pub struct LobbyWorld {
     players: HashMap<usize, Player>,
     chunks: WorldChunks<MAP_CHUNKS>,
     flowing_liquids: Vec<Position>, // positions of blocks that are liquids and need to be updated every 5 ticks
+    // when a player exits these bounds, they are given creative so they can edit the wall
+    creative_bounds: (f32, f32, f32, f32),
 }
 
 impl LobbyWorld {
@@ -70,6 +74,30 @@ impl LobbyWorld {
                 players: HashMap::new(),
                 chunks: map.chunks.into_owned(),
                 flowing_liquids: Vec::new(),
+                creative_bounds: {
+                    match map.extra.get("creative_bounds") {
+                        Some(raw_bounds) => {
+                            if raw_bounds.len() != 4 * std::mem::size_of::<f32>() {
+                                error!(
+                                    "Corrupted lobby map. 'creative_bounds' must be {} bytes.",
+                                    4 * std::mem::size_of::<f32>()
+                                );
+                                std::process::exit(1);
+                            }
+                            (
+                                f32::from_be_bytes(raw_bounds[0..4].try_into().unwrap()),
+                                f32::from_be_bytes(raw_bounds[4..8].try_into().unwrap()),
+                                f32::from_be_bytes(raw_bounds[8..12].try_into().unwrap()),
+                                f32::from_be_bytes(raw_bounds[12..16].try_into().unwrap()),
+                            )
+                        }
+                        None => {
+                            error!("'creative_bounds' missing in lobby map.");
+                            warn!("Using default bounds ({:?}).", DEFAULT_CREATIVE_BOUNDS);
+                            DEFAULT_CREATIVE_BOUNDS
+                        }
+                    }
+                },
             },
             Err(e) => {
                 error!("Couldn't load the lobby map: {:?}", e);
@@ -84,6 +112,7 @@ impl LobbyWorld {
                         }
                     }),
                     flowing_liquids: Vec::new(),
+                    creative_bounds: DEFAULT_CREATIVE_BOUNDS,
                 }
             }
         }
@@ -306,10 +335,20 @@ impl LobbyWorld {
             commands.extend(command!(
             (X "editmode", literal => []),
             ("setblock", literal => [
-                (X "block id", argument (Integer: Some(0), None) => []),
+                (X "block id", argument (Integer: Some(0), None) => [])
             ]),
             (X "printchunk", literal => []),
             (X "clearchunk", literal => []),
+            ("setcreativebounds", literal => [
+                ("-X", argument (Float: None, None) => [
+                    ("-Z", argument (Float: None, None) => [
+                        ("X", argument (Float: None, None) => [
+                            (X "Z", argument (Float: None, None) => [])
+                        ])
+                    ])
+                ])
+            ]),
+            (X "creativebounds", literal => []),
             ));
         }
         // other non-world specific commands
@@ -718,6 +757,72 @@ impl LobbyWorld {
                                 self.send_chunk(*id, (player_chunk.0, player_chunk.2)).await;
                             }
                         }
+                    } else if message.starts_with("/creativebounds") {
+                        if !GLOBAL_STATE.player_data.read().await[&self.players[&id].username]
+                            .permissions
+                            .edit_lobby
+                        {
+                            return;
+                        }
+                        let _ = self.players[&id].stream.lock().await.send(
+                            PlayClientBound::ChatMessage {
+                                message: chat_parse(format!(
+                                    "Current creative bounds: {:?}",
+                                    self.creative_bounds
+                                )),
+                                position: ChatPosition::System,
+                                sender: 0,
+                            },
+                        );
+                    } else if message.starts_with("/setcreativebounds") {
+                        if !self.players[&id].editing_lobby {
+                            let _ = self.players[&id].stream.lock().await.send(
+                                PlayClientBound::ChatMessage {
+                                    message: chat_parse(format!(
+                                        "§4Must be editing lobby to use this command!",
+                                    )),
+                                    position: ChatPosition::System,
+                                    sender: 0,
+                                },
+                            );
+                            return;
+                        }
+
+                        let args: Vec<&str> = message.split(' ').collect();
+                        if args.len() != 5 {
+                            let _ = self.players[&id].stream.lock().await.send(
+                                PlayClientBound::ChatMessage {
+                                    message: chat_parse(format!(
+                                        "§4Usage: /setcreativebounds <-X> <-Z> <X> <Z>",
+                                    )),
+                                    position: ChatPosition::System,
+                                    sender: 0,
+                                },
+                            );
+                            return;
+                        }
+
+                        let mut bounds = [0f32; 4];
+                        for (i, arg) in args[1..].iter().enumerate() {
+                            bounds[i] = match arg.parse() {
+                                Ok(f) => f,
+                                Err(e) => {
+                                    let _ = self.players[&id].stream.lock().await.send(
+                                        PlayClientBound::ChatMessage {
+                                            message: chat_parse(format!(
+                                                "§4Couldn't parse float: {}",
+                                                e
+                                            )),
+                                            position: ChatPosition::System,
+                                            sender: 0,
+                                        },
+                                    );
+                                    return;
+                                }
+                            };
+                        }
+
+                        self.creative_bounds = (bounds[0], bounds[1], bounds[2], bounds[3]);
                     } else if message.starts_with("/setblock ") {
                         if !self.players[&id].editing_lobby {
                             return;
@@ -755,7 +860,18 @@ impl LobbyWorld {
                                 // save the lobby
                                 if let Err(e) = (Map {
                                     chunks: Cow::Borrowed(&self.chunks),
-                                    extra: HashMap::new(),
+                                    extra: {
+                                        let mut extra = HashMap::new();
+                                        extra.insert("creative_bounds".to_owned(), {
+                                            let mut data = Vec::new();
+                                            data.extend(self.creative_bounds.0.to_be_bytes());
+                                            data.extend(self.creative_bounds.1.to_be_bytes());
+                                            data.extend(self.creative_bounds.2.to_be_bytes());
+                                            data.extend(self.creative_bounds.3.to_be_bytes());
+                                            data
+                                        });
+                                        extra
+                                    },
                                 }
                                 .save(MAP_PATH)
                                 .await)
@@ -770,7 +886,7 @@ impl LobbyWorld {
                                         value: Gamemode::Adventure as u8 as f32,
                                     },
                                 );
-                                // show an elder guardian
+                                // show an elder guardian (very important)
                                 let _ =
                                     self.players[&id]
                                         .stream
