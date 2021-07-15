@@ -30,7 +30,7 @@ rkyv = { version = "0.7", features = ["std", "copy", "strict", "validation"] }
 bytecheck = "0.6.2"
 rand = "0.8"
 ron = "0.6"
-align-data = "0.1"
+include_bytes_aligned = "0.1"
 
 [build-dependencies]
 reqwest = { version = "0.11", default-features = false, features = ["json", "rustls-tls", "blocking"] }
