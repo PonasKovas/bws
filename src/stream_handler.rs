@@ -776,9 +776,13 @@ async fn handle_tabcomplete(
     };
 
     // pointer arithmetics! *evil laugh*...
-    // this is the start of the last segment relative to the whole command
-    let last_segment_offset =
-        (last_segment.as_ptr() as usize as i64 - text.as_ptr() as usize as usize as i64) as i32;
+    // this is the start of the last segment relative to the whole command (in bytes)
+    let last_segment_offset = (last_segment.as_ptr() as usize).wrapping_sub(text.as_ptr() as usize);
+
+    // and this is the same but in characters
+    let last_segment_start = text[0..last_segment_offset].chars().count() as i32;
+
+    let last_segment_length = last_segment.chars().count() as i32;
 
     match command {
         "/ban" | "/unban" | "/perms" => {
@@ -793,8 +797,8 @@ async fn handle_tabcomplete(
                     buffer,
                     PlayClientBound::TabComplete {
                         transaction_id,
-                        start: VarInt(last_segment_offset),
-                        end: VarInt(last_segment_offset + last_segment.len() as i32),
+                        start: VarInt(last_segment_start),
+                        end: VarInt(last_segment_start + last_segment_length),
                         matches: GLOBAL_STATE
                             .player_data
                             .read()
@@ -821,8 +825,8 @@ async fn handle_tabcomplete(
                     buffer,
                     PlayClientBound::TabComplete {
                         transaction_id,
-                        start: VarInt(last_segment_offset),
-                        end: VarInt(last_segment_offset + last_segment.len() as i32),
+                        start: VarInt(last_segment_start),
+                        end: VarInt(last_segment_start + last_segment_length),
                         matches: GLOBAL_STATE
                             .player_data
                             .read()
@@ -842,8 +846,8 @@ async fn handle_tabcomplete(
                     buffer,
                     PlayClientBound::TabComplete {
                         transaction_id,
-                        start: VarInt(last_segment_offset),
-                        end: VarInt(last_segment_offset + last_segment.len() as i32),
+                        start: VarInt(last_segment_start),
+                        end: VarInt(last_segment_start + last_segment_length),
                         matches: vec!["owner", "admin", "edit_lobby", "ban_usernames", "ban_ips"]
                             .iter()
                             .filter(|e| e.starts_with(&last_segment))
