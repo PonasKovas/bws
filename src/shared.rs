@@ -20,13 +20,27 @@ pub trait LinearSearch<'a> {
         Self::Key: Borrow<Q>;
 }
 
-impl<'a, K: PartialEq, T> LinearSearch<'a> for Vec<(K, T)> {
+impl<'a, K, T> LinearSearch<'a> for Vec<(K, T)> {
     type Key = K;
     type Output = T;
 
     fn search<Q: PartialEq + ?Sized>(&self, key: &Q) -> &Self::Output
     where
         K: Borrow<Q>,
+    {
+        &self.iter().find(|e| e.0.borrow() == key).unwrap().1
+    }
+}
+
+impl<'a, K: rkyv::Archive, T: rkyv::Archive> LinearSearch<'a>
+    for rkyv::vec::ArchivedVec<crate::data::ArchivedTuple<K, T>>
+{
+    type Key = K::Archived;
+    type Output = T::Archived;
+
+    fn search<Q: PartialEq + ?Sized>(&self, key: &Q) -> &Self::Output
+    where
+        K::Archived: Borrow<Q>,
     {
         &self.iter().find(|e| e.0.borrow() == key).unwrap().1
     }

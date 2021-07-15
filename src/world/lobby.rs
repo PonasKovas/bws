@@ -58,7 +58,7 @@ struct Player {
 
 pub struct LobbyWorld {
     players: HashMap<usize, Player>,
-    chunks: WorldChunks<MAP_CHUNKS>, // 16x16 chunks, resulting in 256x256 world
+    chunks: WorldChunks<MAP_CHUNKS>,
     flowing_liquids: Vec<Position>, // positions of blocks that are liquids and need to be updated every 5 ticks
 }
 
@@ -258,7 +258,7 @@ impl LobbyWorld {
                 x: 0.0,
                 z: 0.0,
                 old_diameter: 0.0,
-                new_diameter: 256.0,
+                new_diameter: MAP_SIZE as f64 * 16.0 * 2.0,
                 speed: VarInt(0),
                 portal_teleport_boundary: VarInt(128),
                 warning_blocks: VarInt(0),
@@ -1861,7 +1861,7 @@ fn parse_fluid_state(fluid_id: i32) -> Option<(bool, i32, bool)> {
 
 // returns a global palette block state based on the circumstances
 fn get_placed_state(
-    block: &Block,
+    block: &rkyv::Archived<Block>,
     face: &Direction,
     cursor_position_y: &f32,
     player_yaw: f32,

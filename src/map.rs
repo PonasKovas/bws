@@ -8,12 +8,12 @@ use rkyv::{
     Archive, ArchiveUnsized, Deserialize, DeserializeUnsized, Fallible, Infallible, Serialize,
     SerializeUnsized,
 };
-use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::{borrow::Cow, io::Write, rc::Rc};
+use std::{collections::HashMap, io::ErrorKind};
 use tokio::{
     fs::File,
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::{AsyncReadExt, AsyncWriteExt, BufReader},
 };
 
 pub const VERSION: u32 = 1;
@@ -67,7 +67,7 @@ pub struct Map<'a, const CHUNKS: usize> {
 
 impl<'a, const CHUNKS: usize> Map<'a, CHUNKS> {
     pub async fn load(path: &str) -> Result<Map<'a, CHUNKS>> {
-        let mut file = File::open(path).await?;
+        let mut file = BufReader::new(File::open(path).await?);
 
         let mut version = [0u8; std::mem::size_of::<u32>()];
         file.read_exact(&mut version).await?;
@@ -83,8 +83,21 @@ impl<'a, const CHUNKS: usize> Map<'a, CHUNKS> {
             bail!("Not compatible map size. The given map is of {} chunks, while trying to read a map of {} chunks", chunks, CHUNKS);
         }
 
-        let mut buf = Vec::new();
-        file.read_to_end(&mut buf).await?;
+        let mut buf = rkyv::AlignedVec::new();
+        loop {
+            match file.read_u8().await {
+                Ok(byte) => {
+                    buf.push(byte);
+                }
+                Err(e) => {
+                    if e.kind() == ErrorKind::UnexpectedEof {
+                        break;
+                    } else {
+                        Err(e)?;
+                    }
+                }
+            }
+        }
 
         let archived = check_archived_root::<Map<'a, CHUNKS>>(buf.as_slice()).unwrap();
 
