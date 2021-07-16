@@ -106,7 +106,7 @@ impl LobbyWorld {
                 error!("Couldn't load the lobby map: {:?}", e);
                 warn!("Falling back to the default map");
 
-                Self {
+                let mut result = Self {
                     players: HashMap::new(),
                     chunks: [(); 4 * MAP_SIZE as usize * MAP_SIZE as usize].map(|_| {
                         box WorldChunk {
@@ -116,7 +116,37 @@ impl LobbyWorld {
                     }),
                     flowing_liquids: Vec::new(),
                     creative_bounds: DEFAULT_CREATIVE_BOUNDS,
+                };
+
+                // add a lil' platform on the center for the players to land on when they connect
+                result
+                    .set_block(Position { x: 0, y: 0, z: 0 }, 1)
+                    .await
+                    .unwrap();
+
+                // and make the initial Wall!
+                for &z in &[-64, 63] {
+                    for y in 0..128 {
+                        for x in -64..64 {
+                            result.set_block(Position { x, y, z }, 3930).await.unwrap();
+                        }
+                    }
                 }
+                for z in -64..64 {
+                    for y in 0..128 {
+                        for &x in &[-64, 63] {
+                            result.set_block(Position { x, y, z }, 3930).await.unwrap();
+                        }
+                    }
+                }
+                for z in -64..64 {
+                    let y = 128;
+                    for x in -64..64 {
+                        result.set_block(Position { x, y, z }, 3930).await.unwrap();
+                    }
+                }
+
+                result
             }
         }
     }
@@ -340,9 +370,13 @@ impl LobbyWorld {
             (X "clearchunk", literal => []),
             ("setcreativebounds", literal => [
                 ("-X", argument (Float: None, None) => [
-                    ("-Z", argument (Float: None, None) => [
-                        ("X", argument (Float: None, None) => [
-                            (X "Z", argument (Float: None, None) => [])
+                    ("-Y", argument (Float: None, None) => [
+                        ("-Z", argument (Float: None, None) => [
+                            ("X", argument (Float: None, None) => [
+                                ("Y", argument (Float: None, None) => [
+                                    (X "Z", argument (Float: None, None) => [])
+                                ])
+                            ])
                         ])
                     ])
                 ])
@@ -866,7 +900,7 @@ impl LobbyWorld {
                             .await
                             .send(PlayClientBound::BlockChange {
                                 location: target,
-                                new_block_id: VarInt(self.get_block(target).unwrap()),
+                                new_block_id: VarInt(self.get_block(target).unwrap_or(0)),
                             });
                     return;
                 }
@@ -1104,6 +1138,18 @@ impl LobbyWorld {
                     (self.players[&id].position.1.floor() / 16.0).floor() as i8,
                     (self.players[&id].position.2.floor() / 16.0).floor() as i8,
                 );
+
+                // sanity checks
+                if player_chunk.0 < -MAP_SIZE
+                    || player_chunk.0 > MAP_SIZE
+                    || player_chunk.1 < 0
+                    || player_chunk.1 > 2 * MAP_SIZE
+                    || player_chunk.2 < -MAP_SIZE
+                    || player_chunk.2 > MAP_SIZE
+                {
+                    return true;
+                }
+
                 let chunk = &self.chunks[get_chunk_index(player_chunk.0, player_chunk.2)].sections
                     [player_chunk.1 as usize];
 
@@ -1272,13 +1318,16 @@ impl LobbyWorld {
                         error!("Error saving map data: {}", e);
                     }
 
-                    // turn on adventure mode
-                    let _ = self.players[&id].stream.lock().await.send(
-                        PlayClientBound::ChangeGameState {
-                            reason: GameStateChangeReason::ChangeGamemode,
-                            value: Gamemode::Adventure as u8 as f32,
-                        },
-                    );
+                    // turn on adventure mode (but only if inside the creative bounds)
+                    if position_in_bounds(self.players[&id].position, self.creative_bounds) {
+                        let _ = self.players[&id].stream.lock().await.send(
+                            PlayClientBound::ChangeGameState {
+                                reason: GameStateChangeReason::ChangeGamemode,
+                                value: Gamemode::Adventure as u8 as f32,
+                            },
+                        );
+                    }
+
                     // show an elder guardian (very important)
                     let _ = self.players[&id].stream.lock().await.send(
                         PlayClientBound::ChangeGameState {
@@ -1872,11 +1921,11 @@ impl LobbyWorld {
                         let _ = stream.send(PlayClientBound::Title(TitleAction::Reset));
 
                         let _ = stream.send(PlayClientBound::Title(TitleAction::SetTitle(
-                            chat_parse("§fThe Wall™"),
+                            chat_parse("§l§fThe Wall§r§f™"),
                         )));
 
                         let _ = stream.send(PlayClientBound::Title(TitleAction::SetDisplayTime {
-                            fade_in: 15,
+                            fade_in: 5,
                             display: 20,
                             fade_out: 15,
                         }));
