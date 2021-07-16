@@ -447,6 +447,7 @@ async fn read_and_parse_packet(
             // add the player to the login world
             GLOBAL_STATE
                 .w_login
+                .0
                 .send(ic::WBound::AddPlayer { id: global_id })
                 .context("Login world receiver lost.")?;
         }
