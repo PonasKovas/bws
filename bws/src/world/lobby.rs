@@ -26,7 +26,8 @@ use std::{
 };
 use tokio::spawn;
 use tokio::sync::mpsc::unbounded_channel;
-use tokio::task::unconstrained;
+use tokio::sync::Mutex;
+use tokio::task::{unconstrained, JoinHandle};
 use tokio::time::sleep;
 
 use super::{WorldChunk, WorldChunks};
@@ -216,7 +217,9 @@ impl LobbyWorld {
             let start_of_tick = Instant::now();
 
             // first - process all WBound messages on the channel
-            self.process_wbound_messages(&mut w_receiver).await;
+            if self.process_wbound_messages(&mut w_receiver).await {
+                return;
+            }
 
             // second - read and handle all input from players on this world
             self.process_client_packets().await;
@@ -236,7 +239,8 @@ impl LobbyWorld {
     }
 }
 impl LobbyWorld {
-    async fn process_wbound_messages(&mut self, w_receiver: &mut WReceiver) {
+    /// returns true if the world needs to be stopped
+    async fn process_wbound_messages(&mut self, w_receiver: &mut WReceiver) -> bool {
         loop {
             // Tries executing the future exactly once, without forcing it to yield earlier (because non-cooperative multitasking).
             // If it returns Pending, then break the whole loop, because that means there
@@ -292,8 +296,14 @@ impl LobbyWorld {
                         error!("Received a request to move a player, but I don't even have the player.");
                     }
                 },
+                WBound::Exit => {
+                    // just save the map and stop the event loop
+                    self.save().await;
+                    return true;
+                }
             }
         }
+        false
     }
     // both this and new_player dont actually add or remove the player to the hashmap
     async fn player_leave(&mut self, disconnected_id: usize) {
@@ -1898,7 +1908,7 @@ impl LobbyWorld {
         }
     }
     async fn tick(&mut self, counter: u128) {
-        if counter % 5 * 60 * 20 == 0 {
+        if counter % (5 * 60 * 20) == 0 {
             // every 5 minutes save the lobby
             self.save().await;
         }
@@ -2476,10 +2486,13 @@ fn position_in_bounds(position: (f64, f64, f64), bounds: [f32; 6]) -> bool {
         && position.2 as f32 <= bounds[5]
 }
 
-pub fn start() -> WSender {
+pub fn start() -> (WSender, Mutex<Option<JoinHandle<()>>>) {
     let (w_sender, w_receiver) = unbounded_channel::<WBound>();
 
-    spawn(async move { LobbyWorld::new().await.run(w_receiver).await });
-
-    w_sender
+    (
+        w_sender,
+        Mutex::new(Some(spawn(async move {
+            LobbyWorld::new().await.run(w_receiver).await
+        }))),
+    )
 }

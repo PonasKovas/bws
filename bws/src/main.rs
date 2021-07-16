@@ -147,11 +147,9 @@ async fn main() -> Result<()> {
     lazy_static::initialize(&GLOBAL_STATE);
     lazy_static::initialize(&data::ITEMS_TO_BLOCKS);
 
-    let join_handles = Arc::new(std::sync::Mutex::new(Vec::new()));
-
     tokio::select! {
         _ = signal::ctrl_c() => {
-            shutdown(&join_handles.clone()).await;
+            shutdown().await;
             Ok(())
         },
         // On Unixes, handle SIGTERM too
@@ -166,16 +164,16 @@ async fn main() -> Result<()> {
                 futures::future::pending().await
             }
         } => {
-            shutdown(&join_handles.clone()).await;
+            shutdown().await;
             Ok(())
         },
-        _ = run(&join_handles) => {
+        _ = run() => {
             Ok(())
         },
     }
 }
 
-async fn run(join_handles: &std::sync::Mutex<Vec<JoinHandle<()>>>) -> Result<()> {
+async fn run() -> Result<()> {
     info!("Listening on port {}", GLOBAL_STATE.port);
 
     let listener = TcpListener::bind(("0.0.0.0", GLOBAL_STATE.port))
@@ -185,38 +183,25 @@ async fn run(join_handles: &std::sync::Mutex<Vec<JoinHandle<()>>>) -> Result<()>
     loop {
         let (socket, _) = listener.accept().await.unwrap();
 
-        let mut lock = join_handles.lock().unwrap();
-        // cleanup already finished handles
-        for handle in (0..lock.len()).rev() {
-            if let Some(_) = tokio::task::unconstrained(&mut lock[handle]).now_or_never() {
-                lock.remove(handle);
-            }
-        }
-        lock.push(tokio::spawn(stream_handler::handle_stream(socket)));
+        tokio::spawn(stream_handler::handle_stream(socket));
     }
 }
 
-async fn shutdown(sh_handles: &std::sync::Mutex<Vec<JoinHandle<()>>>) -> ! {
-    let message = chat_parse("§4§lThe server has shutdown.");
-    for player in &*GLOBAL_STATE.players.read().await {
-        let mut stream = (player.1).stream.lock().await;
-        let _ = stream.send(PlayClientBound::Disconnect(message.clone()));
-        stream.disconnect();
-    }
-
-    // todo also shutdown worlds
-
+async fn shutdown() -> ! {
     info!("Exiting...");
 
-    // wait for all stream handler threads with a timeout of 1 second
-    tokio::select! {
-        _ = async move {
-            for handle in &mut *sh_handles.lock().unwrap() {
-                let _ = handle.await;
-            }
-        } => {},
-        _ = tokio::time::sleep(Duration::from_secs(1)) => {}
-    }
+    // shutdown worlds
+    let _ = GLOBAL_STATE
+        .w_login
+        .0
+        .send(internal_communication::WBound::Exit);
+    let _ = GLOBAL_STATE
+        .w_lobby
+        .0
+        .send(internal_communication::WBound::Exit);
+
+    let _ = GLOBAL_STATE.w_lobby.1.lock().await.take().unwrap().await;
+    let _ = GLOBAL_STATE.w_login.1.lock().await.take().unwrap().await;
 
     std::process::exit(0);
 }

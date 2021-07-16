@@ -31,8 +31,10 @@ use tokio::io::AsyncWriteExt;
 use tokio::io::BufReader;
 use tokio::spawn;
 use tokio::sync::mpsc::unbounded_channel;
+use tokio::sync::Mutex;
 use tokio::sync::MutexGuard;
 use tokio::task::unconstrained;
+use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tokio::time::Instant;
 
@@ -167,7 +169,9 @@ impl LoginWorld {
             let start_of_tick = Instant::now();
 
             // first - process all WBound messages on the channel
-            self.process_wbound_messages(&mut w_receiver).await;
+            if self.process_wbound_messages(&mut w_receiver).await {
+                return;
+            }
 
             // second - read and handle all input from players on this world
             self.process_client_packets().await;
@@ -230,9 +234,10 @@ impl LoginWorld {
 
                                 GLOBAL_STATE
                                     .w_login
+                                    .0
                                     .send(WBound::MovePlayer {
                                         id,
-                                        new_world: GLOBAL_STATE.w_lobby.clone(),
+                                        new_world: GLOBAL_STATE.w_lobby.0.clone(),
                                     })
                                     .unwrap();
                             } else {
@@ -285,9 +290,10 @@ impl LoginWorld {
 
                                 GLOBAL_STATE
                                     .w_login
+                                    .0
                                     .send(WBound::MovePlayer {
                                         id,
-                                        new_world: GLOBAL_STATE.w_lobby.clone(),
+                                        new_world: GLOBAL_STATE.w_lobby.0.clone(),
                                     })
                                     .unwrap();
                             }
@@ -298,7 +304,8 @@ impl LoginWorld {
             _ => {}
         }
     }
-    async fn process_wbound_messages(&mut self, w_receiver: &mut WReceiver) {
+    /// returns true if the world should stop
+    async fn process_wbound_messages(&mut self, w_receiver: &mut WReceiver) -> bool {
         loop {
             // Tries executing the future exactly once, without forcing it to yield earlier (because non-cooperative multitasking).
             // If it returns Pending, then break the whole loop, because that means there
@@ -334,8 +341,13 @@ impl LoginWorld {
                         error!("Received a request to move a player, but I don't even have the player.");
                     }
                 },
+                WBound::Exit => {
+                    // No need to do anything I think? the accounts data is always saved after it changes?
+                    return true;
+                }
             }
         }
+        false
     }
     // sends all the neccessary packets for new players
     async fn new_player(&self, id: usize) -> Result<()> {
@@ -487,7 +499,7 @@ impl LoginWorld {
     }
 }
 
-pub fn start() -> Result<WSender> {
+pub fn start() -> Result<(WSender, Mutex<Option<JoinHandle<()>>>)> {
     lazy_static::initialize(&TAGS);
     lazy_static::initialize(&DIMENSION_CODEC);
 
@@ -495,9 +507,10 @@ pub fn start() -> Result<WSender> {
 
     let mut world = LoginWorld::new()?;
 
-    spawn(async move {
-        world.run(w_receiver).await;
-    });
-
-    Ok(w_sender)
+    Ok((
+        w_sender,
+        Mutex::new(Some(spawn(async move {
+            world.run(w_receiver).await;
+        }))),
+    ))
 }

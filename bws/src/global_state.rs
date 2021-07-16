@@ -21,7 +21,7 @@ use thiserror::Error;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot;
 use tokio::sync::{Mutex, RwLock};
-use tokio::task::unconstrained;
+use tokio::task::{unconstrained, JoinHandle};
 
 const BANNED_IPS_FILE: &'static str = "banned.addresses";
 const PLAYER_DATA_FILE: &'static str = "player_data.ron";
@@ -38,8 +38,8 @@ pub struct GlobalState {
     pub favicon: Mutex<String>,
     pub player_sample: Mutex<Vec<StatusPlayerSampleEntry<'static>>>,
     pub max_players: Mutex<i32>,
-    pub w_login: ic::WSender,
-    pub w_lobby: ic::WSender,
+    pub w_login: (ic::WSender, Mutex<Option<JoinHandle<()>>>),
+    pub w_lobby: (ic::WSender, Mutex<Option<JoinHandle<()>>>),
     pub players: RwLock<Slab<Player>>,
     pub player_data: RwLock<HashMap<String, PlayerData>>,
     pub banned_addresses: RwLock<HashSet<IpAddr>>,
