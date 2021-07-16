@@ -226,28 +226,6 @@ impl LoginWorld {
                             if *correct_password_hash == hash {
                                 // they match, so login successful
 
-                                if !GLOBAL_STATE
-                                    .player_data
-                                    .read()
-                                    .await
-                                    .contains_key(&self.players[&id].0)
-                                {
-                                    GLOBAL_STATE.player_data.write().await.insert(
-                                        self.players[&id].0.to_string(),
-                                        PlayerData {
-                                            permissions: PlayerPermissions {
-                                                ..Default::default()
-                                            },
-                                            banned: Some((
-                                                chrono::Utc::now() + chrono::Duration::days(1),
-                                                "cheating".to_owned(),
-                                                Some("silpnaprotis".to_owned()),
-                                            )),
-                                        },
-                                    );
-                                    GLOBAL_STATE.save_player_data().await;
-                                }
-
                                 GLOBAL_STATE.players.write().await[id].logged_in = true;
 
                                 GLOBAL_STATE
@@ -299,10 +277,7 @@ impl LoginWorld {
                                 GLOBAL_STATE.player_data.write().await.insert(
                                     self.players[&id].0.to_string(),
                                     PlayerData {
-                                        permissions: PlayerPermissions {
-                                            ..Default::default()
-                                        },
-                                        banned: None,
+                                        ..Default::default()
                                     },
                                 );
                                 GLOBAL_STATE.save_player_data().await;
