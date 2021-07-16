@@ -1324,6 +1324,7 @@ impl LobbyWorld {
                 }
 
                 self.creative_bounds = args;
+                self.system_message(id, "§7Creative bounds set.").await;
             }
             "/setblock" => {
                 if !self.players[&id].editing_lobby {
