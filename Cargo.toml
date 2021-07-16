@@ -31,6 +31,7 @@ bytecheck = "0.6.2"
 rand = "0.8"
 ron = "0.6"
 include_bytes_aligned = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
 
 [build-dependencies]
 reqwest = { version = "0.11", default-features = false, features = ["json", "rustls-tls", "blocking"] }

@@ -302,6 +302,39 @@ async fn read_and_parse_packet(
                 // dude did you just send the LoginStart packet twice???
                 bail!("Bad client ({})", address);
             }
+
+            // check if not banned
+            if let Some(data) = GLOBAL_STATE.player_data.read().await.get(&*username) {
+                if let Some((until, reason, issuer)) = &data.banned {
+                    let now = chrono::Utc::now();
+                    if now < *until {
+                        // oh boy this lad is banned!!
+                        // better let him know!
+                        let issuer_str = match &issuer {
+                            Some(username) => username.as_str(),
+                            None => "[server]",
+                        };
+                        let packet = LoginClientBound::Disconnect(
+                                chat_parse(
+                                    &format!(
+                                        "§l§4With all due respect, you have been banned from this server until \n§6{}§4\n(by §5{}§4).\nReason: §r§o§c{}\n\n§6{}",
+                                        until.format("%F %T %Z"),
+                                        issuer_str,
+                                        reason,
+                                        if issuer.is_some() {
+                                            "This ban can not be revoked, since it was issued manually. Feel free to go outside and take a break from the computer."
+                                        } else {
+                                            "If you think this ban was undeserved, you can try to get it revoked on our discord."
+                                        }
+                                    )
+                                ),
+                            );
+                        let _ = write_packet(socket, buffer, packet.cb()).await;
+                        return Ok(());
+                    }
+                }
+            }
+
             // check if version is supported
             if !crate::SUPPORTED_PROTOCOL_VERSIONS
                 .iter()
@@ -597,7 +630,7 @@ async fn handle_command(
             }
         }
         "/setperm" => {
-            if !permissions.admin {
+            if !permissions.admin && !permissions.owner {
                 return Ok(false);
             }
 
@@ -702,7 +735,7 @@ async fn handle_command(
             GLOBAL_STATE.save_player_data().await;
         }
         "/perms" => {
-            if !permissions.ban_usernames {
+            if !permissions.admin {
                 return Ok(false);
             }
             match segments.next() {
@@ -738,16 +771,131 @@ async fn handle_command(
                 return Ok(false);
             }
 
-            // todo
-            say!("§6Not implemented yet.");
+            let username = match segments.next() {
+                Some(arg) => arg,
+                None => {
+                    say!("§6Usage: /ban §e<username> <duration in minutes> <reason>");
+                    return Ok(true);
+                }
+            };
+
+            let duration = match segments.next() {
+                Some(arg) => match arg.parse() {
+                    Ok(i) => i,
+                    Err(e) => {
+                        say!(format!("§6Couldn't parse duration: {}", e));
+                        return Ok(true);
+                    }
+                },
+                None => {
+                    say!("§6Usage: /ban §e<username> <duration in minutes> <reason>");
+                    return Ok(true);
+                }
+            };
+
+            let reason = match segments.next() {
+                // get the text that starts with the segments, which may be multiple segments
+                Some(arg) => &message[(arg.as_ptr() as usize - message.as_ptr() as usize)..],
+                None => {
+                    say!("§6Usage: /ban §e<username> <duration in minutes> <reason>");
+                    return Ok(true);
+                }
+            };
+
+            let mut lock = GLOBAL_STATE.player_data.write().await;
+            let player = if let Some(player) = lock.get_mut(username) {
+                player
+            } else {
+                say!(format!("§6No such player \"{}\".", username));
+                return Ok(true);
+            };
+
+            player.banned = Some((
+                chrono::Utc::now() + chrono::Duration::minutes(duration),
+                reason.to_owned(),
+                Some(GLOBAL_STATE.players.read().await[id].username.clone()),
+            ));
+
+            // if anyone is already connected with that username, disconnect them
+            for (_id, player) in &*GLOBAL_STATE.players.read().await {
+                if player.username.as_str() == username {
+                    player.stream.lock().await.disconnect();
+                }
+            }
+
+            let human_readable_duration = {
+                let mut duration = chrono::Duration::minutes(duration);
+                let mut result = String::new();
+                if duration.num_weeks() > 0 {
+                    result += &format!("{} weeks ", duration.num_weeks());
+                    duration = duration - chrono::Duration::weeks(duration.num_weeks());
+                }
+                if duration.num_days() > 0 {
+                    result += &format!("{} days ", duration.num_days());
+                    duration = duration - chrono::Duration::days(duration.num_days());
+                }
+                if duration.num_hours() > 0 {
+                    result += &format!("{} hours ", duration.num_hours());
+                    duration = duration - chrono::Duration::hours(duration.num_hours());
+                }
+                if duration.num_minutes() > 0 || result.len() == 0 {
+                    result += &format!("{} minutes ", duration.num_minutes());
+                }
+                result
+            };
+
+            say!(format!(
+                "§7Player {} banned for {}.",
+                username,
+                human_readable_duration.trim()
+            ));
+            info!(
+                "{} banned {} for {}, because of \"{}\"",
+                GLOBAL_STATE.players.read().await[id].username.clone(),
+                username,
+                human_readable_duration.trim(),
+                reason
+            );
+
+            drop(player);
+            drop(lock);
+
+            GLOBAL_STATE.save_player_data().await;
         }
         "/unban" => {
             if !permissions.ban_usernames {
                 return Ok(false);
             }
 
-            // todo
-            say!("§6Not implemented yet.");
+            let username = match segments.next() {
+                Some(arg) => arg,
+                None => {
+                    say!("§6Usage: /unban §e<username>");
+                    return Ok(true);
+                }
+            };
+
+            let mut lock = GLOBAL_STATE.player_data.write().await;
+            let player = if let Some(player) = lock.get_mut(username) {
+                player
+            } else {
+                say!(format!("§6No such player \"{}\".", username));
+                return Ok(true);
+            };
+
+            player.banned = None;
+
+            say!(format!("§7Player {} unbanned.", username));
+            info!(
+                "{} unbanned {}",
+                GLOBAL_STATE.players.read().await[id].username.clone(),
+                username,
+            );
+
+            drop(player);
+            drop(lock);
+
+            GLOBAL_STATE.save_player_data().await;
         }
         _ => return Ok(false),
     }
