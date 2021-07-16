@@ -140,9 +140,18 @@ impl LobbyWorld {
                     }
                 }
                 for z in -64..64 {
-                    let y = 128;
                     for x in -64..64 {
-                        result.set_block(Position { x, y, z }, 3930).await.unwrap();
+                        result
+                            .set_block(Position { x, y: 127, z }, 3930)
+                            .await
+                            .unwrap();
+                    }
+                    // additional roof of barriers so players dont fly out through holes
+                    for x in -64..64 {
+                        result
+                            .set_block(Position { x, y: 128, z }, 7540)
+                            .await
+                            .unwrap();
                     }
                 }
 
@@ -826,13 +835,6 @@ impl LobbyWorld {
                 }
             }
             PlayServerBound::CreativeInventoryAction { slot, item } => {
-                // first make sure the client even has the permissions
-                if !self.players[&id].editing_lobby
-                    && !position_in_bounds(self.players[&id].position, self.creative_bounds)
-                {
-                    return;
-                }
-
                 // some sanity checks
                 if !(-1..=45).contains(&slot) {
                     debug!(
@@ -891,7 +893,19 @@ impl LobbyWorld {
                     }
                 }
 
-                if !self.players[&id].editing_lobby {
+                // if the location is on the wall, the block can be placed regardless of anything,
+                // and when placing it the block is actually replaced instead of placed on top
+                let on_wall = ((location.x == -64 || location.x == 63)
+                    && (location.y <= 127 && location.z >= -64 && location.z <= 63))
+                    || ((location.z == -64 || location.z == 63)
+                        && (location.y <= 127 && location.x >= -64 && location.x <= 63))
+                    || (location.y == 127
+                        && location.x >= -64
+                        && location.x <= 63
+                        && location.z >= -64
+                        && location.z <= 63);
+
+                if !self.players[&id].editing_lobby || on_wall {
                     // send the true block back in case player changed something locally
                     let _ =
                         self.players[&id]
@@ -902,7 +916,9 @@ impl LobbyWorld {
                                 location: target,
                                 new_block_id: VarInt(self.get_block(target).unwrap_or(0)),
                             });
-                    return;
+                    if !on_wall {
+                        return;
+                    }
                 }
 
                 // get the item in hand of player
@@ -916,6 +932,14 @@ impl LobbyWorld {
 
                         if let Some(block) = crate::data::ITEMS_TO_BLOCKS[item_id as usize].as_ref()
                         {
+                            if on_wall {
+                                if let Err(e) = self.set_block(location, block.default_state).await
+                                {
+                                    debug!("Error placing block: {:?}", e);
+                                }
+                                return;
+                            }
+
                             // target must be air or a liquid
                             match self.get_block(target) {
                                 Ok(old_block) => {
@@ -1888,8 +1912,25 @@ impl LobbyWorld {
             } else {
                 // position changed
 
-                // check if travelled outside/inside creative bounds
+                // in lobby, positions higher than 128 are not allowed, except for editors of course
+                if !self.players[&id].editing_lobby {
+                    if self.players[&id].new_position.1 > 128.0 {
+                        let _ = self.players[&id].stream.lock().await.send(
+                            PlayClientBound::PlayerPositionAndLook {
+                                x: self.players[&id].new_position.0,
+                                y: 126.0,
+                                z: self.players[&id].new_position.2,
+                                yaw: self.players[&id].new_rotation.0,
+                                pitch: self.players[&id].new_rotation.1,
+                                flags: PositionAndLookFlags::empty(),
+                                id: VarInt(0),
+                            },
+                        );
+                        self.players.get_mut(&id).unwrap().new_position.1 = 126.0;
+                    }
+                }
 
+                // check if travelled outside/inside creative bounds
                 let outside_creative_bounds =
                     !position_in_bounds(self.players[&id].new_position, self.creative_bounds);
 
