@@ -37,6 +37,8 @@ const MAP_CHUNKS: usize = MAP_SIZE as usize * MAP_SIZE as usize * 4;
 const MAP_PATH: &'static str = "assets/maps/lobby.map";
 
 const DEFAULT_CREATIVE_BOUNDS: [f32; 6] = [-30., 0., -30., 30., 30., 30.];
+const DEFAULT_SPAWN_POSITION: [f32; 3] = [0., 20., 0.];
+const DEFAULT_SPAWN_ROTATION: [f32; 2] = [0., 0.];
 
 struct Player {
     username: String,
@@ -65,6 +67,8 @@ pub struct LobbyWorld {
     flowing_liquids: Vec<Position>,
     // when a player exits these bounds, they are given creative so they can edit The Wall™
     creative_bounds: [f32; 6],
+    spawn_position: [f32; 3],
+    spawn_rotation: [f32; 2],
 }
 
 impl LobbyWorld {
@@ -101,6 +105,51 @@ impl LobbyWorld {
                         }
                     }
                 },
+                spawn_position: {
+                    match map.extra.get("spawn_position") {
+                        Some(raw_position) => {
+                            if raw_position.len() != 3 * std::mem::size_of::<f32>() {
+                                error!(
+                                    "Corrupted lobby map. 'spawn_position' must be {} bytes.",
+                                    3 * std::mem::size_of::<f32>()
+                                );
+                                std::process::exit(1);
+                            }
+                            [
+                                f32::from_be_bytes(raw_position[0..4].try_into().unwrap()),
+                                f32::from_be_bytes(raw_position[4..8].try_into().unwrap()),
+                                f32::from_be_bytes(raw_position[8..12].try_into().unwrap()),
+                            ]
+                        }
+                        None => {
+                            error!("'spawn_position' missing in lobby map.");
+                            warn!("Using default position ({:?}).", DEFAULT_SPAWN_POSITION);
+                            DEFAULT_SPAWN_POSITION
+                        }
+                    }
+                },
+                spawn_rotation: {
+                    match map.extra.get("spawn_rotation") {
+                        Some(raw_rotation) => {
+                            if raw_rotation.len() != 2 * std::mem::size_of::<f32>() {
+                                error!(
+                                    "Corrupted lobby map. 'raw_rotation' must be {} bytes.",
+                                    2 * std::mem::size_of::<f32>()
+                                );
+                                std::process::exit(1);
+                            }
+                            [
+                                f32::from_be_bytes(raw_rotation[0..4].try_into().unwrap()),
+                                f32::from_be_bytes(raw_rotation[4..8].try_into().unwrap()),
+                            ]
+                        }
+                        None => {
+                            error!("'raw_rotation' missing in lobby map.");
+                            warn!("Using default rotation ({:?}).", DEFAULT_SPAWN_ROTATION);
+                            DEFAULT_SPAWN_ROTATION
+                        }
+                    }
+                },
             },
             Err(e) => {
                 error!("Couldn't load the lobby map: {:?}", e);
@@ -116,6 +165,8 @@ impl LobbyWorld {
                     }),
                     flowing_liquids: Vec::new(),
                     creative_bounds: DEFAULT_CREATIVE_BOUNDS,
+                    spawn_position: DEFAULT_SPAWN_POSITION,
+                    spawn_rotation: DEFAULT_SPAWN_ROTATION,
                 };
 
                 // add a lil' platform on the center for the players to land on when they connect
@@ -306,11 +357,11 @@ impl LobbyWorld {
         })?;
 
         stream.send(PlayClientBound::PlayerPositionAndLook {
-            x: 0.0,
-            y: 20.0,
-            z: 0.0,
-            yaw: 0.0,
-            pitch: 0.0,
+            x: self.spawn_position[0] as f64,
+            y: self.spawn_position[1] as f64,
+            z: self.spawn_position[2] as f64,
+            yaw: self.spawn_rotation[0],
+            pitch: self.spawn_rotation[1],
             flags: PositionAndLookFlags::empty(),
             id: VarInt(0),
         })?;
@@ -372,6 +423,8 @@ impl LobbyWorld {
         if permissions.edit_lobby {
             commands.extend(command!(
             (X "editmode", literal => []),
+            (X "save", literal => []),
+            (X "setspawn", literal => []),
             ("setblock", literal => [
                 (X "block id", argument (Integer: Some(0), None) => [])
             ]),
@@ -1319,28 +1372,7 @@ impl LobbyWorld {
                     );
                 } else {
                     // save the lobby
-                    if let Err(e) = (Map {
-                        chunks: Cow::Borrowed(&self.chunks),
-                        extra: {
-                            let mut extra = HashMap::new();
-                            extra.insert("creative_bounds".to_owned(), {
-                                let mut data = Vec::new();
-                                data.extend(self.creative_bounds[0].to_be_bytes());
-                                data.extend(self.creative_bounds[1].to_be_bytes());
-                                data.extend(self.creative_bounds[2].to_be_bytes());
-                                data.extend(self.creative_bounds[3].to_be_bytes());
-                                data.extend(self.creative_bounds[4].to_be_bytes());
-                                data.extend(self.creative_bounds[5].to_be_bytes());
-                                data
-                            });
-                            extra
-                        },
-                    }
-                    .save(MAP_PATH)
-                    .await)
-                    {
-                        error!("Error saving map data: {}", e);
-                    }
+                    self.save().await;
 
                     // turn on adventure mode (but only if inside the creative bounds)
                     if position_in_bounds(self.players[&id].position, self.creative_bounds) {
@@ -1361,10 +1393,82 @@ impl LobbyWorld {
                     );
                 }
             }
+            "/save" => {
+                if !permissions.edit_lobby {
+                    return false;
+                }
+
+                // save the lobby
+                self.save().await;
+
+                self.system_message(id, "§7Lobby saved.").await;
+            }
+            "/setspawn" => {
+                if !permissions.edit_lobby {
+                    return false;
+                }
+
+                // save the lobby
+                self.save().await;
+
+                self.spawn_position = [
+                    self.players[&id].position.0 as f32,
+                    self.players[&id].position.1 as f32,
+                    self.players[&id].position.2 as f32,
+                ];
+
+                self.spawn_rotation = [self.players[&id].rotation.0, self.players[&id].rotation.1];
+
+                self.system_message(
+                    id,
+                    format!(
+                        "§7Spawn set to §o{:?}, {:?}",
+                        self.players[&id].position, self.players[&id].rotation
+                    ),
+                )
+                .await;
+            }
             _ => return false,
         }
 
         true
+    }
+    async fn save(&self) {
+        if let Err(e) = (Map {
+            chunks: Cow::Borrowed(&self.chunks),
+            extra: {
+                let mut extra = HashMap::new();
+                extra.insert("creative_bounds".to_owned(), {
+                    let mut data = Vec::new();
+                    data.extend(self.creative_bounds[0].to_be_bytes());
+                    data.extend(self.creative_bounds[1].to_be_bytes());
+                    data.extend(self.creative_bounds[2].to_be_bytes());
+                    data.extend(self.creative_bounds[3].to_be_bytes());
+                    data.extend(self.creative_bounds[4].to_be_bytes());
+                    data.extend(self.creative_bounds[5].to_be_bytes());
+                    data
+                });
+                extra.insert("spawn_position".to_owned(), {
+                    let mut data = Vec::new();
+                    data.extend(self.spawn_position[0].to_be_bytes());
+                    data.extend(self.spawn_position[1].to_be_bytes());
+                    data.extend(self.spawn_position[2].to_be_bytes());
+                    data
+                });
+                extra.insert("spawn_rotation".to_owned(), {
+                    let mut data = Vec::new();
+                    data.extend(self.spawn_rotation[0].to_be_bytes());
+                    data.extend(self.spawn_rotation[1].to_be_bytes());
+                    data
+                });
+                extra
+            },
+        }
+        .save(MAP_PATH)
+        .await)
+        {
+            error!("Error saving map data: {}", e);
+        }
     }
     async fn system_message(&self, id: usize, message: impl AsRef<str>) {
         let _ = self.players[&id]
@@ -1794,6 +1898,10 @@ impl LobbyWorld {
         }
     }
     async fn tick(&mut self, counter: u128) {
+        if counter % 5 * 60 * 20 == 0 {
+            // every 5 minutes save the lobby
+            self.save().await;
+        }
         if counter % 100 == 0 {
             // every 5 seconds, update all pings
             let mut entries = Vec::with_capacity(self.players.len());
