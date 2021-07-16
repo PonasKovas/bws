@@ -238,6 +238,11 @@ impl LoginWorld {
                                             permissions: PlayerPermissions {
                                                 ..Default::default()
                                             },
+                                            banned: Some((
+                                                chrono::Utc::now() + chrono::Duration::days(1),
+                                                "cheating".to_owned(),
+                                                Some("silpnaprotis".to_owned()),
+                                            )),
                                         },
                                     );
                                     GLOBAL_STATE.save_player_data().await;
@@ -297,6 +302,7 @@ impl LoginWorld {
                                         permissions: PlayerPermissions {
                                             ..Default::default()
                                         },
+                                        banned: None,
                                     },
                                 );
                                 GLOBAL_STATE.save_player_data().await;

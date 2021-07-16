@@ -560,18 +560,25 @@ impl<'a> StatusPlayerSampleEntry<'a> {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct Chat<'a> {
     pub text: Cow<'a, str>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bold: Option<bool>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub italic: Option<bool>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub underlined: Option<bool>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub strikethrough: Option<bool>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub obfuscated: Option<bool>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub color: Option<Cow<'a, str>>,
+    #[serde(default)]
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub extra: Vec<Chat<'a>>,
 }

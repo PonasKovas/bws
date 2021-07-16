@@ -1,6 +1,7 @@
 use crate::internal_communication as ic;
 use anyhow::bail;
 use anyhow::{Context, Result};
+use chrono::{DateTime, Utc};
 use futures::FutureExt;
 use log::info;
 use log::{debug, error, warn};
@@ -61,7 +62,8 @@ pub struct Player {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PlayerData {
     pub permissions: PlayerPermissions,
-    // banned: Option<UntilWhatDate>,
+    // until when, reason, and the issuer of the ban, if any
+    pub banned: Option<(DateTime<Utc>, String, Option<String>)>,
     // groups: PlayerGroups,
     // score, statistics...
 }
@@ -124,7 +126,11 @@ impl PlayerPermissions {
         if self.ban_usernames {
             commands.extend(command!(
                 ("ban", literal => [
-                    (X "username", argument (String: SingleWord) suggestions=AskServer => []),
+                    ("username", argument (String: SingleWord) suggestions=AskServer => [
+                        (X "duration in minutes", argument (Integer: Some(0), None) => [
+                            (X "reason", argument (String: GreedyPhrase) => [])
+                        ])
+                    ]),
                 ]),
                 ("unban", literal => [
                     (X "username", argument (String: SingleWord) suggestions=AskServer => []),
