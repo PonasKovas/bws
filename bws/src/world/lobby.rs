@@ -61,8 +61,9 @@ struct Player {
 pub struct LobbyWorld {
     players: HashMap<usize, Player>,
     chunks: WorldChunks<MAP_CHUNKS>,
-    flowing_liquids: Vec<Position>, // positions of blocks that are liquids and need to be updated every 5 ticks
-    // when a player exits these bounds, they are given creative so they can edit the wall
+    // positions of blocks that are liquids and need to the next fifth tick
+    flowing_liquids: Vec<Position>,
+    // when a player exits these bounds, they are given creative so they can edit The Wall™
     creative_bounds: [f32; 6],
 }
 
@@ -792,7 +793,9 @@ impl LobbyWorld {
             }
             PlayServerBound::CreativeInventoryAction { slot, item } => {
                 // first make sure the client even has the permissions
-                if !self.players[&id].editing_lobby {
+                if !self.players[&id].editing_lobby
+                    && !position_in_bounds(self.players[&id].position, self.creative_bounds)
+                {
                     return;
                 }
 
@@ -832,10 +835,6 @@ impl LobbyWorld {
                 cursor_position_z: _,
                 inside_block: _,
             } => {
-                if !self.players[&id].editing_lobby {
-                    return;
-                }
-
                 let mut target = location.clone();
                 match face {
                     Direction::Down => {
@@ -856,6 +855,20 @@ impl LobbyWorld {
                     Direction::East => {
                         target.x += 1;
                     }
+                }
+
+                if !self.players[&id].editing_lobby {
+                    // send the true block back in case player changed something locally
+                    let _ =
+                        self.players[&id]
+                            .stream
+                            .lock()
+                            .await
+                            .send(PlayClientBound::BlockChange {
+                                location: target,
+                                new_block_id: VarInt(self.get_block(target).unwrap()),
+                            });
+                    return;
                 }
 
                 // get the item in hand of player
@@ -1002,18 +1015,7 @@ impl LobbyWorld {
                 action,
                 jump_boost: _,
             } => {
-                if action == EntityAction::StartSprinting {
-                    for (_id, player) in &self.players {
-                        let _ = player
-                            .stream
-                            .lock()
-                            .await
-                            .send(PlayClientBound::EntityStatus {
-                                entity_id: id as i32,
-                                status: 43,
-                            });
-                    }
-                } else if action == EntityAction::StartSneaking {
+                if action == EntityAction::StartSneaking {
                     for (_id, player) in &self.players {
                         let _ = player
                             .stream
@@ -1022,7 +1024,7 @@ impl LobbyWorld {
                             .send(PlayClientBound::EntityMetadata {
                                 entity_id: VarInt(id as i32),
                                 metadata: EntityMetadata(vec![
-                                    (0, EntityMetadataEntry::Byte(0x02 | 0x40)),
+                                    (0, EntityMetadataEntry::Byte(0x02)),
                                     (6, EntityMetadataEntry::Pose(Pose::Sneaking)),
                                 ]),
                             });
@@ -1051,6 +1053,13 @@ impl LobbyWorld {
                 // this means block broken but only when in creative mode
                 PlayerDiggingStatus::StartedDigging => {
                     if !self.players[&id].editing_lobby {
+                        // send real block back in case they broke block locally
+                        let _ = self.players[&id].stream.lock().await.send(
+                            PlayClientBound::BlockChange {
+                                location,
+                                new_block_id: VarInt(self.get_block(location).unwrap()),
+                            },
+                        );
                         return;
                     }
 
@@ -1830,6 +1839,68 @@ impl LobbyWorld {
             } else {
                 // position changed
 
+                // check if travelled outside/inside creative bounds
+
+                let outside_creative_bounds =
+                    !position_in_bounds(self.players[&id].new_position, self.creative_bounds);
+
+                // only when not in editmode tho
+                if !self.players[&id].editing_lobby
+                    && !position_in_bounds(self.players[&id].position, self.creative_bounds)
+                        != outside_creative_bounds
+                {
+                    // changed
+                    if outside_creative_bounds {
+                        // give creative
+                        let mut stream = self.players[&id].stream.lock().await;
+
+                        let _ = stream.send(PlayClientBound::ChangeGameState {
+                            reason: GameStateChangeReason::ChangeGamemode,
+                            value: Gamemode::Creative as u8 as f32,
+                        });
+
+                        // play epic sound
+                        let _ = stream.send(PlayClientBound::EntitySoundEffect {
+                            sound_id: VarInt(75), // block.beacon.power_select
+                            category: SoundCategory::Master,
+                            entity_id: VarInt(id as i32), // player
+                            volume: 1.0,
+                            pitch: 1.0,
+                        });
+
+                        // epic visual effect
+                        let _ = stream.send(PlayClientBound::Title(TitleAction::Reset));
+
+                        let _ = stream.send(PlayClientBound::Title(TitleAction::SetTitle(
+                            chat_parse("§fThe Wall™"),
+                        )));
+
+                        let _ = stream.send(PlayClientBound::Title(TitleAction::SetDisplayTime {
+                            fade_in: 15,
+                            display: 20,
+                            fade_out: 15,
+                        }));
+                    } else {
+                        // take creative
+                        let _ = self.players[&id].stream.lock().await.send(
+                            PlayClientBound::ChangeGameState {
+                                reason: GameStateChangeReason::ChangeGamemode,
+                                value: Gamemode::Adventure as u8 as f32,
+                            },
+                        );
+                        // play epic sound
+                        let _ = self.players[&id].stream.lock().await.send(
+                            PlayClientBound::EntitySoundEffect {
+                                sound_id: VarInt(75), // block.beacon.power_select
+                                category: SoundCategory::Master,
+                                entity_id: VarInt(id as i32), // player
+                                volume: 1.0,
+                                pitch: 1.0,
+                            },
+                        );
+                    }
+                }
+
                 // check if chunk passed
                 let old_chunks = (
                     (self.players[&id].position.0.floor() / 16.0).floor(),
@@ -2196,6 +2267,15 @@ fn check_if_section_empty(section: &mut Option<WorldChunkSection>) {
             // no air in the palette? these folks are dedicated!
         }
     }
+}
+
+fn position_in_bounds(position: (f64, f64, f64), bounds: [f32; 6]) -> bool {
+    position.0 as f32 >= bounds[0]
+        && position.0 as f32 <= bounds[3]
+        && position.1 as f32 >= bounds[1]
+        && position.1 as f32 <= bounds[4]
+        && position.2 as f32 >= bounds[2]
+        && position.2 as f32 <= bounds[5]
 }
 
 pub fn start() -> WSender {

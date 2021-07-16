@@ -274,12 +274,11 @@ impl LoginWorld {
                                 }
 
                                 // also add an entry to the player data
-                                GLOBAL_STATE.player_data.write().await.insert(
-                                    self.players[&id].0.to_string(),
-                                    PlayerData {
-                                        ..Default::default()
-                                    },
-                                );
+                                GLOBAL_STATE
+                                    .player_data
+                                    .write()
+                                    .await
+                                    .insert(self.players[&id].0.to_string(), Default::default());
                                 GLOBAL_STATE.save_player_data().await;
 
                                 GLOBAL_STATE.players.write().await[id].logged_in = true;
