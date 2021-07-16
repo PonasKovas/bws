@@ -59,10 +59,12 @@ pub struct Player {
     pub logged_in: bool,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Default)]
 pub struct PlayerData {
+    #[serde(default)]
     pub permissions: PlayerPermissions,
     // until when, reason, and the issuer of the ban, if any
+    #[serde(default)]
     pub banned: Option<(DateTime<Utc>, String, Option<String>)>,
     // groups: PlayerGroups,
     // score, statistics...
