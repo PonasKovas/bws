@@ -1075,6 +1075,10 @@ impl LobbyWorld {
                             self.update_nearby_liquids(target);
                         } else {
                             // might be a special case like buckets with fluids
+                            // but not with the wall
+                            if on_wall {
+                                return;
+                            }
 
                             if item_id == 661 || item_id == 662 {
                                 // water and lava buckets, respectfully
