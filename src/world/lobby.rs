@@ -265,10 +265,18 @@ impl LobbyWorld {
                         Player {
                             username,
                             stream,
-                            position: (0.0, 20.0, 0.0),
-                            new_position: (0.0, 20.0, 0.0),
-                            rotation: (0.0, 0.0),
-                            new_rotation: (0.0, 0.0),
+                            position: (
+                                self.spawn_position[0] as f64,
+                                self.spawn_position[1] as f64,
+                                self.spawn_position[2] as f64,
+                            ),
+                            new_position: (
+                                self.spawn_position[0] as f64,
+                                self.spawn_position[1] as f64,
+                                self.spawn_position[2] as f64,
+                            ),
+                            rotation: (self.spawn_rotation[0], self.spawn_rotation[1]),
+                            new_rotation: (self.spawn_rotation[0], self.spawn_rotation[1]),
                             on_ground: false,
                             new_on_ground: false,
                             uuid,
