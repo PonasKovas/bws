@@ -1,5 +1,5 @@
 use crate::chat_parse;
-use crate::collision::is_colliding;
+use crate::collision::{is_colliding, BoundingBox};
 use crate::data::Block;
 use crate::global_state::PStream;
 use crate::internal_communication::{WBound, WReceiver, WSender};
@@ -1031,18 +1031,22 @@ impl LobbyWorld {
                                 let player_height = 1.8;
                                 let player_width = 0.6;
                                 if is_colliding(
-                                    player_pos.0 - player_width / 2.0,
-                                    player_pos.1,
-                                    player_pos.2 - player_width / 2.0,
-                                    player_width,
-                                    player_height,
-                                    player_width,
-                                    target.x as f64,
-                                    target.y as f64,
-                                    target.z as f64,
-                                    1.0,
-                                    1.0,
-                                    1.0,
+                                    BoundingBox {
+                                        x: player_pos.0 - player_width / 2.0,
+                                        y: player_pos.1,
+                                        z: player_pos.2 - player_width / 2.0,
+                                        w: player_width,
+                                        h: player_height,
+                                        l: player_width,
+                                    },
+                                    BoundingBox {
+                                        x: target.x as f64,
+                                        y: target.y as f64,
+                                        z: target.z as f64,
+                                        w: 1.0,
+                                        h: 1.0,
+                                        l: 1.0,
+                                    },
                                 ) {
                                     // a player is standing in the way :/
                                     // dont place it
