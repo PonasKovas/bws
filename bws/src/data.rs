@@ -42,9 +42,10 @@ lazy_static! {
 }
 
 fn read_items_to_blocks() -> &'static Archived<Vec<Option<Block>>> {
-    match check_archived_root::<Vec<Option<Block>>>(
-        &include_bytes_aligned!(16, concat!(env!("OUT_DIR"), "/items-to-blocks.rkyv"))[..],
-    ) {
+    match check_archived_root::<Vec<Option<Block>>>(include_bytes_aligned!(
+        16,
+        concat!(env!("OUT_DIR"), "/items-to-blocks.rkyv")
+    )) {
         Ok(r) => r,
         Err(e) => {
             error!("Error reading ITEMS_TO_BLOCKS: {}", e);
