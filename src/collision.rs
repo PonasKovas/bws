@@ -1,21 +1,21 @@
-pub fn is_colliding(
-    x1: f64,
-    y1: f64,
-    z1: f64,
-    w1: f64,
-    h1: f64,
-    l1: f64,
-    x2: f64,
-    y2: f64,
-    z2: f64,
-    w2: f64,
-    h2: f64,
-    l2: f64,
-) -> bool {
-    x1 < (x2 + w2)
-        && (x1 + w1) > x2
-        && y1 < (y2 + h2)
-        && (y1 + h1) > y2
-        && z1 < (z2 + l2)
-        && (z1 + l1) > z2
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub struct BoundingBox {
+    pub x: f64,
+    pub y: f64,
+    pub z: f64,
+    /// width
+    pub w: f64,
+    /// height
+    pub h: f64,
+    /// length
+    pub l: f64,
+}
+
+pub fn is_colliding(box1: BoundingBox, box2: BoundingBox) -> bool {
+    box1.x < (box2.x + box2.w)
+        && (box1.x + box1.w) > box2.x
+        && box1.y < (box2.y + box2.h)
+        && (box1.y + box1.h) > box2.y
+        && box1.z < (box2.z + box2.l)
+        && (box1.z + box1.l) > box2.z
 }
