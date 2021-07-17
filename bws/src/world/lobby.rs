@@ -2043,7 +2043,7 @@ impl LobbyWorld {
             } else {
                 // position changed
 
-                // in lobby, positions higher than 128 are not allowed, except for editors of course
+                // in lobby, positions higher than 128 or lower than 0 are not allowed, except for editors of course
                 if !self.players[&id].editing_lobby {
                     if self.players[&id].new_position.1 > 128.0 {
                         let _ = self.players[&id].stream.lock().await.send(
@@ -2058,6 +2058,19 @@ impl LobbyWorld {
                             },
                         );
                         self.players.get_mut(&id).unwrap().new_position.1 = 126.0;
+                    } else if self.players[&id].new_position.1 < 0.0 {
+                        let _ = self.players[&id].stream.lock().await.send(
+                            PlayClientBound::PlayerPositionAndLook {
+                                x: self.players[&id].new_position.0,
+                                y: 1.0,
+                                z: self.players[&id].new_position.2,
+                                yaw: self.players[&id].new_rotation.0,
+                                pitch: self.players[&id].new_rotation.1,
+                                flags: PositionAndLookFlags::empty(),
+                                id: VarInt(0),
+                            },
+                        );
+                        self.players.get_mut(&id).unwrap().new_position.1 = 1.0;
                     }
                 }
 
