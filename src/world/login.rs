@@ -225,7 +225,12 @@ impl LoginWorld {
                         let mut iterator = message.split(' ');
                         if let Some(given_password) = iterator.nth(1) {
                             // hash it
-                            let hash = format!("{:x}", Sha256::digest(given_password.as_bytes()));
+                            let hash = format!(
+                                "{:x}",
+                                Sha256::digest(
+                                    format!("{}bws_server_salt", given_password).as_bytes()
+                                )
+                            );
                             // and compare to the correct hash
                             if *correct_password_hash == hash {
                                 // they match, so login successful
@@ -272,7 +277,12 @@ impl LoginWorld {
                                 // register the gentleman
                                 self.accounts.insert(
                                     self.players[&id].0.to_string(),
-                                    format!("{:x}", Sha256::digest(first_password.as_bytes())),
+                                    format!(
+                                        "{:x}",
+                                        Sha256::digest(
+                                            format!("{}bws_server_salt", first_password).as_bytes()
+                                        )
+                                    ),
                                 );
                                 if let Err(e) = self.save_accounts().await {
                                     error!("Error saving accounts data: {}", e);
