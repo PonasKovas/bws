@@ -20,13 +20,9 @@ impl<'a> CommandsBuilder<'a> {
     }
     /// Returns a `PlayClientBound::DeclareCommands` packet completely ready to be sent
     pub fn build(self) -> PlayClientBound<'a> {
-        let mut res = Vec::new();
-
-        // first add the root node
-        // we will set it's children as we're adding them
-        res.push(CommandNode::Root {
+        let mut res = vec![CommandNode::Root {
             children: Vec::new(),
-        });
+        }];
 
         add_children(&mut res, 0, self.children);
 
@@ -34,6 +30,12 @@ impl<'a> CommandsBuilder<'a> {
             nodes: res,
             root: VarInt(0),
         }
+    }
+}
+
+impl<'a> Default for CommandsBuilder<'a> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

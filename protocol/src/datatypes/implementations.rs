@@ -78,7 +78,7 @@ impl<'a> Serializable for CommandNode<'a> {
                 if *executable {
                     flags |= 0x04;
                 }
-                if let Some(_) = redirect {
+                if redirect.is_some() {
                     flags |= 0x08;
                 }
                 sum += flags.to_writer(&mut *output)?;
@@ -101,10 +101,10 @@ impl<'a> Serializable for CommandNode<'a> {
                 if *executable {
                     flags |= 0x04;
                 }
-                if let Some(_) = redirect {
+                if redirect.is_some() {
                     flags |= 0x08;
                 }
-                if let Some(_) = suggestions {
+                if suggestions.is_some() {
                     flags |= 0x10;
                 }
                 sum += flags.to_writer(&mut *output)?;
@@ -394,7 +394,7 @@ impl Deserializable for OptionalNbt {
             struct Wrapper<R>(Option<u8>, R);
             impl<R: Read> Read for Wrapper<R> {
                 fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-                    if buf.len() == 0 {
+                    if buf.is_empty() {
                         return Ok(0);
                     }
                     if let Some(b) = self.0.take() {
@@ -421,9 +421,9 @@ impl Serializable for VarInt {
         loop {
             let mut byte: u8 = number as u8 & 0b01111111;
 
-            number = number >> 7;
+            number >>= 7;
             if number != 0 {
-                byte = byte | 0b10000000;
+                byte |= 0b10000000;
             }
 
             output.write_all(&[byte])?;
@@ -450,7 +450,7 @@ impl Deserializable for VarInt {
             input.read_exact(&mut number)?;
 
             let value = (number[0] & 0b01111111) as i64;
-            result = result | (value << (7 * i));
+            result |= value << (7 * i);
 
             if (number[0] & 0b10000000) == 0 || i == 4 {
                 break;
@@ -618,8 +618,8 @@ impl<T: Deserializable, const N: usize> Deserializable for [T; N] {
     fn from_reader<R: Read>(input: &mut R) -> Result<Self> {
         let mut result = [(); N].map(|_| None); // Option<T> is not Copy
 
-        for i in 0..N {
-            result[i] = Some(T::from_reader(&mut *input)?);
+        for element in result.iter_mut() {
+            *element = Some(T::from_reader(&mut *input)?);
         }
 
         Ok(result.map(|e| e.unwrap()))
@@ -673,7 +673,7 @@ impl<T: Deserializable, L: Deserializable + TryInto<usize>, const N: usize> Dese
         if len != N {
             Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("Tried reading ArrWithLen but the size was not correct"),
+                "Tried reading ArrWithLen but the size was not correct".to_string(),
             ))
         } else {
             Ok(Self::new(<[T; N]>::from_reader(&mut *input)?))

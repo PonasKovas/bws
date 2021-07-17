@@ -20,7 +20,7 @@ lazy_static = "1.4"
 anyhow = "1.0"
 log = "0.4"
 env_logger = "0.8"
-thiserror = "1.0"
+thiserror = "1.0.26"
 shrinkwraprs = "0.3.0"
 bitflags = "1.2"
 protocol = { path = "protocol" }

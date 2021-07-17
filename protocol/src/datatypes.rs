@@ -597,3 +597,9 @@ impl<'a> Chat<'a> {
         }
     }
 }
+
+impl<'a> Default for Chat<'a> {
+    fn default() -> Self {
+        Self::new()
+    }
+}

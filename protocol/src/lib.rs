@@ -1,5 +1,7 @@
 #![feature(array_map)]
 #![feature(never_type)]
+// deal with this later
+#![allow(clippy::large_enum_variant)]
 
 /// Used by the [`command!`] macro internally but can be used manually too
 pub mod commands_builder;

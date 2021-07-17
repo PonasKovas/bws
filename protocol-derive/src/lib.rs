@@ -212,6 +212,7 @@ pub fn derive_serializable(input: TokenStream) -> TokenStream {
 
             TokenStream::from(quote! {
                 impl#generics protocol::Serializable for #name#generics {
+                    #[allow(clippy::nonstandard_macro_braces)]
                     fn to_writer<__W: ::std::io::Write>(&self, __output: &mut __W) -> ::std::io::Result<usize> {
                         let mut sum = 0;
 
@@ -439,6 +440,7 @@ pub fn derive_deserializable(input: TokenStream) -> TokenStream {
 
             TokenStream::from(quote! {
                 impl#generics protocol::Deserializable for #name#generics {
+                    #[allow(clippy::nonstandard_macro_braces)]
                     fn from_reader<__R: ::std::io::Read>(__input: &mut __R) -> ::std::io::Result<Self> {
                         let original_discriminant: #discriminant_as = protocol::Deserializable::from_reader(__input)?;
 
@@ -465,19 +467,17 @@ fn parse_attrs(attrs: Vec<Attribute>) -> Path {
     let mut discriminant_as: Path = parse_quote! {protocol::datatypes::VarInt};
 
     for attribute in attrs {
-        match attribute.path.get_ident() {
-            Some(ident) => match format!("{}", ident).as_str() {
-                "discriminant_as" => match attribute.parse_args::<Path>() {
+        if let Some(ident) = attribute.path.get_ident() {
+            if format!("{}", ident).as_str() == "discriminant_as" {
+                match attribute.parse_args::<Path>() {
                     Ok(arg) => {
                         discriminant_as = arg;
                     }
                     Err(_) => {
                         panic!("Usage: #[discriminant_as(u32)] with any type that implements Serialize/Deserialize and TryFrom<i32>/TryInto<i32> instead of u32");
                     }
-                },
-                _ => {}
-            },
-            None => {}
+                }
+            }
         }
     }
 

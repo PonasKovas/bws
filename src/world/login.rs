@@ -100,7 +100,7 @@ lazy_static! {
             let tags: Vec<(String, Vec<VarInt>)> = types
                 .next()
                 .unwrap()
-                .into_iter()
+                .iter()
                 .map(move |t| {
                     (
                         t.tagName.clone(),
@@ -215,116 +215,104 @@ impl LoginWorld {
         }
     }
     async fn handle_packet(&mut self, id: usize, packet: PlayServerBound<'static>) {
-        match packet {
-            PlayServerBound::ChatMessage(message) => {
-                // this world only parses commands
-                if message.starts_with("/login ") {
-                    // make sure the player is already registered
-                    if let Some(correct_password_hash) = self.accounts.get(&self.players[&id].0) {
-                        // get the password
-                        let mut iterator = message.split(' ');
-                        if let Some(given_password) = iterator.nth(1) {
-                            // hash it
-                            let hash = format!(
-                                "{:x}",
-                                Sha256::digest(
-                                    format!("{}bws_server_salt", given_password).as_bytes()
-                                )
+        if let PlayServerBound::ChatMessage(message) = packet {
+            // this world only parses commands
+            if message.starts_with("/login ") {
+                // make sure the player is already registered
+                if let Some(correct_password_hash) = self.accounts.get(&self.players[&id].0) {
+                    // get the password
+                    let mut iterator = message.split(' ');
+                    if let Some(given_password) = iterator.nth(1) {
+                        // hash it
+                        let hash = format!(
+                            "{:x}",
+                            Sha256::digest(format!("{}bws_server_salt", given_password).as_bytes())
+                        );
+                        // and compare to the correct hash
+                        if *correct_password_hash == hash {
+                            // they match, so login successful
+
+                            GLOBAL_STATE.players.write().await[id].logged_in = true;
+
+                            GLOBAL_STATE
+                                .w_login
+                                .0
+                                .send(WBound::MovePlayer {
+                                    id,
+                                    new_world: GLOBAL_STATE.w_lobby.0.clone(),
+                                })
+                                .unwrap();
+                        } else {
+                            // they don't match
+                            let _ = self.players[&id].1.lock().await.send(
+                                PlayClientBound::ChatMessage {
+                                    message: chat_parse("§4§lIncorrect password!"),
+                                    position: ChatPosition::System,
+                                    sender: 0,
+                                },
                             );
-                            // and compare to the correct hash
-                            if *correct_password_hash == hash {
-                                // they match, so login successful
-
-                                GLOBAL_STATE.players.write().await[id].logged_in = true;
-
-                                GLOBAL_STATE
-                                    .w_login
-                                    .0
-                                    .send(WBound::MovePlayer {
-                                        id,
-                                        new_world: GLOBAL_STATE.w_lobby.0.clone(),
-                                    })
-                                    .unwrap();
-                            } else {
-                                // they don't match
-                                let _ = self.players[&id].1.lock().await.send(
-                                    PlayClientBound::ChatMessage {
-                                        message: chat_parse("§4§lIncorrect password!"),
-                                        position: ChatPosition::System,
-                                        sender: 0,
-                                    },
-                                );
-                            }
-                        }
-                    }
-                } else if message.starts_with("/register ") {
-                    if self.accounts.get(&self.players[&id].0) == None {
-                        let mut iterator = message.split(' ');
-                        if let Some(first_password) = iterator.nth(1) {
-                            if let Some(second_password) = iterator.next() {
-                                if first_password != second_password {
-                                    let _ = self.players[&id].1.lock().await.send(
-                                        PlayClientBound::ChatMessage {
-                                            message: chat_parse(
-                                                "§cThe passwords do not match, try again.",
-                                            ),
-                                            position: ChatPosition::System,
-                                            sender: 0,
-                                        },
-                                    );
-                                }
-
-                                // register the gentleman
-                                self.accounts.insert(
-                                    self.players[&id].0.to_string(),
-                                    format!(
-                                        "{:x}",
-                                        Sha256::digest(
-                                            format!("{}bws_server_salt", first_password).as_bytes()
-                                        )
-                                    ),
-                                );
-                                if let Err(e) = self.save_accounts().await {
-                                    error!("Error saving accounts data: {}", e);
-                                }
-
-                                // also add an entry to the player data
-                                GLOBAL_STATE
-                                    .player_data
-                                    .write()
-                                    .await
-                                    .insert(self.players[&id].0.to_string(), Default::default());
-                                GLOBAL_STATE.save_player_data().await;
-
-                                GLOBAL_STATE.players.write().await[id].logged_in = true;
-
-                                GLOBAL_STATE
-                                    .w_login
-                                    .0
-                                    .send(WBound::MovePlayer {
-                                        id,
-                                        new_world: GLOBAL_STATE.w_lobby.0.clone(),
-                                    })
-                                    .unwrap();
-                            }
                         }
                     }
                 }
+            } else if message.starts_with("/register ")
+                && self.accounts.get(&self.players[&id].0).is_none()
+            {
+                let mut iterator = message.split(' ');
+                if let Some(first_password) = iterator.nth(1) {
+                    if let Some(second_password) = iterator.next() {
+                        if first_password != second_password {
+                            let _ = self.players[&id].1.lock().await.send(
+                                PlayClientBound::ChatMessage {
+                                    message: chat_parse("§cThe passwords do not match, try again."),
+                                    position: ChatPosition::System,
+                                    sender: 0,
+                                },
+                            );
+                        }
+
+                        // register the gentleman
+                        self.accounts.insert(
+                            self.players[&id].0.to_string(),
+                            format!(
+                                "{:x}",
+                                Sha256::digest(
+                                    format!("{}bws_server_salt", first_password).as_bytes()
+                                )
+                            ),
+                        );
+                        if let Err(e) = self.save_accounts().await {
+                            error!("Error saving accounts data: {}", e);
+                        }
+
+                        // also add an entry to the player data
+                        GLOBAL_STATE
+                            .player_data
+                            .write()
+                            .await
+                            .insert(self.players[&id].0.to_string(), Default::default());
+                        GLOBAL_STATE.save_player_data().await;
+
+                        GLOBAL_STATE.players.write().await[id].logged_in = true;
+
+                        GLOBAL_STATE
+                            .w_login
+                            .0
+                            .send(WBound::MovePlayer {
+                                id,
+                                new_world: GLOBAL_STATE.w_lobby.0.clone(),
+                            })
+                            .unwrap();
+                    }
+                }
             }
-            _ => {}
         }
     }
     /// returns true if the world should stop
     async fn process_wbound_messages(&mut self, w_receiver: &mut WReceiver) -> bool {
-        loop {
-            // Tries executing the future exactly once, without forcing it to yield earlier (because non-cooperative multitasking).
-            // If it returns Pending, then break the whole loop, because that means there
-            // are no more messages queued up at this moment.
-            let message = match unconstrained(w_receiver.recv()).now_or_never().flatten() {
-                Some(m) => m,
-                None => break,
-            };
-
+        // Tries executing the future exactly once, without forcing it to yield earlier (because non-cooperative multitasking).
+        // If it returns Pending, then break the whole loop, because that means there
+        // are no more messages queued up at this moment.
+        while let Some(message) = unconstrained(w_receiver.recv()).now_or_never().flatten() {
             match message {
                 WBound::AddPlayer { id } => {
                     let (username, stream) = match GLOBAL_STATE.players.read().await.get(id) {
@@ -343,7 +331,7 @@ impl LoginWorld {
                 }
                 WBound::MovePlayer { id, new_world } => match self.players.remove(&id) {
                     Some(_) => {
-                        if let Err(_) = new_world.send(WBound::AddPlayer { id }) {
+                        if new_world.send(WBound::AddPlayer { id }).is_err() {
                             error!("Received a request to move a player to a dead world");
                         }
                     }
@@ -487,7 +475,7 @@ impl LoginWorld {
     async fn tick(&mut self, counter: u128) {
         // every second sends all the connected players an above-hotbar instructions
         if counter % 20 == 0 {
-            for (_id, player) in &self.players {
+            for player in self.players.values() {
                 let subtitle = if self.accounts.contains_key(&player.0) {
                     &self.login_message
                 } else {

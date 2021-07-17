@@ -134,7 +134,7 @@ fn gen_items_to_blocks(
                         properties.push(Tuple(
                             property_name.to_owned(),
                             if let Some(string) = property_value.as_str() {
-                                format!("{}", string)
+                                string.to_string()
                             } else {
                                 format!("{}", property_value)
                             },

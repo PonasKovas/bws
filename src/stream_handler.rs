@@ -78,7 +78,7 @@ async fn read_varint(
 
     loop {
         let value = (byte & 0b01111111) as i64;
-        result = result | (value << (7 * i));
+        result |= value << (7 * i);
 
         if (byte & 0b10000000) == 0 || i == 4 {
             break;
@@ -96,9 +96,9 @@ async fn write_varint(varint: VarInt, output: &mut BufReader<TcpStream>) -> std:
     loop {
         let mut byte: u8 = number as u8 & 0b01111111;
 
-        number = number >> 7;
+        number >>= 7;
         if number != 0 {
-            byte = byte | 0b10000000;
+            byte |= 0b10000000;
         }
 
         output.write_u8(byte).await?;
@@ -227,6 +227,7 @@ async fn handle(socket: TcpStream, state: &mut State) -> Result<()> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn read_and_parse_packet(
     socket: &mut BufReader<TcpStream>,
     buffer: &mut Vec<u8>,
@@ -245,7 +246,7 @@ async fn read_and_parse_packet(
     // read the rest of the packet
     let packet = read_packet(socket, buffer, &*state, length as usize).await?;
 
-    Ok(match packet {
+    match packet {
         ServerBound::Handshake(HandshakeServerBound::Handshake {
             protocol,
             server_address: _,
@@ -435,7 +436,7 @@ async fn read_and_parse_packet(
                 // can unwrap since check previously in this function
                 stream: Arc::new(Mutex::new(player_stream.take().unwrap())),
                 username: username.into_owned(),
-                address: address.clone(),
+                address: *address,
                 uuid,
                 properties,
                 ping: 0.0,
@@ -497,12 +498,11 @@ async fn read_and_parse_packet(
             };
 
             // handle not world-specific command tabcompletes
-            if GLOBAL_STATE.players.read().await[id].logged_in {
-                if text.starts_with("/") {
-                    if handle_tabcomplete(socket, buffer, id, transaction_id, &text).await? {
-                        return Ok(());
-                    }
-                }
+            if GLOBAL_STATE.players.read().await[id].logged_in
+                && text.starts_with('/')
+                && handle_tabcomplete(socket, buffer, id, transaction_id, &text).await?
+            {
+                return Ok(());
             }
 
             shoutput_sender.send(PlayServerBound::TabComplete {
@@ -520,10 +520,8 @@ async fn read_and_parse_packet(
 
             if GLOBAL_STATE.players.read().await[id].logged_in {
                 // handle not world-specific commands
-                if message.starts_with("/") {
-                    if handle_command(socket, buffer, id, &message).await? {
-                        return Ok(());
-                    }
+                if message.starts_with('/') && handle_command(socket, buffer, id, &message).await? {
+                    return Ok(());
                 }
             }
 
@@ -537,7 +535,8 @@ async fn read_and_parse_packet(
             )?;
         }
         _ => {}
-    })
+    }
+    Ok(())
 }
 
 // returns whether a command was processed, because if not, it will be forwarded to the world
@@ -729,8 +728,6 @@ async fn handle_command(
             say!("§7Permission set.");
             *permission = value;
 
-            drop(permission);
-            drop(player);
             drop(lock);
 
             GLOBAL_STATE.save_player_data().await;
@@ -839,7 +836,7 @@ async fn handle_command(
                     result += &format!("{} hours ", duration.num_hours());
                     duration = duration - chrono::Duration::hours(duration.num_hours());
                 }
-                if duration.num_minutes() > 0 || result.len() == 0 {
+                if duration.num_minutes() > 0 || result.is_empty() {
                     result += &format!("{} minutes ", duration.num_minutes());
                 }
                 result
@@ -858,7 +855,6 @@ async fn handle_command(
                 reason
             );
 
-            drop(player);
             drop(lock);
 
             GLOBAL_STATE.save_player_data().await;
@@ -893,7 +889,6 @@ async fn handle_command(
                 username,
             );
 
-            drop(player);
             drop(lock);
 
             GLOBAL_STATE.save_player_data().await;
@@ -1047,7 +1042,7 @@ async fn read_packet(
                 use futures::AsyncBufReadExt;
                 use tokio_util::compat::TokioAsyncReadCompatExt;
 
-                if socket.buffer().len() == 0 {
+                if socket.buffer().is_empty() {
                     socket.compat().fill_buf().await?;
                 }
                 if to_read >= socket.buffer().len() {
@@ -1072,11 +1067,11 @@ async fn read_packet(
 
     let mut cursor = Cursor::new(&*buffer);
 
-    Ok(match state {
-        &State::Handshake => HandshakeServerBound::from_reader(&mut cursor)?.sb(),
-        &State::Status => StatusServerBound::from_reader(&mut cursor)?.sb(),
-        &State::Login => LoginServerBound::from_reader(&mut cursor)?.sb(),
-        &State::Play(_) => PlayServerBound::from_reader(&mut cursor)?.sb(),
+    Ok(match *state {
+        State::Handshake => HandshakeServerBound::from_reader(&mut cursor)?.sb(),
+        State::Status => StatusServerBound::from_reader(&mut cursor)?.sb(),
+        State::Login => LoginServerBound::from_reader(&mut cursor)?.sb(),
+        State::Play(_) => PlayServerBound::from_reader(&mut cursor)?.sb(),
     })
 }
 

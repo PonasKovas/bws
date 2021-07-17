@@ -93,7 +93,7 @@ impl<'a, const CHUNKS: usize> Map<'a, CHUNKS> {
                     if e.kind() == ErrorKind::UnexpectedEof {
                         break;
                     } else {
-                        Err(e)?;
+                        return Err(e.into());
                     }
                 }
             }

@@ -35,7 +35,7 @@ use super::{WorldChunk, WorldChunks};
 const MAP_SIZE: i8 = 4;
 const MAP_CHUNKS: usize = MAP_SIZE as usize * MAP_SIZE as usize * 4;
 
-const MAP_PATH: &'static str = "assets/maps/lobby.map";
+const MAP_PATH: &str = "assets/maps/lobby.map";
 
 const DEFAULT_CREATIVE_BOUNDS: [f32; 6] = [-30., 0., -30., 30., 30., 30.];
 const DEFAULT_SPAWN_POSITION: [f32; 3] = [0., 20., 0.];
@@ -241,15 +241,10 @@ impl LobbyWorld {
 impl LobbyWorld {
     /// returns true if the world needs to be stopped
     async fn process_wbound_messages(&mut self, w_receiver: &mut WReceiver) -> bool {
-        loop {
-            // Tries executing the future exactly once, without forcing it to yield earlier (because non-cooperative multitasking).
-            // If it returns Pending, then break the whole loop, because that means there
-            // are no more messages queued up at this moment.
-            let message = match unconstrained(w_receiver.recv()).now_or_never().flatten() {
-                Some(m) => m,
-                None => break,
-            };
-
+        // Tries executing the future exactly once, without forcing it to yield earlier (because non-cooperative multitasking).
+        // If it returns Pending, then break the whole loop, because that means there
+        // are no more messages queued up at this moment.
+        while let Some(message) = unconstrained(w_receiver.recv()).now_or_never().flatten() {
             match message {
                 WBound::AddPlayer { id } => {
                     let (username, stream, uuid) = match GLOBAL_STATE.players.read().await.get(id) {
@@ -296,7 +291,7 @@ impl LobbyWorld {
                 }
                 WBound::MovePlayer { id, new_world } => match self.players.remove(&id) {
                     Some(_) => {
-                        if let Err(_) = new_world.send(WBound::AddPlayer { id }) {
+                        if new_world.send(WBound::AddPlayer { id }).is_err() {
                             error!("Received a request to move a player to a dead world");
                         }
                     }
@@ -545,6 +540,7 @@ impl LobbyWorld {
                     yaw: Angle::from_degrees(self.players[&id].rotation.0),
                     pitch: Angle::from_degrees(self.players[&id].rotation.1),
                 });
+            #[allow(clippy::or_fun_call)]
             let _ = player
                 .stream
                 .lock()
@@ -587,6 +583,7 @@ impl LobbyWorld {
                     yaw: Angle::from_degrees(player.rotation.0),
                     pitch: Angle::from_degrees(player.rotation.1),
                 })?;
+            #[allow(clippy::or_fun_call)]
             self.players[&id]
                 .stream
                 .lock()
@@ -618,6 +615,7 @@ impl LobbyWorld {
         }
 
         // metadata about self
+        #[allow(clippy::or_fun_call)]
         self.players[&id]
             .stream
             .lock()
@@ -740,11 +738,11 @@ impl LobbyWorld {
                                     let bits_to_the_right = 64
                                         - local_bits_per_block as i32
                                             * (i as i32 % local_blocks_per_u64 as i32 + 1);
-                                    t = t << bits_to_the_right;
+                                    t <<= bits_to_the_right;
 
                                     let bits_to_the_left = local_bits_per_block as i32
                                         * (i as i32 % local_blocks_per_u64 as i32);
-                                    t = t >> (bits_to_the_right + bits_to_the_left);
+                                    t >>= bits_to_the_right + bits_to_the_left;
 
                                     data[i / 4] |= (section.block_mappings[t as usize] as u64)
                                         << ((i % 4) * 15) as usize;
@@ -768,7 +766,7 @@ impl LobbyWorld {
             Chunk::Full {
                 primary_bitmask: VarInt(primary_bitmask),
                 heightmaps: Nbt(quartz_nbt::NbtCompound::new()),
-                biomes: ArrWithLen::new(self.chunks[chunk_index].biomes.clone().map(|e| VarInt(e))),
+                biomes: ArrWithLen::new(self.chunks[chunk_index].biomes.clone().map(VarInt)),
                 sections: ChunkSections(chunk_sections),
                 block_entities: Vec::new(),
             }
@@ -827,7 +825,7 @@ impl LobbyWorld {
                     let permissions = GLOBAL_STATE.player_data.read().await
                         [&self.players[&id].username]
                         .permissions;
-                    for (_, player) in &self.players {
+                    for player in self.players.values() {
                         let _ = player
                             .stream
                             .lock()
@@ -942,7 +940,7 @@ impl LobbyWorld {
                 cursor_position_z: _,
                 inside_block: _,
             } => {
-                let mut target = location.clone();
+                let mut target = location;
                 match face {
                     Direction::Down => {
                         target.y -= 1;
@@ -997,139 +995,101 @@ impl LobbyWorld {
                     Hand::Left => 36 + self.players[&id].held_item as usize,
                     Hand::Right => 45usize,
                 };
-                match self.players[&id].inventory[slot].0.as_ref() {
-                    Some(item) => {
-                        let item_id = item.item_id.0;
+                if let Some(item) = self.players[&id].inventory[slot].0.as_ref() {
+                    let item_id = item.item_id.0;
 
-                        if let Some(block) = crate::data::ITEMS_TO_BLOCKS[item_id as usize].as_ref()
-                        {
-                            if on_wall {
-                                if let Err(e) = self.set_block(location, block.default_state).await
-                                {
-                                    debug!("Error placing block: {:?}", e);
-                                }
-                                return;
+                    if let Some(block) = crate::data::ITEMS_TO_BLOCKS[item_id as usize].as_ref() {
+                        if on_wall {
+                            if let Err(e) = self.set_block(location, block.default_state).await {
+                                debug!("Error placing block: {:?}", e);
                             }
+                            return;
+                        }
 
-                            // target must be air or a liquid
-                            match self.get_block(target) {
-                                Ok(old_block) => {
-                                    if old_block != 0 && !parse_fluid_state(old_block).is_some() {
-                                        return;
-                                    }
-                                }
-                                Err(_) => {
+                        // target must be air or a liquid
+                        match self.get_block(target) {
+                            Ok(old_block) => {
+                                if old_block != 0 && parse_fluid_state(old_block).is_none() {
                                     return;
                                 }
                             }
-
-                            let state = get_placed_state(
-                                block,
-                                &face,
-                                &cursor_position_y,
-                                self.players[&id].new_rotation.0,
-                            );
-
-                            if parse_fluid_state(state).is_none() {
-                                for (_, player) in &self.players {
-                                    let player_pos = player.position;
-                                    let player_height = 1.8;
-                                    let player_width = 0.6;
-                                    if is_colliding(
-                                        player_pos.0 - player_width / 2.0,
-                                        player_pos.1,
-                                        player_pos.2 - player_width / 2.0,
-                                        player_width,
-                                        player_height,
-                                        player_width,
-                                        target.x as f64,
-                                        target.y as f64,
-                                        target.z as f64,
-                                        1.0,
-                                        1.0,
-                                        1.0,
-                                    ) {
-                                        // a player is standing in the way :/
-                                        // dont place it
-                                        //
-                                        // and since the server is more strict (because we assume all blocks are 1x1x1, even slabs)
-                                        // send the server-side block to the client in case they placed something locally
-                                        let _ = self.players[&id].stream.lock().await.send(
-                                            PlayClientBound::BlockChange {
-                                                location: target,
-                                                new_block_id: VarInt(
-                                                    self.get_block(target).unwrap(),
-                                                ),
-                                            },
-                                        );
-                                        return;
-                                    }
-                                }
-                            }
-
-                            if let Err(e) = self.set_block(target, state).await {
-                                debug!("Error placing block: {:?}", e);
-                            }
-
-                            // if there are any neighbor liquids, may need to update them
-                            self.update_nearby_liquids(target);
-                        } else {
-                            // might be a special case like buckets with fluids
-                            // but not with the wall
-                            if on_wall {
+                            Err(_) => {
                                 return;
                             }
+                        }
 
-                            if item_id == 661 || item_id == 662 {
-                                // water and lava buckets, respectfully
-                                if let Ok(old_block) = self.get_block(target) {
-                                    if old_block == 0 || parse_fluid_state(old_block).is_some() {
-                                        // just place the water/lava
-                                        if let Err(e) = self
-                                            .set_block(target, if item_id == 661 { 34 } else { 50 })
-                                            .await
-                                        {
-                                            debug!("Error placing block: {:?}", e);
-                                        }
-                                        // and add it to the flowing fluid list so it spreads
-                                        self.flowing_liquids.push(target);
+                        let state = get_placed_state(
+                            block,
+                            &face,
+                            &cursor_position_y,
+                            self.players[&id].new_rotation.0,
+                        );
 
-                                        self.update_nearby_liquids(target);
-                                    } else {
-                                        // undo client local changes
-                                        let _ = self.players[&id].stream.lock().await.send(
-                                            PlayClientBound::BlockChange {
-                                                location: target,
-                                                new_block_id: VarInt(old_block),
-                                            },
-                                        );
-                                    }
+                        if parse_fluid_state(state).is_none() {
+                            for player in self.players.values() {
+                                let player_pos = player.position;
+                                let player_height = 1.8;
+                                let player_width = 0.6;
+                                if is_colliding(
+                                    player_pos.0 - player_width / 2.0,
+                                    player_pos.1,
+                                    player_pos.2 - player_width / 2.0,
+                                    player_width,
+                                    player_height,
+                                    player_width,
+                                    target.x as f64,
+                                    target.y as f64,
+                                    target.z as f64,
+                                    1.0,
+                                    1.0,
+                                    1.0,
+                                ) {
+                                    // a player is standing in the way :/
+                                    // dont place it
+                                    //
+                                    // and since the server is more strict (because we assume all blocks are 1x1x1, even slabs)
+                                    // send the server-side block to the client in case they placed something locally
+                                    let _ = self.players[&id].stream.lock().await.send(
+                                        PlayClientBound::BlockChange {
+                                            location: target,
+                                            new_block_id: VarInt(self.get_block(target).unwrap()),
+                                        },
+                                    );
+                                    return;
                                 }
-                            } else if item_id == 660 {
-                                // empty bucket
-                                if let Ok(old_block) = self.get_block(target) {
-                                    if let Some((_is_lava, 0, false)) = parse_fluid_state(old_block)
+                            }
+                        }
+
+                        if let Err(e) = self.set_block(target, state).await {
+                            debug!("Error placing block: {:?}", e);
+                        }
+
+                        // if there are any neighbor liquids, may need to update them
+                        self.update_nearby_liquids(target);
+                    } else {
+                        // might be a special case like buckets with fluids
+                        // but not with the wall
+                        if on_wall {
+                            return;
+                        }
+
+                        if item_id == 661 || item_id == 662 {
+                            // water and lava buckets, respectfully
+                            if let Ok(old_block) = self.get_block(target) {
+                                if old_block == 0 || parse_fluid_state(old_block).is_some() {
+                                    // just place the water/lava
+                                    if let Err(e) = self
+                                        .set_block(target, if item_id == 661 { 34 } else { 50 })
+                                        .await
                                     {
-                                        // remove the water
-                                        if let Err(e) = self.set_block(target, 0).await {
-                                            debug!("Error placing block: {:?}", e);
-                                        }
-                                        self.update_nearby_liquids(target);
-                                        // and fill the bucket TODO
-                                        //
-                                    } else {
-                                        // undo whatever the client may have done locally
-                                        let _ = self.players[&id].stream.lock().await.send(
-                                            PlayClientBound::BlockChange {
-                                                location: target,
-                                                new_block_id: VarInt(old_block),
-                                            },
-                                        );
+                                        debug!("Error placing block: {:?}", e);
                                     }
-                                }
-                            } else {
-                                // just remove whatever the client might have placed locally
-                                if let Ok(old_block) = self.get_block(target) {
+                                    // and add it to the flowing fluid list so it spreads
+                                    self.flowing_liquids.push(target);
+
+                                    self.update_nearby_liquids(target);
+                                } else {
+                                    // undo client local changes
                                     let _ = self.players[&id].stream.lock().await.send(
                                         PlayClientBound::BlockChange {
                                             location: target,
@@ -1138,9 +1098,39 @@ impl LobbyWorld {
                                     );
                                 }
                             }
+                        } else if item_id == 660 {
+                            // empty bucket
+                            if let Ok(old_block) = self.get_block(target) {
+                                if let Some((_is_lava, 0, false)) = parse_fluid_state(old_block) {
+                                    // remove the water
+                                    if let Err(e) = self.set_block(target, 0).await {
+                                        debug!("Error placing block: {:?}", e);
+                                    }
+                                    self.update_nearby_liquids(target);
+                                    // and fill the bucket TODO
+                                    //
+                                } else {
+                                    // undo whatever the client may have done locally
+                                    let _ = self.players[&id].stream.lock().await.send(
+                                        PlayClientBound::BlockChange {
+                                            location: target,
+                                            new_block_id: VarInt(old_block),
+                                        },
+                                    );
+                                }
+                            }
+                        } else {
+                            // just remove whatever the client might have placed locally
+                            if let Ok(old_block) = self.get_block(target) {
+                                let _ = self.players[&id].stream.lock().await.send(
+                                    PlayClientBound::BlockChange {
+                                        location: target,
+                                        new_block_id: VarInt(old_block),
+                                    },
+                                );
+                            }
                         }
                     }
-                    None => {}
                 }
             }
             PlayServerBound::EntityAction {
@@ -1149,7 +1139,7 @@ impl LobbyWorld {
                 jump_boost: _,
             } => {
                 if action == EntityAction::StartSneaking {
-                    for (_id, player) in &self.players {
+                    for player in self.players.values() {
                         let _ = player
                             .stream
                             .lock()
@@ -1163,7 +1153,7 @@ impl LobbyWorld {
                             });
                     }
                 } else if action == EntityAction::StopSneaking {
-                    for (_id, player) in &self.players {
+                    for player in self.players.values() {
                         let _ = player
                             .stream
                             .lock()
@@ -1309,10 +1299,10 @@ impl LobbyWorld {
                 }
 
                 let mut args = [0.0; 6];
-                for i in 0..6 {
+                for arg in &mut args {
                     match segments.next() {
-                        Some(arg) => {
-                            args[i] = match arg.parse() {
+                        Some(segment) => {
+                            *arg = match segment.parse() {
                                 Ok(f) => f,
                                 Err(e) => {
                                     self.system_message(
@@ -1810,7 +1800,7 @@ impl LobbyWorld {
         new_id: VarInt,
     ) -> Result<()> {
         let chunk = (position.x / 16, position.z / 16);
-        for (_id, player) in &self.players {
+        for player in self.players.values() {
             if player
                 .loaded_chunks
                 .contains(&(chunk.0 as i8, chunk.1 as i8))
@@ -1820,7 +1810,7 @@ impl LobbyWorld {
                     .lock()
                     .await
                     .send(PlayClientBound::BlockChange {
-                        location: position.clone(),
+                        location: position,
                         new_block_id: new_id,
                     })?;
             }
@@ -1845,7 +1835,7 @@ impl LobbyWorld {
     }
     async fn liquid_spread(&mut self, liquid: Position, is_lava: bool, level: i32) {
         // first, check if can flow downwards
-        let mut below = liquid.clone();
+        let mut below = liquid;
         below.y -= 1;
         let can_flow_downwards = if let Ok(below_block_id) = self.get_block(below) {
             // can flow if below is air or another liquid of the same type
@@ -1879,7 +1869,7 @@ impl LobbyWorld {
             // try flowing to sides, but only if enough current
             if level < 7 {
                 for side in &[(-1, 0), (1, 0), (0, -1), (0, 1)] {
-                    let mut side_block = liquid.clone();
+                    let mut side_block = liquid;
                     side_block.x += side.0;
                     side_block.z += side.1;
 
@@ -1900,7 +1890,7 @@ impl LobbyWorld {
                             if side_is_lava == is_lava && !side_is_falling {
                                 // its another fluid of the same type
                                 // if the current there is weaker, we can increase it
-                                if side_level >= level + 1 {
+                                if side_level > level {
                                     if let Err(e) = self
                                         .set_block(
                                             side_block,
@@ -1936,7 +1926,7 @@ impl LobbyWorld {
                     },
                 ));
             }
-            for (_id, player) in &self.players {
+            for player in self.players.values() {
                 let _ = player.stream.lock().await.send(PlayClientBound::PlayerInfo(
                     PlayerInfo::UpdateLatency(entries.clone()),
                 ));
@@ -1966,45 +1956,41 @@ impl LobbyWorld {
                     // check if this block is a source block or supported by any stronger block nearby
                     let supported = if is_falling {
                         // if falling, check if above block is a liquid
-                        let mut above_block = liquid.clone();
+                        let mut above_block = liquid;
                         above_block.y += 1;
 
                         if let Ok(above_block_id) = self.get_block(above_block) {
                             if let Some((above_is_lava, _, _)) = parse_fluid_state(above_block_id) {
-                                if above_is_lava == is_lava {
-                                    true
-                                } else {
-                                    false
-                                }
+                                above_is_lava == is_lava
                             } else {
                                 false
                             }
                         } else {
                             false
                         }
+                    } else if level == 0 {
+                        // is source block
+                        true
                     } else {
-                        if level == 0 {
-                            true
-                        } else {
-                            let mut supported = false;
-                            for neighbor in &[(-1, 0), (1, 0), (0, -1), (0, 1)] {
-                                let mut neighbor_block = liquid.clone();
-                                neighbor_block.x += neighbor.0;
-                                neighbor_block.z += neighbor.1;
+                        // check neighbors
+                        let mut supported = false;
+                        for neighbor in &[(-1, 0), (1, 0), (0, -1), (0, 1)] {
+                            let mut neighbor_block = liquid;
+                            neighbor_block.x += neighbor.0;
+                            neighbor_block.z += neighbor.1;
 
-                                if let Ok(neighbor_block_id) = self.get_block(neighbor_block) {
-                                    if let Some((neighbor_is_lava, neighbor_level, _)) =
-                                        parse_fluid_state(neighbor_block_id)
-                                    {
-                                        if neighbor_is_lava == is_lava && neighbor_level < level {
-                                            supported = true;
-                                            break;
-                                        }
+                            if let Ok(neighbor_block_id) = self.get_block(neighbor_block) {
+                                if let Some((neighbor_is_lava, neighbor_level, _)) =
+                                    parse_fluid_state(neighbor_block_id)
+                                {
+                                    if neighbor_is_lava == is_lava && neighbor_level < level {
+                                        supported = true;
+                                        break;
                                     }
                                 }
                             }
-                            supported
                         }
+                        supported
                     };
 
                     // if not supported, remove 2 levels or if no levels left just remove the liquid
@@ -2137,15 +2123,15 @@ impl LobbyWorld {
 
                 // check if chunk passed
                 let old_chunks = (
-                    (self.players[&id].position.0.floor() / 16.0).floor(),
-                    (self.players[&id].position.2.floor() / 16.0).floor(),
+                    (self.players[&id].position.0.floor() / 16.0).floor() as i32,
+                    (self.players[&id].position.2.floor() / 16.0).floor() as i32,
                 );
-                let old_y = self.players[&id].position.1.floor();
+                let old_y = self.players[&id].position.1.floor() as i32;
                 let new_chunks = (
-                    (self.players[&id].new_position.0.floor() / 16.0).floor(),
-                    (self.players[&id].new_position.2.floor() / 16.0).floor(),
+                    (self.players[&id].new_position.0.floor() / 16.0).floor() as i32,
+                    (self.players[&id].new_position.2.floor() / 16.0).floor() as i32,
                 );
-                let new_y = self.players[&id].new_position.1.floor();
+                let new_y = self.players[&id].new_position.1.floor() as i32;
 
                 let chunk_passed =
                     !((old_chunks.0 == new_chunks.0) && (old_chunks.1 == new_chunks.1));
@@ -2153,8 +2139,8 @@ impl LobbyWorld {
                 if chunk_passed || old_y != new_y {
                     let _ = self.players[&id].stream.lock().await.send(
                         PlayClientBound::UpdateViewPosition {
-                            chunk_x: VarInt(new_chunks.0 as i32),
-                            chunk_z: VarInt(new_chunks.1 as i32),
+                            chunk_x: VarInt(new_chunks.0),
+                            chunk_z: VarInt(new_chunks.1),
                         },
                     );
                 }
@@ -2440,10 +2426,10 @@ fn get_section_block(section: &WorldChunkSection, position: Position) -> i32 {
 
     let bits_to_the_right =
         64 - bits_per_block as i32 * (block_index as i32 % blocks_per_u64 as i32 + 1);
-    t = t << bits_to_the_right;
+    t <<= bits_to_the_right;
 
     let bits_to_the_left = bits_per_block as i32 * (block_index as i32 % blocks_per_u64 as i32);
-    t = t >> (bits_to_the_right + bits_to_the_left);
+    t >>= bits_to_the_right + bits_to_the_left;
 
     t as i32
 }
@@ -2476,29 +2462,23 @@ fn check_if_section_empty(section: &mut Option<WorldChunkSection>) {
 
     // if there are no more non-air blocks we can just unload the chunk to save memory
     let air_in_palette = inner_section.block_mappings.iter().position(|v| *v == 0);
-    match air_in_palette {
-        Some(air) => {
-            let mut empty = true;
+    if let Some(air) = air_in_palette {
+        let mut empty = true;
 
-            'outermost: for z in 0..16 {
-                for y in 0..16 {
-                    for x in 0..16 {
-                        let pos = Position { x, y, z };
-                        if get_section_block(inner_section, pos) != air as i32 {
-                            empty = false;
-                            break 'outermost;
-                        }
+        'outermost: for z in 0..16 {
+            for y in 0..16 {
+                for x in 0..16 {
+                    let pos = Position { x, y, z };
+                    if get_section_block(inner_section, pos) != air as i32 {
+                        empty = false;
+                        break 'outermost;
                     }
                 }
             }
-
-            if empty {
-                *section = None;
-            }
         }
-        None => {
-            // what?
-            // no air in the palette? these folks are dedicated!
+
+        if empty {
+            *section = None;
         }
     }
 }

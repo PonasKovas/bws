@@ -23,8 +23,8 @@ use tokio::sync::oneshot;
 use tokio::sync::{Mutex, RwLock};
 use tokio::task::{unconstrained, JoinHandle};
 
-const BANNED_IPS_FILE: &'static str = "banned.addresses";
-const PLAYER_DATA_FILE: &'static str = "player_data.ron";
+const BANNED_IPS_FILE: &str = "banned.addresses";
+const PLAYER_DATA_FILE: &str = "player_data.ron";
 
 pub type PStream = Arc<Mutex<PlayerStream>>;
 
@@ -181,8 +181,8 @@ impl PlayerStream {
         if let Some(disconnect) = self.disconnect.take() {
             // this returns a Result, with Err meaning that the receiver has already dropped
             // but we don't care, since that just means that the player is already disconnected
-            if let Err(_) = disconnect.send(()) {
-                debug!("trying to disconnect already disconnect player.");
+            if disconnect.send(()).is_err() {
+                debug!("trying to disconnect already disconnected player.");
             }
         }
     }
