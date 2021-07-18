@@ -130,14 +130,7 @@ pub async fn handle_stream(socket: TcpStream) {
     let mut state = State::Handshake;
 
     if let Err(e) = handle(socket, &mut state).await {
-        if e.is::<std::io::Error>() {
-            debug!("IO error: {:?}", e);
-        } else if e.is::<mpsc::error::SendError<ServerBound>>() || e.is::<mpsc::error::RecvError>()
-        {
-            error!("PlayerStream dropped before the actual task ended: {}", e);
-        } else {
-            debug!("Error: {}", e);
-        }
+        debug!("Error: {}", e);
     }
 
     if let State::Play(id) = state {
