@@ -5,7 +5,7 @@ authors = ["Ponas <mykolas.peteraitis@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-tokio = { version = "1.6", features = ["full"] }
+tokio = { version = "1.8", features = ["full"] }
 tokio-util = {version = "0.6", features = ["compat"]}
 structopt = "0.3"
 serde_json = "1.0"
@@ -48,4 +48,3 @@ panic = "abort"
 
 [profile.release]
 panic = "abort"
-debug = true
