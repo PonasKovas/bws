@@ -11,15 +11,16 @@ mod collision;
 mod data;
 mod global_state;
 mod internal_communication;
-mod map;
+// mod map;
+mod plugins;
 mod shared;
-mod stream_handler;
-mod world;
+// mod stream_handler;
+// mod world;
 
 use anyhow::{Context, Result};
 use futures::select;
 use futures::FutureExt;
-use global_state::{read_banned_ips, read_player_data, GlobalState};
+use global_state::{read_banned_ips, read_player_data, GlobalState, InnerGlobalState};
 use lazy_static::lazy_static;
 use log::{debug, error, info, warn};
 use protocol::datatypes::chat_parse::parse as chat_parse;
@@ -40,6 +41,7 @@ use tokio::task::JoinHandle;
 
 const SUPPORTED_PROTOCOL_VERSIONS: &[i32] = &[753, 754]; // 1.16.3+
 const VERSION_NAME: &str = "1.16.5 BWS";
+const ABI_VERSION: u32 = 0;
 
 #[derive(Debug, StructOpt, Clone)]
 #[structopt(name = "bws", about = "Hello this is the description!")]
@@ -77,8 +79,21 @@ lazy_static! {
     static ref OPT: Opt = Opt::from_args();
 }
 
-lazy_static! {
-    static ref GLOBAL_STATE: GlobalState = {
+#[tokio::main]
+async fn main() -> Result<()> {
+    env_logger::builder()
+        .filter_level(log::LevelFilter::Info)
+        .format_timestamp(if OPT.disable_timestamps {
+            None
+        } else {
+            Some(Default::default())
+        })
+        .parse_default_env()
+        .init();
+
+    info!("Initializing...");
+
+    let state = Arc::new({
         let favicon = match std::fs::read(&OPT.favicon) {
             Ok(f) => f,
             Err(e) => {
@@ -94,57 +109,23 @@ lazy_static! {
         for line in OPT.player_sample.lines() {
             player_sample.push(StatusPlayerSampleEntry::new(line.to_owned().into()));
         }
-        GlobalState {
+        InnerGlobalState {
             description: Mutex::new(chat_parse(OPT.description.clone())),
-            favicon: Mutex::new(format!(
-                "data:image/png;base64,{}",
-                base64::encode(favicon)
-            )),
+            favicon: Mutex::new(format!("data:image/png;base64,{}", base64::encode(favicon))),
             player_sample: Mutex::new(player_sample),
             max_players: Mutex::new(OPT.max_players),
             players: RwLock::new(Slab::new()),
-            w_login: match world::login::start() {
-                Ok(w) => w,
-                Err(e) => {
-                    error!("Error creating login world: {}", e);
-                    std::process::exit(1);
-                },
-            },
-            w_lobby: world::lobby::start(),
             compression_treshold: OPT.compression_treshold,
             port: OPT.port,
-            player_data: RwLock::new(match read_player_data() {
-                Ok(d) => d,
-                Err(e) => {
-                    error!("Error reading player data: {}", e);
-                    std::process::exit(1);
-                },
-            }),
-            banned_addresses: RwLock::new(match read_banned_ips() {
-                Ok(d) => d,
-                Err(e) => {
-                    error!("Error reading banned addresses: {}", e);
-                    std::process::exit(1);
-                },
-            }),
+            player_data: RwLock::new(read_player_data().context("Error reading player data")?),
+            banned_addresses: RwLock::new(
+                read_banned_ips().context("Error reading banned addresses")?,
+            ),
+            plugins: plugins::load_plugins()
+                .await
+                .context("Error loading plugins")?,
         }
-    };
-}
-
-#[tokio::main]
-async fn main() -> Result<()> {
-    env_logger::builder()
-        .filter_level(log::LevelFilter::Info)
-        .format_timestamp(if OPT.disable_timestamps {
-            None
-        } else {
-            Some(Default::default())
-        })
-        .parse_default_env()
-        .init();
-
-    info!("Initializing...");
-    lazy_static::initialize(&GLOBAL_STATE);
+    });
     lazy_static::initialize(&data::ITEMS_TO_BLOCKS);
 
     tokio::select! {
@@ -167,41 +148,28 @@ async fn main() -> Result<()> {
             shutdown().await;
             Ok(())
         },
-        _ = run() => {
+        _ = run(state.clone()) => {
             Ok(())
         },
     }
 }
 
-async fn run() -> Result<()> {
-    info!("Listening on port {}", GLOBAL_STATE.port);
+async fn run(state: GlobalState) -> Result<()> {
+    info!("Listening on port {}", state.port);
 
-    let listener = TcpListener::bind(("0.0.0.0", GLOBAL_STATE.port))
+    let listener = TcpListener::bind(("0.0.0.0", state.port))
         .await
         .context("Couldn't bind the listener")?;
 
     loop {
         let (socket, _) = listener.accept().await.unwrap();
 
-        tokio::spawn(stream_handler::handle_stream(socket));
+        // tokio::spawn(stream_handler::handle_stream(socket));
     }
 }
 
 async fn shutdown() -> ! {
     info!("Exiting...");
-
-    // shutdown worlds
-    let _ = GLOBAL_STATE
-        .w_login
-        .0
-        .send(internal_communication::WBound::Exit);
-    let _ = GLOBAL_STATE
-        .w_lobby
-        .0
-        .send(internal_communication::WBound::Exit);
-
-    let _ = GLOBAL_STATE.w_lobby.1.lock().await.take().unwrap().await;
-    let _ = GLOBAL_STATE.w_login.1.lock().await.take().unwrap().await;
 
     std::process::exit(0);
 }

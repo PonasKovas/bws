@@ -130,7 +130,7 @@ pub async fn handle_stream(socket: TcpStream) {
     let mut state = State::Handshake;
 
     if let Err(e) = handle(socket, &mut state).await {
-        debug!("Error: {}", e);
+        debug!("Error: {:?}", e);
     }
 
     if let State::Play(id) = state {

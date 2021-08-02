@@ -281,7 +281,7 @@ impl LoginWorld {
                             ),
                         );
                         if let Err(e) = self.save_accounts().await {
-                            error!("Error saving accounts data: {}", e);
+                            error!("Error saving accounts data: {:?}", e);
                         }
 
                         // also add an entry to the player data
@@ -326,7 +326,7 @@ impl LoginWorld {
                     self.players.insert(id, (username, stream));
 
                     if let Err(e) = self.new_player(id).await {
-                        debug!("Couldn't send the greetings to a new player: {}", e);
+                        debug!("Couldn't send the greetings to a new player: {:?}", e);
                     }
                 }
                 WBound::MovePlayer { id, new_world } => match self.players.remove(&id) {

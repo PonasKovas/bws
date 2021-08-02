@@ -28,21 +28,21 @@ const PLAYER_DATA_FILE: &str = "player_data.ron";
 
 pub type PStream = Arc<Mutex<PlayerStream>>;
 
-// its gonna be a static
-pub struct GlobalState {
-    // immutable fields
+pub type GlobalState = Arc<InnerGlobalState>;
+
+pub struct InnerGlobalState {
+    // fields that shouldn't be mutated at runtime
     pub compression_treshold: i32,
     pub port: u16,
-    // mutable
+    // fields that can be mutaded at runtime freely
     pub description: Mutex<Chat<'static>>,
     pub favicon: Mutex<String>,
     pub player_sample: Mutex<Vec<StatusPlayerSampleEntry<'static>>>,
     pub max_players: Mutex<i32>,
-    pub w_login: (ic::WSender, Mutex<Option<JoinHandle<()>>>),
-    pub w_lobby: (ic::WSender, Mutex<Option<JoinHandle<()>>>),
     pub players: RwLock<Slab<Player>>,
     pub player_data: RwLock<HashMap<String, PlayerData>>,
     pub banned_addresses: RwLock<HashSet<IpAddr>>,
+    pub plugins: crate::plugins::Plugins,
 }
 
 pub struct Player {
@@ -188,7 +188,7 @@ impl PlayerStream {
     }
 }
 
-impl GlobalState {
+impl InnerGlobalState {
     pub async fn save_player_data(&self) {
         if let Err(e) = self.inner_save_player_data().await {
             error!("Error saving player data: {}", e);

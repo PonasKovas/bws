@@ -548,6 +548,7 @@ pub struct StatusPlayerSampleEntry<'a> {
 }
 
 impl<'a> StatusPlayerSampleEntry<'a> {
+    /// creates a new entry with an arbritary uuid.
     pub fn new(name: Cow<'a, str>) -> Self {
         Self {
             name,

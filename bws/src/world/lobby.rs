@@ -286,7 +286,7 @@ impl LobbyWorld {
                     );
 
                     if let Err(e) = self.new_player(id).await {
-                        debug!("Couldn't send the greetings to a new player: {}", e);
+                        debug!("Couldn't send the greetings to a new player: {:?}", e);
                     }
                 }
                 WBound::MovePlayer { id, new_world } => match self.players.remove(&id) {
@@ -1359,7 +1359,7 @@ impl LobbyWorld {
                             z: position.2.floor() as i32,
                         };
                         if let Err(e) = self.set_block(position, block_id).await {
-                            debug!("Error executing /setblock: {}", e);
+                            debug!("Error executing /setblock: {:?}", e);
                             self.system_message(id, format!("§6Error placing block: {}", e))
                                 .await;
                         }
@@ -1865,7 +1865,7 @@ impl LobbyWorld {
 
         if can_flow_downwards {
             if let Err(e) = self.set_block(below, if is_lava { 58 } else { 42 }).await {
-                debug!("flowing error: {}", e);
+                debug!("flowing error: {:?}", e);
             } else {
                 self.flowing_liquids.push(below);
             }
@@ -1884,7 +1884,7 @@ impl LobbyWorld {
                                 .set_block(side_block, if is_lava { 50 } else { 34 } + level + 1)
                                 .await
                             {
-                                debug!("flowing error: {}", e);
+                                debug!("flowing error: {:?}", e);
                             } else {
                                 self.flowing_liquids.push(side_block);
                             }
@@ -1902,7 +1902,7 @@ impl LobbyWorld {
                                         )
                                         .await
                                     {
-                                        debug!("flowing error: {}", e);
+                                        debug!("flowing error: {:?}", e);
                                     } else {
                                         self.flowing_liquids.push(side_block);
                                     }
@@ -2002,7 +2002,7 @@ impl LobbyWorld {
                         if is_falling || level >= 6 {
                             // remove the block
                             if let Err(e) = self.set_block(liquid, 0).await {
-                                debug!("flowing error: {}", e);
+                                debug!("flowing error: {:?}", e);
                             }
                         } else {
                             // remove 2 levels
@@ -2010,7 +2010,7 @@ impl LobbyWorld {
                                 .set_block(liquid, if is_lava { 50 } else { 34 } + level + 2)
                                 .await
                             {
-                                debug!("flowing error: {}", e);
+                                debug!("flowing error: {:?}", e);
                             } else {
                                 self.flowing_liquids.push(liquid);
                             }
