@@ -24,6 +24,11 @@ pub struct Plugin {
     pub provided_by: PathBuf,
     pub dependencies: Vec<(CString, CString)>,
     pub callbacks: Callbacks,
+    pub subplugins: Vec<SubPlugin>,
+}
+pub struct SubPlugin {
+    pub name: CString,
+    pub callbacks: SubPluginCallbacks,
 }
 
 #[derive(Default)]
@@ -32,6 +37,11 @@ pub struct Callbacks {
     /// Other callbacks the plugin may register, that may be used by other plugins
     /// It will be up to them transmute the pointer to a correct function pointer
     other: HashMap<String, Callback<*const (), *const ()>>,
+}
+
+#[derive(Default)]
+pub struct SubPluginCallbacks {
+    init: Option<Callback<extern "C" fn(), extern "C" fn() -> FfiFuture<()>>>,
 }
 
 #[repr(C)]
@@ -68,14 +78,15 @@ pub async fn load_plugins() -> Result<Plugins> {
     }
 
     // check the plugins and remove any that have unsatisfied dependencies
-    let keys_to_remove = plugins
+    let mut any_removed = false;
+    // loop because a single pass might not be enough, if for example P1 depends on P2 which depends on P3.
+    // And P3 is not present. On the first pass, P1 would be loaded fine, and P2 would be removed because of
+    // unsatisfied dependencies, invalidating P1 at the same time, so we need an additional pass to remove P1 too.
+    loop {
+        let keys_to_remove = plugins
         .keys()
         .filter(|k| match check_dependencies(k, &plugins) {
             Ok(true) => {
-                info!(
-                    "Plugin {:?} loaded. (Provided by {:?})",
-                    k, plugins[*k].provided_by
-                );
                 false
             }
             Ok(false) => {
@@ -97,8 +108,21 @@ pub async fn load_plugins() -> Result<Plugins> {
         })
         .cloned()
         .collect::<Vec<_>>();
-    for key in keys_to_remove {
-        plugins.remove(&key);
+        for key in keys_to_remove {
+            plugins.remove(&key);
+            any_removed = true;
+        }
+
+        if !any_removed {
+            break;
+        }
+    }
+
+    for plugin in &plugins {
+        info!(
+            "Plugin {:?} loaded. (Provided by {:?})",
+            plugin.0, plugin.1.provided_by
+        );
     }
 
     Ok(plugins)
@@ -119,19 +143,28 @@ async unsafe fn load_library(plugins: &mut Plugins, path: impl AsRef<Path>) -> R
 
     // register the plugins
 
-    // Vec<((plugin_name, version), dependencies, callbacks)>
+    // Vec<((plugin_name, version), dependencies, callbacks, subplugins)>
     #[allow(non_upper_case_globals)]
-    static mut to_register: Vec<((CString, CString), Vec<(CString, CString)>, Callbacks)> =
-        Vec::new();
+    static mut to_register: Vec<(
+        (CString, CString),
+        Vec<(CString, CString)>,
+        Callbacks,
+        Vec<SubPlugin>,
+    )> = Vec::new();
 
     type RegisterPluginType =
-        unsafe extern "C" fn(*const i8, *const i8, usize, *const *const i8) -> RegisterCallbackType;
+        unsafe extern "C" fn(
+            *const i8,
+            *const i8,
+            usize,
+            *const *const i8,
+        ) -> Tuple2<RegisterCallbackType, RegisterSubPluginType>;
     unsafe extern "C" fn register_plugin(
         name: *const i8,
         version: *const i8,
         dependencies_n: usize,
         dependencies: *const *const i8,
-    ) -> RegisterCallbackType {
+    ) -> Tuple2<RegisterCallbackType, RegisterSubPluginType> {
         to_register.push((
             (
                 CStr::from_ptr(name).to_owned(),
@@ -148,9 +181,10 @@ async unsafe fn load_library(plugins: &mut Plugins, path: impl AsRef<Path>) -> R
                 deps
             },
             Default::default(),
+            Vec::new(),
         ));
 
-        register_callback
+        Tuple2(register_callback, register_subplugin)
     }
 
     type RegisterCallbackType = unsafe extern "C" fn(*const i8, *const (), bool);
@@ -198,6 +232,63 @@ async unsafe fn load_library(plugins: &mut Plugins, path: impl AsRef<Path>) -> R
         }
     }
 
+    type RegisterSubPluginType = unsafe extern "C" fn(*const i8) -> RegisterSubPluginCallbackType;
+    unsafe extern "C" fn register_subplugin(
+        subplugin_name: *const i8,
+    ) -> RegisterSubPluginCallbackType {
+        let plugin = to_register.last_mut().unwrap();
+
+        let subplugin_name = CStr::from_ptr(subplugin_name);
+
+        plugin.3.push(SubPlugin {
+            name: subplugin_name.to_owned(),
+            callbacks: Default::default(),
+        });
+
+        register_subplugin_callback
+    }
+
+    type RegisterSubPluginCallbackType = unsafe extern "C" fn(*const i8, *const (), bool);
+    unsafe extern "C" fn register_subplugin_callback(
+        callback_name: *const i8,
+        fn_ptr: *const (),
+        is_async: bool,
+    ) {
+        let plugin = to_register.last_mut().unwrap();
+        let subplugin = plugin.3.last_mut().unwrap();
+
+        let callback_name = CStr::from_ptr(callback_name);
+        let callback_name = match callback_name.to_str() {
+            Ok(s) => s,
+            Err(_) => {
+                error!(
+                    "Plugin {:?} subplugin {:?} tried to register a callback with a name that is not valid unicode: {:?}",
+                    plugin.0.0,
+                    subplugin.name,
+                    callback_name
+                );
+                return;
+            }
+        };
+
+        match callback_name {
+            "init" => {
+                if is_async {
+                    subplugin.callbacks.init = Some(Callback::Async(transmute(fn_ptr)));
+                } else {
+                    subplugin.callbacks.init = Some(Callback::Sync(transmute(fn_ptr)));
+                }
+            }
+            _ => {
+                error!(
+                    "Plugin {:?} subplugin {:?} tried to register an unknown callback: {:?}",
+                    plugin.0 .0, subplugin.name, callback_name
+                );
+                return;
+            }
+        }
+    }
+
     let plugin_registrator: Symbol<unsafe extern "C" fn(RegisterPluginType)> =
         lib.get(b"register_plugin")?;
 
@@ -213,6 +304,7 @@ async unsafe fn load_library(plugins: &mut Plugins, path: impl AsRef<Path>) -> R
                 provided_by: path.as_ref().to_path_buf(),
                 dependencies: plugin.1,
                 callbacks: plugin.2,
+                subplugins: plugin.3,
             },
         );
     }
@@ -250,3 +342,6 @@ fn check_dependencies(plugin_name: &CString, plugins: &Plugins) -> Result<bool> 
     }
     Ok(result)
 }
+
+#[repr(C)]
+struct Tuple2<T1: Sized, T2>(T1, T2);
