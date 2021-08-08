@@ -1,5 +1,6 @@
 use anyhow::{bail, Context, Result};
 use async_ffi::FfiFuture;
+use bws_plugin::*;
 use libloading::{Library, Symbol};
 use log::{error, info};
 use semver::{Version, VersionReq};
@@ -18,36 +19,30 @@ use crate::plugins;
 
 const ABI_VERSION: u64 = ((async_ffi::ABI_VERSION as u64) << 32) | crate::ABI_VERSION as u64;
 
-pub type Plugins = HashMap<CString, Plugin>;
+pub type Plugins = HashMap<String, Plugin>;
 pub struct Plugin {
-    pub version: CString,
+    pub version: Version,
     pub provided_by: PathBuf,
-    pub dependencies: Vec<(CString, CString)>,
+    pub dependencies: Vec<(String, String)>,
     pub callbacks: Callbacks,
     pub subplugins: Vec<SubPlugin>,
 }
 pub struct SubPlugin {
-    pub name: CString,
+    pub name: String,
     pub callbacks: SubPluginCallbacks,
 }
 
 #[derive(Default)]
 pub struct Callbacks {
-    init: Option<Callback<extern "C" fn(), extern "C" fn() -> FfiFuture<()>>>,
+    init: Option<extern "C" fn() -> FfiFuture<()>>,
     /// Other callbacks the plugin may register, that may be used by other plugins
     /// It will be up to them transmute the pointer to a correct function pointer
-    other: HashMap<String, Callback<*const (), *const ()>>,
+    other: HashMap<String, *const ()>,
 }
 
 #[derive(Default)]
 pub struct SubPluginCallbacks {
-    init: Option<Callback<extern "C" fn(), extern "C" fn() -> FfiFuture<()>>>,
-}
-
-#[repr(C)]
-pub enum Callback<S, A> {
-    Sync(S),
-    Async(A),
+    init: Option<extern "C" fn() -> FfiFuture<()>>,
 }
 
 pub async fn load_plugins() -> Result<Plugins> {
@@ -146,40 +141,20 @@ async unsafe fn load_library(plugins: &mut Plugins, path: impl AsRef<Path>) -> R
     // Vec<((plugin_name, version), dependencies, callbacks, subplugins)>
     #[allow(non_upper_case_globals)]
     static mut to_register: Vec<(
-        (CString, CString),
-        Vec<(CString, CString)>,
+        (String, String),
+        Vec<(String, String)>,
         Callbacks,
         Vec<SubPlugin>,
     )> = Vec::new();
 
-    type RegisterPluginType =
-        unsafe extern "C" fn(
-            *const i8,
-            *const i8,
-            usize,
-            *const *const i8,
-        ) -> Tuple2<RegisterCallbackType, RegisterSubPluginType>;
     unsafe extern "C" fn register_plugin(
-        name: *const i8,
-        version: *const i8,
-        dependencies_n: usize,
-        dependencies: *const *const i8,
-    ) -> Tuple2<RegisterCallbackType, RegisterSubPluginType> {
+        name: BwsStr,
+        version: BwsStr,
+        dependencies: BwsSlice,
+    ) -> Tuple2<RegisterCallback, RegisterSubPlugin> {
         to_register.push((
-            (
-                CStr::from_ptr(name).to_owned(),
-                CStr::from_ptr(version).to_owned(),
-            ),
-            {
-                let mut deps = Vec::new();
-                for i in 0..dependencies_n {
-                    deps.push((
-                        CStr::from_ptr(*dependencies.add(i * 2)).to_owned(),
-                        CStr::from_ptr(*dependencies.add(i * 2 + 1)).to_owned(),
-                    ));
-                }
-                deps
-            },
+            (name.into_str().to_owned(), version.into_str().to_owned()),
+            dependencies.into_slice().to_vec(),
             Default::default(),
             Vec::new(),
         ));
@@ -187,97 +162,41 @@ async unsafe fn load_library(plugins: &mut Plugins, path: impl AsRef<Path>) -> R
         Tuple2(register_callback, register_subplugin)
     }
 
-    type RegisterCallbackType = unsafe extern "C" fn(*const i8, *const (), bool);
-    unsafe extern "C" fn register_callback(
-        callback_name: *const i8,
-        fn_ptr: *const (),
-        is_async: bool,
-    ) {
+    unsafe extern "C" fn register_callback(callback_name: BwsStr, fn_ptr: *const ()) {
         let plugin = to_register.last_mut().unwrap();
 
-        let callback_name = CStr::from_ptr(callback_name);
-        let callback_name = match callback_name.to_str() {
-            Ok(s) => s,
-            Err(_) => {
-                error!(
-                    "Plugin {:?} tried to register a callback with a name that is not valid unicode: {:?}",
-                    plugin.0.0,
-                    callback_name
-                );
-                return;
-            }
-        };
-
-        match callback_name {
+        match callback_name.into_str() {
             "init" => {
-                if is_async {
-                    plugin.2.init = Some(Callback::Async(transmute(fn_ptr)));
-                } else {
-                    plugin.2.init = Some(Callback::Sync(transmute(fn_ptr)));
-                }
+                plugin.2.init = Some(transmute(fn_ptr));
             }
             other => {
-                if is_async {
-                    plugin
-                        .2
-                        .other
-                        .insert(other.to_owned(), Callback::Async(fn_ptr));
-                } else {
-                    plugin
-                        .2
-                        .other
-                        .insert(other.to_owned(), Callback::Sync(fn_ptr));
-                }
+                plugin.2.other.insert(other.to_owned(), fn_ptr);
             }
         }
     }
 
-    type RegisterSubPluginType = unsafe extern "C" fn(*const i8) -> RegisterSubPluginCallbackType;
-    unsafe extern "C" fn register_subplugin(
-        subplugin_name: *const i8,
-    ) -> RegisterSubPluginCallbackType {
+    unsafe extern "C" fn register_subplugin(subplugin_name: BwsStr) -> RegisterSubPluginCallback {
         let plugin = to_register.last_mut().unwrap();
 
-        let subplugin_name = CStr::from_ptr(subplugin_name);
+        let subplugin_name = subplugin_name.into_str().to_owned();
 
         plugin.3.push(SubPlugin {
-            name: subplugin_name.to_owned(),
+            name: subplugin_name,
             callbacks: Default::default(),
         });
 
         register_subplugin_callback
     }
 
-    type RegisterSubPluginCallbackType = unsafe extern "C" fn(*const i8, *const (), bool);
-    unsafe extern "C" fn register_subplugin_callback(
-        callback_name: *const i8,
-        fn_ptr: *const (),
-        is_async: bool,
-    ) {
+    unsafe extern "C" fn register_subplugin_callback(callback_name: BwsStr, fn_ptr: *const ()) {
         let plugin = to_register.last_mut().unwrap();
         let subplugin = plugin.3.last_mut().unwrap();
 
-        let callback_name = CStr::from_ptr(callback_name);
-        let callback_name = match callback_name.to_str() {
-            Ok(s) => s,
-            Err(_) => {
-                error!(
-                    "Plugin {:?} subplugin {:?} tried to register a callback with a name that is not valid unicode: {:?}",
-                    plugin.0.0,
-                    subplugin.name,
-                    callback_name
-                );
-                return;
-            }
-        };
+        let callback_name = callback_name.into_str();
 
         match callback_name {
             "init" => {
-                if is_async {
-                    subplugin.callbacks.init = Some(Callback::Async(transmute(fn_ptr)));
-                } else {
-                    subplugin.callbacks.init = Some(Callback::Sync(transmute(fn_ptr)));
-                }
+                subplugin.callbacks.init = Some(transmute(fn_ptr));
             }
             _ => {
                 error!(
@@ -289,8 +208,8 @@ async unsafe fn load_library(plugins: &mut Plugins, path: impl AsRef<Path>) -> R
         }
     }
 
-    let plugin_registrator: Symbol<unsafe extern "C" fn(RegisterPluginType)> =
-        lib.get(b"register_plugin")?;
+    let plugin_registrator: Symbol<unsafe extern "C" fn(RegisterPlugin)> =
+        lib.get(b"bws_load_library")?;
 
     (*plugin_registrator)(register_plugin);
 
@@ -300,7 +219,8 @@ async unsafe fn load_library(plugins: &mut Plugins, path: impl AsRef<Path>) -> R
         plugins.insert(
             plugin.0 .0,
             Plugin {
-                version: plugin.0 .1,
+                version: Version::parse(&plugin.0 .1)
+                    .context("Unable to parse plugin's version")?,
                 provided_by: path.as_ref().to_path_buf(),
                 dependencies: plugin.1,
                 callbacks: plugin.2,
@@ -312,21 +232,20 @@ async unsafe fn load_library(plugins: &mut Plugins, path: impl AsRef<Path>) -> R
     Ok(())
 }
 
-fn check_dependencies(plugin_name: &CString, plugins: &Plugins) -> Result<bool> {
+fn check_dependencies(plugin_name: &str, plugins: &Plugins) -> Result<bool> {
     let mut result = true;
 
     let plugin = &plugins[plugin_name];
     for dependency in &plugin.dependencies {
-        let dependency_req = VersionReq::parse(dependency.1.to_str()?)
-            .context("error parsing version requirement")?;
+        let dependency_req =
+            VersionReq::parse(&dependency.1).context("error parsing version requirement")?;
 
         match plugins.get(&dependency.0) {
             Some(dep_plugin) => {
-                let dep_version = Version::parse(dep_plugin.version.to_str()?)?;
-                if !dependency_req.matches(&dep_version) {
+                if !dependency_req.matches(&dep_plugin.version) {
                     error!(
                         "Plugin {:?} dependency {:?} {} was not met. {:?} {} is present, but does not match the {} version requirement.",
-                        plugin_name, dependency.0, dependency_req, dependency.0, dep_version, dependency_req
+                        plugin_name, dependency.0, dependency_req, dependency.0, dep_plugin.version, dependency_req
                     );
                     result = false;
                 }
@@ -342,6 +261,3 @@ fn check_dependencies(plugin_name: &CString, plugins: &Plugins) -> Result<bool> 
     }
     Ok(result)
 }
-
-#[repr(C)]
-struct Tuple2<T1: Sized, T2>(T1, T2);

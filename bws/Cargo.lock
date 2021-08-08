@@ -101,6 +101,7 @@ dependencies = [
  "async-ffi",
  "base64",
  "bitflags",
+ "bws-plugin",
  "bytecheck",
  "chrono",
  "env_logger",
@@ -128,6 +129,10 @@ dependencies = [
  "tokio",
  "tokio-util",
 ]
+
+[[package]]
+name = "bws-plugin"
+version = "0.1.0"
 
 [[package]]
 name = "bytecheck"

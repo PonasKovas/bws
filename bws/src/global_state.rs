@@ -34,7 +34,7 @@ pub struct InnerGlobalState {
     // fields that shouldn't be mutated at runtime
     pub compression_treshold: i32,
     pub port: u16,
-    // fields that can be mutaded at runtime freely
+    // fields that can be mutated at runtime freely
     pub description: Mutex<Chat<'static>>,
     pub favicon: Mutex<String>,
     pub player_sample: Mutex<Vec<StatusPlayerSampleEntry<'static>>>,
