@@ -1,6 +1,7 @@
 use std::mem::transmute;
 
 #[repr(C)]
+#[derive(Copy, Clone)]
 pub struct BwsSlice {
     ptr: *const (),
     length: usize,

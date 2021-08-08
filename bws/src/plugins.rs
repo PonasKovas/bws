@@ -126,7 +126,7 @@ pub async fn load_plugins() -> Result<Plugins> {
 async unsafe fn load_library(plugins: &mut Plugins, path: impl AsRef<Path>) -> Result<()> {
     let lib = Arc::new(Library::new(path.as_ref())?);
 
-    let abi_version: Symbol<*const u64> = lib.get(b"ABI_VERSION")?;
+    let abi_version: Symbol<*const u64> = lib.get(b"BWS_ABI_VERSION")?;
 
     if **abi_version != ABI_VERSION {
         bail!(
@@ -154,7 +154,11 @@ async unsafe fn load_library(plugins: &mut Plugins, path: impl AsRef<Path>) -> R
     ) -> Tuple2<RegisterCallback, RegisterSubPlugin> {
         to_register.push((
             (name.into_str().to_owned(), version.into_str().to_owned()),
-            dependencies.into_slice().to_vec(),
+            dependencies
+                .into_slice::<Tuple2<BwsStr, BwsStr>>()
+                .iter()
+                .map(|e| (e.0.into_str().to_owned(), e.1.into_str().to_owned()))
+                .collect(),
             Default::default(),
             Vec::new(),
         ));
