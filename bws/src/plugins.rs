@@ -31,15 +31,8 @@ pub struct Plugin {
     pub gate: Gate<PluginEvent>,
     pub subscribed_events: [u8; (PluginEvent::VARIANT_COUNT + 7) / 8], // +7 so it would round up
     pub arbitrary_subscribed_events: HashSet<String>,
-    pub subplugins: Vec<SubPlugin>,
     pub entry: Option<FfiFuture<Unit>>,
-}
-pub struct SubPlugin {
-    pub name: String,
-    pub gate: Gate<SubPluginEvent>,
-    pub subscribed_events: [u8; (SubPluginEvent::VARIANT_COUNT + 7) / 8], // +7 so it would round up
-    pub arbitrary_subscribed_events: HashSet<String>,
-    pub entry: Option<FfiFuture<Unit>>,
+    pub library: Arc<Library>,
 }
 
 // T is event enum, either plugin event or subplugin event
@@ -68,11 +61,11 @@ impl<T: Sized> Gate<T> {
 
 unsafe extern "C" fn recv_plugin_event(
     receiver: PluginEventReceiver,
-    cx: &mut FfiContext,
+    ctx: &mut FfiContext,
 ) -> FfiPoll<BwsOption<Tuple2<PluginEvent, OneshotSender>>> {
     let receiver: &mut mpsc::UnboundedReceiver<Tuple2<PluginEvent, OneshotSender>> =
         transmute(receiver.0);
-    match receiver.poll_recv(&mut cx.into_context()) {
+    match ctx.with_as_context(|ctx| receiver.poll_recv(ctx)) {
         std::task::Poll::Ready(r) => FfiPoll::Ready(BwsOption::from_option(r)),
         std::task::Poll::Pending => FfiPoll::Pending,
     }
@@ -156,6 +149,14 @@ pub async fn load_plugins() -> Result<Plugins> {
         );
     }
 
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    plugins
+        .get_mut("test_plugin")
+        .unwrap()
+        .gate
+        .call(PluginEvent::Arbitrary(BwsStr::from_str("hello"), null()))
+        .await;
+
     Ok(plugins)
 }
 
@@ -175,53 +176,49 @@ async unsafe fn load_library(plugins: &mut Plugins, path: impl AsRef<Path>) -> R
 
     // register the plugins
 
-    static mut PATH: *const &Path = null();
-    PATH = transmute(&path);
-    static mut TO_REGISTER: Vec<(String, Plugin)> = Vec::new();
+    // (Name, Version, dependencies, gate subscribed_events, arbitrary_subscribed_events, entry)
+    static mut TO_REGISTER: Vec<(
+        String,
+        Version,
+        Vec<(String, String)>,
+        Gate<PluginEvent>,
+        [u8; (PluginEvent::VARIANT_COUNT + 7) / 8],
+        HashSet<String>,
+        Option<FfiFuture<Unit>>,
+    )> = Vec::new();
 
     unsafe extern "C" fn register_plugin(
         name: BwsStr,
         version: Tuple3<u64, u64, u64>,
         dependencies: BwsSlice<Tuple2<BwsStr, BwsStr>>,
-    ) -> Tuple5<
-        RecvPluginEvent,
-        PluginEventReceiver,
-        PluginEntry,
-        PluginSubscribeToEvent,
-        RegisterSubPlugin,
-    > {
+    ) -> Tuple4<RecvPluginEvent, PluginEventReceiver, PluginEntry, PluginSubscribeToEvent> {
         let (gate, receiver) = Gate::new();
         TO_REGISTER.push((
             name.into_str().to_owned(),
-            Plugin {
-                version: Version::new(version.0, version.1, version.2),
-                provided_by: (*PATH).to_path_buf(),
-                dependencies: dependencies
-                    .into_slice()
-                    .iter()
-                    .map(|e| (e.0.into_str().to_owned(), e.1.into_str().to_owned()))
-                    .collect(),
-                gate,
-                subscribed_events: [0; (PluginEvent::VARIANT_COUNT + 7) / 8],
-                arbitrary_subscribed_events: HashSet::new(),
-                subplugins: Vec::new(),
-                entry: None,
-            },
+            Version::new(version.0, version.1, version.2),
+            dependencies
+                .into_slice()
+                .iter()
+                .map(|e| (e.0.into_str().to_owned(), e.1.into_str().to_owned()))
+                .collect(),
+            gate,
+            [0; (PluginEvent::VARIANT_COUNT + 7) / 8],
+            HashSet::new(),
+            None,
         ));
 
-        Tuple5(
+        Tuple4(
             recv_plugin_event,
             PluginEventReceiver((receiver as *const _ as *const ()).as_ref().unwrap()),
             plugin_entry,
             plugin_subscribe_to_event,
-            register_subplugin,
         )
     }
 
     unsafe extern "C" fn plugin_entry(future: FfiFuture<Unit>) {
         let plugin = TO_REGISTER.last_mut().unwrap();
 
-        plugin.1.entry = Some(future);
+        plugin.6 = Some(future);
     }
 
     unsafe extern "C" fn plugin_subscribe_to_event(event_name: BwsStr) {
@@ -229,56 +226,7 @@ async unsafe fn load_library(plugins: &mut Plugins, path: impl AsRef<Path>) -> R
 
         match event_name.into_str() {
             other => {
-                plugin
-                    .1
-                    .arbitrary_subscribed_events
-                    .insert(other.to_owned());
-            }
-        }
-    }
-
-    unsafe extern "C" fn register_subplugin(
-        subplugin_name: BwsStr,
-    ) -> Tuple3<SubPluginEventReceiver, SubPluginEntry, SubPluginSubscribeToEvent> {
-        let plugin = TO_REGISTER.last_mut().unwrap();
-
-        let subplugin_name = subplugin_name.into_str().to_owned();
-
-        let (gate, receiver) = Gate::new();
-
-        plugin.1.subplugins.push(SubPlugin {
-            name: subplugin_name,
-            gate,
-            subscribed_events: [0; (SubPluginEvent::VARIANT_COUNT + 7) / 8],
-            arbitrary_subscribed_events: HashSet::new(),
-            entry: None,
-        });
-
-        Tuple3(
-            SubPluginEventReceiver((receiver as *const _ as *const ()).as_ref().unwrap()),
-            subplugin_entry,
-            subplugin_subscribe_to_event,
-        )
-    }
-
-    unsafe extern "C" fn subplugin_entry(future: FfiFuture<Unit>) {
-        let plugin = TO_REGISTER.last_mut().unwrap();
-        let subplugin = plugin.1.subplugins.last_mut().unwrap();
-
-        subplugin.entry = Some(future);
-    }
-
-    unsafe extern "C" fn subplugin_subscribe_to_event(event_name: BwsStr) {
-        let plugin = TO_REGISTER.last_mut().unwrap();
-        let subplugin = plugin.1.subplugins.last_mut().unwrap();
-
-        let event_name = event_name.into_str();
-
-        match event_name {
-            other => {
-                subplugin
-                    .arbitrary_subscribed_events
-                    .insert(other.to_owned());
+                plugin.5.insert(other.to_owned());
             }
         }
     }
@@ -291,7 +239,19 @@ async unsafe fn load_library(plugins: &mut Plugins, path: impl AsRef<Path>) -> R
     let mut to_register_non_static = Vec::new();
     swap(&mut TO_REGISTER, &mut to_register_non_static);
     for plugin in to_register_non_static {
-        plugins.insert(plugin.0, plugin.1);
+        plugins.insert(
+            plugin.0,
+            Plugin {
+                version: plugin.1,
+                provided_by: path.to_path_buf(),
+                dependencies: plugin.2,
+                gate: plugin.3,
+                subscribed_events: plugin.4,
+                arbitrary_subscribed_events: plugin.5,
+                entry: plugin.6,
+                library: Arc::clone(&lib),
+            },
+        );
     }
 
     Ok(())
