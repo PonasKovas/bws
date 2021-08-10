@@ -1,12 +1,14 @@
 use anyhow::{bail, Context, Result};
-use async_ffi::FfiFuture;
+use async_ffi::{FfiContext, FfiFuture, FfiPoll};
 use bws_plugin::*;
 use libloading::{Library, Symbol};
 use log::{error, info};
 use semver::{Version, VersionReq};
 use sha2::digest::generic_array::transmute;
+use std::collections::HashSet;
 use std::mem::swap;
 use std::path::PathBuf;
+use std::ptr::null;
 use std::{
     collections::HashMap,
     ffi::{CStr, CString},
@@ -14,6 +16,8 @@ use std::{
     sync::Arc,
 };
 use tokio::fs;
+use tokio::sync::mpsc;
+use tokio::sync::oneshot;
 
 use crate::plugins;
 
@@ -24,25 +28,54 @@ pub struct Plugin {
     pub version: Version,
     pub provided_by: PathBuf,
     pub dependencies: Vec<(String, String)>,
-    pub callbacks: Callbacks,
+    pub gate: Gate<PluginEvent>,
+    pub subscribed_events: [u8; (PluginEvent::VARIANT_COUNT + 7) / 8], // +7 so it would round up
+    pub arbitrary_subscribed_events: HashSet<String>,
     pub subplugins: Vec<SubPlugin>,
+    pub entry: Option<FfiFuture<Unit>>,
 }
 pub struct SubPlugin {
     pub name: String,
-    pub callbacks: SubPluginCallbacks,
+    pub gate: Gate<SubPluginEvent>,
+    pub subscribed_events: [u8; (SubPluginEvent::VARIANT_COUNT + 7) / 8], // +7 so it would round up
+    pub arbitrary_subscribed_events: HashSet<String>,
+    pub entry: Option<FfiFuture<Unit>>,
 }
 
-#[derive(Default)]
-pub struct Callbacks {
-    init: Option<extern "C" fn() -> FfiFuture<()>>,
-    /// Other callbacks the plugin may register, that may be used by other plugins
-    /// It will be up to them transmute the pointer to a correct function pointer
-    other: HashMap<String, *const ()>,
+// T is event enum, either plugin event or subplugin event
+pub struct Gate<T: Sized> {
+    sender: mpsc::UnboundedSender<Tuple2<T, *const oneshot::Sender<bool>>>,
 }
 
-#[derive(Default)]
-pub struct SubPluginCallbacks {
-    init: Option<extern "C" fn() -> FfiFuture<()>>,
+impl<T: Sized> Gate<T> {
+    pub fn new() -> (
+        Self,
+        &'static mut mpsc::UnboundedReceiver<Tuple2<T, *const oneshot::Sender<bool>>>,
+    ) {
+        let (sender, receiver) = mpsc::unbounded_channel();
+
+        (Self { sender }, Box::leak(Box::new(receiver)))
+    }
+    // false = execute default behaviour
+    pub async fn call(&mut self, message: T) -> bool {
+        let (sender, receiver) = oneshot::channel();
+        if let Err(_) = self.sender.send(Tuple2(message, &sender as *const _)) {
+            return false;
+        }
+        receiver.await.unwrap_or(false)
+    }
+}
+
+unsafe extern "C" fn recv_plugin_event(
+    receiver: PluginEventReceiver,
+    cx: &mut FfiContext,
+) -> FfiPoll<BwsOption<Tuple2<PluginEvent, OneshotSender>>> {
+    let receiver: &mut mpsc::UnboundedReceiver<Tuple2<PluginEvent, OneshotSender>> =
+        transmute(receiver.0);
+    match receiver.poll_recv(&mut cx.into_context()) {
+        std::task::Poll::Ready(r) => FfiPoll::Ready(BwsOption::from_option(r)),
+        std::task::Poll::Pending => FfiPoll::Pending,
+    }
 }
 
 pub async fn load_plugins() -> Result<Plugins> {
@@ -113,7 +146,10 @@ pub async fn load_plugins() -> Result<Plugins> {
         }
     }
 
-    for plugin in &plugins {
+    for plugin in &mut plugins {
+        if let Some(entry) = plugin.1.entry.take() {
+            tokio::spawn(entry);
+        }
         info!(
             "Plugin {:?} loaded. (Provided by {:?})",
             plugin.0, plugin.1.provided_by
@@ -124,7 +160,8 @@ pub async fn load_plugins() -> Result<Plugins> {
 }
 
 async unsafe fn load_library(plugins: &mut Plugins, path: impl AsRef<Path>) -> Result<()> {
-    let lib = Arc::new(Library::new(path.as_ref())?);
+    let path = path.as_ref();
+    let lib = Arc::new(Library::new(path)?);
 
     let abi_version: Symbol<*const u64> = lib.get(b"BWS_ABI_VERSION")?;
 
@@ -138,76 +175,110 @@ async unsafe fn load_library(plugins: &mut Plugins, path: impl AsRef<Path>) -> R
 
     // register the plugins
 
-    // Vec<((plugin_name, version), dependencies, callbacks, subplugins)>
-    #[allow(non_upper_case_globals)]
-    static mut to_register: Vec<(
-        (String, String),
-        Vec<(String, String)>,
-        Callbacks,
-        Vec<SubPlugin>,
-    )> = Vec::new();
+    static mut PATH: *const &Path = null();
+    PATH = transmute(&path);
+    static mut TO_REGISTER: Vec<(String, Plugin)> = Vec::new();
 
     unsafe extern "C" fn register_plugin(
         name: BwsStr,
-        version: BwsStr,
-        dependencies: BwsSlice,
-    ) -> Tuple2<RegisterCallback, RegisterSubPlugin> {
-        to_register.push((
-            (name.into_str().to_owned(), version.into_str().to_owned()),
-            dependencies
-                .into_slice::<Tuple2<BwsStr, BwsStr>>()
-                .iter()
-                .map(|e| (e.0.into_str().to_owned(), e.1.into_str().to_owned()))
-                .collect(),
-            Default::default(),
-            Vec::new(),
+        version: Tuple3<u64, u64, u64>,
+        dependencies: BwsSlice<Tuple2<BwsStr, BwsStr>>,
+    ) -> Tuple5<
+        RecvPluginEvent,
+        PluginEventReceiver,
+        PluginEntry,
+        PluginSubscribeToEvent,
+        RegisterSubPlugin,
+    > {
+        let (gate, receiver) = Gate::new();
+        TO_REGISTER.push((
+            name.into_str().to_owned(),
+            Plugin {
+                version: Version::new(version.0, version.1, version.2),
+                provided_by: (*PATH).to_path_buf(),
+                dependencies: dependencies
+                    .into_slice()
+                    .iter()
+                    .map(|e| (e.0.into_str().to_owned(), e.1.into_str().to_owned()))
+                    .collect(),
+                gate,
+                subscribed_events: [0; (PluginEvent::VARIANT_COUNT + 7) / 8],
+                arbitrary_subscribed_events: HashSet::new(),
+                subplugins: Vec::new(),
+                entry: None,
+            },
         ));
 
-        Tuple2(register_callback, register_subplugin)
+        Tuple5(
+            recv_plugin_event,
+            PluginEventReceiver((receiver as *const _ as *const ()).as_ref().unwrap()),
+            plugin_entry,
+            plugin_subscribe_to_event,
+            register_subplugin,
+        )
     }
 
-    unsafe extern "C" fn register_callback(callback_name: BwsStr, fn_ptr: *const ()) {
-        let plugin = to_register.last_mut().unwrap();
+    unsafe extern "C" fn plugin_entry(future: FfiFuture<Unit>) {
+        let plugin = TO_REGISTER.last_mut().unwrap();
 
-        match callback_name.into_str() {
-            "init" => {
-                plugin.2.init = Some(transmute(fn_ptr));
-            }
+        plugin.1.entry = Some(future);
+    }
+
+    unsafe extern "C" fn plugin_subscribe_to_event(event_name: BwsStr) {
+        let plugin = TO_REGISTER.last_mut().unwrap();
+
+        match event_name.into_str() {
             other => {
-                plugin.2.other.insert(other.to_owned(), fn_ptr);
+                plugin
+                    .1
+                    .arbitrary_subscribed_events
+                    .insert(other.to_owned());
             }
         }
     }
 
-    unsafe extern "C" fn register_subplugin(subplugin_name: BwsStr) -> RegisterSubPluginCallback {
-        let plugin = to_register.last_mut().unwrap();
+    unsafe extern "C" fn register_subplugin(
+        subplugin_name: BwsStr,
+    ) -> Tuple3<SubPluginEventReceiver, SubPluginEntry, SubPluginSubscribeToEvent> {
+        let plugin = TO_REGISTER.last_mut().unwrap();
 
         let subplugin_name = subplugin_name.into_str().to_owned();
 
-        plugin.3.push(SubPlugin {
+        let (gate, receiver) = Gate::new();
+
+        plugin.1.subplugins.push(SubPlugin {
             name: subplugin_name,
-            callbacks: Default::default(),
+            gate,
+            subscribed_events: [0; (SubPluginEvent::VARIANT_COUNT + 7) / 8],
+            arbitrary_subscribed_events: HashSet::new(),
+            entry: None,
         });
 
-        register_subplugin_callback
+        Tuple3(
+            SubPluginEventReceiver((receiver as *const _ as *const ()).as_ref().unwrap()),
+            subplugin_entry,
+            subplugin_subscribe_to_event,
+        )
     }
 
-    unsafe extern "C" fn register_subplugin_callback(callback_name: BwsStr, fn_ptr: *const ()) {
-        let plugin = to_register.last_mut().unwrap();
-        let subplugin = plugin.3.last_mut().unwrap();
+    unsafe extern "C" fn subplugin_entry(future: FfiFuture<Unit>) {
+        let plugin = TO_REGISTER.last_mut().unwrap();
+        let subplugin = plugin.1.subplugins.last_mut().unwrap();
 
-        let callback_name = callback_name.into_str();
+        subplugin.entry = Some(future);
+    }
 
-        match callback_name {
-            "init" => {
-                subplugin.callbacks.init = Some(transmute(fn_ptr));
-            }
-            _ => {
-                error!(
-                    "Plugin {:?} subplugin {:?} tried to register an unknown callback: {:?}",
-                    plugin.0 .0, subplugin.name, callback_name
-                );
-                return;
+    unsafe extern "C" fn subplugin_subscribe_to_event(event_name: BwsStr) {
+        let plugin = TO_REGISTER.last_mut().unwrap();
+        let subplugin = plugin.1.subplugins.last_mut().unwrap();
+
+        let event_name = event_name.into_str();
+
+        match event_name {
+            other => {
+                subplugin
+                    .arbitrary_subscribed_events
+                    .insert(other.to_owned());
             }
         }
     }
@@ -218,19 +289,9 @@ async unsafe fn load_library(plugins: &mut Plugins, path: impl AsRef<Path>) -> R
     (*plugin_registrator)(register_plugin);
 
     let mut to_register_non_static = Vec::new();
-    swap(&mut to_register, &mut to_register_non_static);
+    swap(&mut TO_REGISTER, &mut to_register_non_static);
     for plugin in to_register_non_static {
-        plugins.insert(
-            plugin.0 .0,
-            Plugin {
-                version: Version::parse(&plugin.0 .1)
-                    .context("Unable to parse plugin's version")?,
-                provided_by: path.as_ref().to_path_buf(),
-                dependencies: plugin.1,
-                callbacks: plugin.2,
-                subplugins: plugin.3,
-            },
-        );
+        plugins.insert(plugin.0, plugin.1);
     }
 
     Ok(())

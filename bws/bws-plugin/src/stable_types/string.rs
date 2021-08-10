@@ -6,7 +6,7 @@ pub struct BwsString {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct BwsStr {
     ptr: *const u8,
     length: usize,
