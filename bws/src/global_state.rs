@@ -42,7 +42,7 @@ pub struct InnerGlobalState {
     pub players: RwLock<Slab<Player>>,
     pub player_data: RwLock<HashMap<String, PlayerData>>,
     pub banned_addresses: RwLock<HashSet<IpAddr>>,
-    pub plugins: crate::plugins::Plugins,
+    pub plugins: HashMap<String, crate::plugins::Plugin>,
 }
 
 pub struct Player {

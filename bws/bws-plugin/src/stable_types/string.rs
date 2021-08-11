@@ -10,8 +10,8 @@ pub struct BwsString {
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct BwsStr {
-    ptr: *const u8,
+pub struct BwsStr<'a> {
+    ptr: &'a u8,
     length: usize,
 }
 
@@ -32,14 +32,14 @@ impl BwsString {
     }
 }
 
-impl BwsStr {
-    pub fn from_str(s: &str) -> Self {
+impl<'a> BwsStr<'a> {
+    pub fn from_str(s: &'a str) -> Self {
         Self {
-            ptr: s.as_bytes().as_ptr(),
+            ptr: unsafe { s.as_bytes().as_ptr().as_ref() }.unwrap(),
             length: s.len(),
         }
     }
-    pub unsafe fn into_str<'a>(self) -> &'a str {
+    pub unsafe fn into_str(self) -> &'a str {
         &std::str::from_utf8_unchecked(std::slice::from_raw_parts(self.ptr, self.length))
     }
 }
@@ -50,7 +50,7 @@ impl Debug for BwsString {
     }
 }
 
-impl Debug for BwsStr {
+impl<'a> Debug for BwsStr<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         unsafe { Debug::fmt(self.into_str(), f) }
     }
@@ -62,7 +62,7 @@ impl Display for BwsString {
     }
 }
 
-impl Display for BwsStr {
+impl<'a> Display for BwsStr<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         unsafe { Display::fmt(self.into_str(), f) }
     }

@@ -3,6 +3,8 @@
 mod events;
 mod stable_types;
 
+use std::future::Future;
+
 pub use events::{PluginEvent, SubPluginEvent};
 pub use stable_types::{
     option::BwsOption,
@@ -13,7 +15,7 @@ pub use stable_types::{
     vec::BwsVec,
 };
 
-use async_ffi::{FfiContext, FfiFuture, FfiPoll};
+use async_ffi::{ContextExt, FfiContext, FfiFuture, FfiPoll};
 
 /// Newtype wrapper of a pointer to an unstable `tokio::sync::mpsc::UnboundedReceiver<Tuple2<PluginEvent, BwsOneshotSender>>`
 #[repr(transparent)]
@@ -30,6 +32,41 @@ pub struct BwsSubPluginEventReceiver(pub &'static ());
 #[derive(Copy, Clone)]
 pub struct BwsOneshotSender(pub &'static ());
 
+/// A gate for the plugin side, bundles all that is required to handle events
+#[repr(C)]
+pub struct PluginGate {
+    pub receiver: BwsPluginEventReceiver,
+    pub receive: _f_RecvPluginEvent,
+    pub send: _f_SendOneshot,
+}
+
+impl PluginGate {
+    pub fn send(&mut self, sender: BwsOneshotSender, data: *const ()) {
+        unsafe {
+            (self.send)(sender, data);
+        }
+    }
+}
+
+impl Future for &mut PluginGate {
+    type Output = BwsOption<Tuple2<PluginEvent, BwsOneshotSender>>;
+
+    fn poll(
+        self: std::pin::Pin<&mut Self>,
+        ctx: &mut std::task::Context,
+    ) -> std::task::Poll<Self::Output> {
+        unsafe { ctx.with_as_ffi_context(|ctx| (self.receive)(self.receiver, ctx)) }.into_poll()
+    }
+}
+
+/// A gate for the plugin side, bundles all that is required to handle events for sub-plugins
+#[repr(C)]
+pub struct SubPluginGate {
+    receiver: BwsSubPluginEventReceiver,
+    receive: _f_RecvSubPluginEvent,
+    send: _f_SendOneshot,
+}
+
 /////////////////////////////
 // FFI function signatures //
 /////////////////////////////
@@ -41,6 +78,13 @@ pub type _f_RecvPluginEvent =
         BwsPluginEventReceiver,
         &mut FfiContext,
     ) -> FfiPoll<BwsOption<Tuple2<PluginEvent, BwsOneshotSender>>>;
+/// Defined on BWS, a poll fn that sub-plugins can wrap in a [`Future`][std::future::Future] to
+/// receive events from the sub-plugin `Gate`.
+pub type _f_RecvSubPluginEvent =
+    unsafe extern "C" fn(
+        BwsSubPluginEventReceiver,
+        &mut FfiContext,
+    ) -> FfiPoll<BwsOption<Tuple2<SubPluginEvent, BwsOneshotSender>>>;
 /// Defined on BWS, lets plugins send data to the tokio `Oneshot` channels.
 ///
 /// Usually this is used to finish an event call.
@@ -53,28 +97,31 @@ pub type _f_SendOneshot = unsafe extern "C" fn(BwsOneshotSender, *const ());
 /// 1. Name of the plugin (should be unique).
 /// 2. Version of the plugin (`major`, `minor`, `patch`) in SemVer format.
 /// 3. A list of dependencies, (name of the dependency, version requirement)
+/// 4. A function pointer to the plugin entry.
 ///
 /// ## Returned values
 ///
 /// Returns a tuple:
-/// 1. [`_f_RecvPluginEvent`] poll fn for receiving plugin events
-/// 2. [`_f_SendOneshot`] fn for sending data through a [`BwsOneshotSender`]
-/// 3. [`BwsPluginEventReceiver`] a pointer to a leaked unstable `tokio::sync::mpsc::UnboundedReceiver`
-///    that will be passed to the [`_f_RecvPluginEvent`].
-/// 4. [`_f_PluginEntry`] fn to register the plugin's entry point with a future.
-/// 5. [`_f_PluginSubscribeToEvent`] fn for the plugin to subscribe to certain events.
-pub type _f_RegisterPlugin = unsafe extern "C" fn(
-    BwsStr,
-    Tuple3<u64, u64, u64>,
-    BwsSlice<Tuple2<BwsStr, BwsStr>>,
-) -> Tuple5<
-    _f_RecvPluginEvent,
-    _f_SendOneshot,
-    BwsPluginEventReceiver,
-    _f_PluginEntry,
-    _f_PluginSubscribeToEvent,
->;
-/// Defined on BWS, given a future will spawn it in a tokio task once the plugin is to be started.
-pub type _f_PluginEntry = unsafe extern "C" fn(FfiFuture<Unit>);
+/// 1. [`_f_PluginSubscribeToEvent`] fn for the plugin to subscribe to certain events.
+/// 1. [`_f_RegisterSubPlugin`] fn for the plugin to register subplugins.
+pub type _f_RegisterPlugin =
+    unsafe extern "C" fn(
+        BwsStr,
+        Tuple3<u64, u64, u64>,
+        BwsSlice<Tuple2<BwsStr, BwsStr>>,
+        _f_PluginEntry,
+    ) -> Tuple2<_f_PluginSubscribeToEvent, _f_RegisterSubPlugin>;
+/// Defined on the plugin, starts the plugin.
+pub type _f_PluginEntry = unsafe extern "C" fn(PluginGate) -> FfiFuture<Unit>;
+
 /// Defined on BWS, lets plugins subscribe to events during (AND ONLY DURING) plugin initialization.
 pub type _f_PluginSubscribeToEvent = unsafe extern "C" fn(BwsStr);
+
+/// Defined on BWS, lets plugins register subplugins
+///
+/// Takes the name of the subplugin and the entry function pointer
+pub type _f_RegisterSubPlugin =
+    unsafe extern "C" fn(BwsStr, _f_SubPluginEntry) -> _f_SubPluginSubscribeToEvent;
+
+pub type _f_SubPluginEntry = unsafe extern "C" fn(SubPluginGate) -> FfiFuture<Unit>;
+pub type _f_SubPluginSubscribeToEvent = unsafe extern "C" fn(BwsStr);
