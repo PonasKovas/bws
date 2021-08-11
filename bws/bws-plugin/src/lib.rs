@@ -111,8 +111,8 @@ pub type _f_RegisterPlugin =
         BwsSlice<Tuple2<BwsStr, BwsStr>>,
         _f_PluginEntry,
     ) -> Tuple2<_f_PluginSubscribeToEvent, _f_RegisterSubPlugin>;
-/// Defined on the plugin, starts the plugin.
-pub type _f_PluginEntry = unsafe extern "C" fn(PluginGate) -> FfiFuture<Unit>;
+/// Defined on the plugin, starts the plugin. Gives the name of the plugin and the gate.
+pub type _f_PluginEntry = unsafe extern "C" fn(BwsStr, PluginGate) -> FfiFuture<Unit>;
 
 /// Defined on BWS, lets plugins subscribe to events during (AND ONLY DURING) plugin initialization.
 pub type _f_PluginSubscribeToEvent = unsafe extern "C" fn(BwsStr);

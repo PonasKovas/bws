@@ -167,18 +167,25 @@ pub async fn load_plugins() -> Result<HashMap<String, Plugin>> {
         }
     }
 
+    ////////////////////////////////
+    // Actually start the plugins //
+    ////////////////////////////////
+
     // do this in order of dependencies and move this out of this function?
     for plugin in &mut plugins {
         let (mut gate, receiver) = Gate::new();
 
         tokio::spawn(unsafe {
-            (plugin.1.plugin.entry)(PluginGate {
-                receiver: BwsPluginEventReceiver(
-                    (receiver as *const _ as *const ()).as_ref().unwrap(),
-                ),
-                receive: recv_plugin_event,
-                send: send_oneshot,
-            })
+            (plugin.1.plugin.entry)(
+                BwsStr::from_str(&plugin.0),
+                PluginGate {
+                    receiver: BwsPluginEventReceiver(
+                        (receiver as *const _ as *const ()).as_ref().unwrap(),
+                    ),
+                    receive: recv_plugin_event,
+                    send: send_oneshot,
+                },
+            )
         });
 
         match gate
