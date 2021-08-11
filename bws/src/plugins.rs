@@ -8,7 +8,7 @@ use sha2::digest::generic_array::transmute;
 use std::collections::HashSet;
 use std::mem::{swap, ManuallyDrop};
 use std::path::PathBuf;
-use std::ptr::null;
+use std::ptr::{null, null_mut};
 use std::{
     collections::HashMap,
     ffi::{CStr, CString},
@@ -23,12 +23,12 @@ use crate::plugins;
 
 const ABI_VERSION: u64 = ((async_ffi::ABI_VERSION as u64) << 32) | crate::ABI_VERSION as u64;
 
-pub struct LoadedPlugin<'a> {
-    pub gate: Gate<PluginEvent>,
-    pub plugin: &'a Plugin,
+pub struct Plugin {
+    gate: Option<Gate<PluginEvent>>, // None if the plugin is not active
+    plugin: PluginData,
 }
 
-pub struct Plugin {
+pub struct PluginData {
     pub version: Version,
     pub provided_by: PathBuf,
     pub dependencies: Vec<(String, VersionReq)>,
@@ -45,10 +45,10 @@ struct CandidatePlugin {
     subscribed_events: [u8; (PluginEvent::VARIANT_COUNT + 7) / 8],
     arbitrary_subscribed_events: HashSet<String>,
     entry: _f_PluginEntry,
-    subplugins: Vec<CandidateSubPlugin>,
+    subplugins: Vec<SubPluginData>,
 }
 
-struct CandidateSubPlugin {
+struct SubPluginData {
     name: String,
     subscribed_events: [u8; (SubPluginEvent::VARIANT_COUNT + 7) / 8],
     arbitrary_subscribed_events: HashSet<String>,
@@ -57,20 +57,20 @@ struct CandidateSubPlugin {
 
 // T is event enum, either plugin event or subplugin event
 pub struct Gate<T: Sized> {
-    sender: mpsc::UnboundedSender<Tuple2<T, *const oneshot::Sender<*const ()>>>,
+    sender: mpsc::UnboundedSender<Tuple2<T, *const oneshot::Sender<usize>>>,
 }
 
 impl<T: Sized> Gate<T> {
     pub fn new() -> (
         Self,
-        &'static mut mpsc::UnboundedReceiver<Tuple2<T, *const oneshot::Sender<*const ()>>>,
+        &'static mut mpsc::UnboundedReceiver<Tuple2<T, *const oneshot::Sender<usize>>>,
     ) {
         let (sender, receiver) = mpsc::unbounded_channel();
 
         (Self { sender }, Box::leak(Box::new(receiver)))
     }
     // If None, the plugin died while handling the call or was already dead
-    pub async fn call(&mut self, message: T) -> Option<*const ()> {
+    pub async fn call(&mut self, message: T) -> Option<usize> {
         let (sender, receiver) = oneshot::channel();
         let sender = ManuallyDrop::new(sender);
         if let Err(_) = self.sender.send(Tuple2(message, &*sender as *const _)) {
@@ -92,9 +92,8 @@ unsafe extern "C" fn recv_plugin_event(
     }
 }
 
-unsafe extern "C" fn send_oneshot(sender: BwsOneshotSender, data: *const ()) {
-    let sender: oneshot::Sender<*const ()> =
-        std::ptr::read(sender.0 as *const _ as *const oneshot::Sender<*const ()>);
+unsafe extern "C" fn send_oneshot(sender: BwsOneshotSender, data: usize) {
+    let sender = std::ptr::read(sender.0 as *const _ as *const oneshot::Sender<usize>);
     if sender.send(data).is_err() {
         error!("Error completing event call.");
     }
@@ -142,7 +141,7 @@ pub async fn load_plugins() -> Result<HashMap<String, Plugin>> {
             Ok(false) => {
                 error!(
                     "Plugin {:?} could not be loaded, because it's dependencies weren't satisfied. (Provided by {:?})",
-                    k, plugins[*k].provided_by
+                    k, plugins[*k].plugin.provided_by
                 );
                 true
             }
@@ -150,7 +149,7 @@ pub async fn load_plugins() -> Result<HashMap<String, Plugin>> {
                 error!(
                     "Error reading dependencies of plugin {:?} (Provided by {:?}): {:?}",
                     k,
-                    plugins[*k].provided_by,
+                    plugins[*k].plugin.provided_by,
                     e
                 );
                 true
@@ -173,7 +172,7 @@ pub async fn load_plugins() -> Result<HashMap<String, Plugin>> {
         let (mut gate, receiver) = Gate::new();
 
         tokio::spawn(unsafe {
-            (plugin.1.entry)(PluginGate {
+            (plugin.1.plugin.entry)(PluginGate {
                 receiver: BwsPluginEventReceiver(
                     (receiver as *const _ as *const ()).as_ref().unwrap(),
                 ),
@@ -183,11 +182,14 @@ pub async fn load_plugins() -> Result<HashMap<String, Plugin>> {
         });
 
         match gate
-            .call(PluginEvent::Arbitrary(BwsStr::from_str("hello"), null()))
+            .call(PluginEvent::Arbitrary(
+                BwsStr::from_str("hello"),
+                null_mut(),
+            ))
             .await
         {
             Some(r) => {
-                info!("Event 'hello' response: {}", unsafe { *(r as *const bool) });
+                info!("Event 'hello' response: {}", r != 0);
             }
             None => {
                 error!("Error calling event 'hello'");
@@ -220,7 +222,7 @@ pub async fn load_plugins() -> Result<HashMap<String, Plugin>> {
 
         info!(
             "Plugin {:?} loaded. (Provided by {:?})",
-            plugin.0, plugin.1.provided_by
+            plugin.0, plugin.1.plugin.provided_by
         );
     }
 
@@ -293,7 +295,14 @@ async unsafe fn load_library(
     ) -> _f_SubPluginSubscribeToEvent {
         let plugin = TO_REGISTER.last_mut().unwrap();
 
-        todo!();
+        plugin.subplugins.push(SubPluginData {
+            name: name.into_str().to_owned(),
+            subscribed_events: [0; (SubPluginEvent::VARIANT_COUNT + 7) / 8],
+            arbitrary_subscribed_events: HashSet::new(),
+            entry,
+        });
+
+        subplugin_subscribe_to_event
     }
 
     unsafe extern "C" fn plugin_subscribe_to_event(event_name: BwsStr) {
@@ -302,6 +311,20 @@ async unsafe fn load_library(
         match event_name.into_str() {
             other => {
                 plugin.arbitrary_subscribed_events.insert(other.to_owned());
+            }
+        }
+    }
+
+    unsafe extern "C" fn subplugin_subscribe_to_event(event_name: BwsStr) {
+        let plugin = TO_REGISTER.last_mut().unwrap();
+
+        let subplugin = plugin.subplugins.last_mut().unwrap();
+
+        match event_name.into_str() {
+            other => {
+                subplugin
+                    .arbitrary_subscribed_events
+                    .insert(other.to_owned());
             }
         }
     }
@@ -317,24 +340,27 @@ async unsafe fn load_library(
         plugins.insert(
             plugin.name,
             Plugin {
-                version: plugin.version,
-                provided_by: path.to_path_buf(),
-                dependencies: plugin
-                    .dependencies
-                    .into_iter()
-                    .try_fold::<_, _, Result<_>>(Vec::new(), |mut acc, dep| {
-                        acc.push((
-                            dep.0,
-                            VersionReq::parse(&dep.1)
-                                .context("error parsing version requirement")?,
-                        ));
+                gate: None,
+                plugin: PluginData {
+                    version: plugin.version,
+                    provided_by: path.to_path_buf(),
+                    dependencies: plugin
+                        .dependencies
+                        .into_iter()
+                        .try_fold::<_, _, Result<_>>(Vec::new(), |mut acc, dep| {
+                            acc.push((
+                                dep.0,
+                                VersionReq::parse(&dep.1)
+                                    .context("error parsing version requirement")?,
+                            ));
 
-                        Ok(acc)
-                    })?,
-                subscribed_events: plugin.subscribed_events,
-                arbitrary_subscribed_events: plugin.arbitrary_subscribed_events,
-                entry: plugin.entry,
-                library: Arc::clone(&lib),
+                            Ok(acc)
+                        })?,
+                    subscribed_events: plugin.subscribed_events,
+                    arbitrary_subscribed_events: plugin.arbitrary_subscribed_events,
+                    entry: plugin.entry,
+                    library: Arc::clone(&lib),
+                },
             },
         );
     }
@@ -345,14 +371,14 @@ async unsafe fn load_library(
 fn check_dependencies(plugin_name: &str, plugins: &HashMap<String, Plugin>) -> Result<bool> {
     let mut result = true;
 
-    let plugin = &plugins[plugin_name];
+    let plugin = &plugins[plugin_name].plugin;
     for dependency in &plugin.dependencies {
         match plugins.get(&dependency.0) {
             Some(dep_plugin) => {
-                if !dependency.1.matches(&dep_plugin.version) {
+                if !dependency.1.matches(&dep_plugin.plugin.version) {
                     error!(
                         "Plugin {:?} dependency {:?} {} was not met. {:?} {} is present, but does not match the {} version requirement.",
-                        plugin_name, dependency.0, dependency.1, dependency.0, dep_plugin.version, dependency.1
+                        plugin_name, dependency.0, dependency.1, dependency.0, dep_plugin.plugin.version, dependency.1
                     );
                     result = false;
                 }

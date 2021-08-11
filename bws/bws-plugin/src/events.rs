@@ -6,7 +6,7 @@ use variant_count::VariantCount;
 pub enum PluginEvent {
     /// The [`BwsStr`] is not actually `'static`, it is valid until the event call is finished
     /// by sending a response to the oneshot channel.
-    Arbitrary(BwsStr<'static>, *const ()),
+    Arbitrary(BwsStr<'static>, *mut ()),
 }
 
 #[derive(VariantCount)]
@@ -14,5 +14,5 @@ pub enum PluginEvent {
 pub enum SubPluginEvent {
     /// The [`BwsStr`] is not actually `'static`, it is valid until the event call is finished
     /// by sending a response to the oneshot channel.
-    Arbitrary(BwsStr<'static>, *const ()),
+    Arbitrary(BwsStr<'static>, *mut ()),
 }

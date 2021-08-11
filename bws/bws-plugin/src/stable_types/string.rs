@@ -1,4 +1,4 @@
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 
 #[repr(C)]
 #[derive(Clone)]
@@ -53,17 +53,5 @@ impl Debug for BwsString {
 impl<'a> Debug for BwsStr<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         unsafe { Debug::fmt(self.into_str(), f) }
-    }
-}
-
-impl Display for BwsString {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        unsafe { Display::fmt(&*std::mem::ManuallyDrop::new(self.clone().into_string()), f) }
-    }
-}
-
-impl<'a> Display for BwsStr<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        unsafe { Display::fmt(self.into_str(), f) }
     }
 }
