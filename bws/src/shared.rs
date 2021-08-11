@@ -25,7 +25,7 @@ pub trait LinearSearch<'a> {
         Self::Value: Borrow<Q>;
 }
 
-impl<'a, K, T> LinearSearch<'a> for Vec<(K, T)> {
+impl<'a, K, T> LinearSearch<'a> for [(K, T)] {
     type Key = K;
     type Value = T;
 

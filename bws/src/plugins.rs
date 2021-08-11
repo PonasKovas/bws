@@ -127,44 +127,24 @@ pub async fn load_plugins() -> Result<HashMap<String, Plugin>> {
         }
     }
 
-    // check the plugins and remove any that have unsatisfied dependencies
-    let mut any_removed = false;
-    // loop because a single pass might not be enough, if for example P1 depends on P2 which depends on P3.
-    // And P3 is not present. On the first pass, P1 would be loaded fine, and P2 would be removed because of
-    // unsatisfied dependencies, invalidating P1 at the same time, so we need an additional pass to remove P1 too.
-    loop {
-        let keys_to_remove = plugins
-        .keys()
-        .filter(|k| match check_dependencies(k, &plugins) {
-            Ok(true) => {
-                false
-            }
+    // check if all dependencies of plugins are satisfied
+    for plugin in &plugins {
+        match check_dependencies(plugin.0, &plugins) {
+            Ok(true) => {}
             Ok(false) => {
-                error!(
+                bail!(
                     "Plugin {:?} could not be loaded, because it's dependencies weren't satisfied. (Provided by {:?})",
-                    k, plugins[*k].plugin.provided_by
+                    plugin.0, plugins[plugin.0].plugin.provided_by
                 );
-                true
             }
             Err(e) => {
-                error!(
+                bail!(
                     "Error reading dependencies of plugin {:?} (Provided by {:?}): {:?}",
-                    k,
-                    plugins[*k].plugin.provided_by,
+                    plugin.0,
+                    plugins[plugin.0].plugin.provided_by,
                     e
                 );
-                true
             }
-        })
-        .cloned()
-        .collect::<Vec<_>>();
-        for key in keys_to_remove {
-            plugins.remove(&key);
-            any_removed = true;
-        }
-
-        if !any_removed {
-            break;
         }
     }
 
