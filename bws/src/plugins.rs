@@ -20,6 +20,7 @@ use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 
 use crate::plugins;
+use crate::shared::LinearSearch;
 
 const ABI_VERSION: u64 = ((async_ffi::ABI_VERSION as u64) << 32) | crate::ABI_VERSION as u64;
 
@@ -171,13 +172,42 @@ pub async fn load_plugins() -> Result<HashMap<String, Plugin>> {
     // Actually start the plugins //
     ////////////////////////////////
 
-    // do this in order of dependencies and move this out of this function?
-    for plugin in &mut plugins {
-        let (mut gate, receiver) = Gate::new();
+    // Use the graph theory to order the plugins so that they would load only after all of their dependencies
+    // have loaded.
+    let mut graph = petgraph::graph::DiGraph::<String, ()>::new();
+    let mut indices = Vec::new();
+    for plugin in &plugins {
+        indices.push((plugin.0.clone(), graph.add_node(plugin.0.clone())));
+    }
+    // set the edges
+    for plugin in &plugins {
+        let pid = indices.search(plugin.0);
+        for dependency in &plugin.1.plugin.dependencies {
+            graph.update_edge(*pid, *indices.search(&dependency.0), ());
+        }
+    }
+
+    let ordering = match petgraph::algo::toposort(&graph, None) {
+        Ok(o) => o,
+        Err(cycle) => {
+            bail!(
+                "Dependency cycle detected: {}",
+                indices.search_by_val(&cycle.node_id())
+            );
+        }
+    };
+
+    for plugin_id in ordering {
+        let plugin_name = indices.search_by_val(&plugin_id);
+
+        let plugin = plugins.get_mut(plugin_name).unwrap();
+
+        // Create the gate
+        let (gate, receiver) = Gate::new();
 
         tokio::spawn(unsafe {
-            (plugin.1.plugin.entry)(
-                BwsStr::from_str(&plugin.0),
+            (plugin.plugin.entry)(
+                BwsStr::from_str(plugin_name),
                 PluginGate {
                     receiver: BwsPluginEventReceiver(
                         (receiver as *const _ as *const ()).as_ref().unwrap(),
@@ -188,66 +218,34 @@ pub async fn load_plugins() -> Result<HashMap<String, Plugin>> {
             )
         });
 
-        match gate
-            .call(PluginEvent::Arbitrary(
-                BwsStr::from_str("hello"),
-                null_mut(),
-            ))
-            .await
-        {
-            Some(r) => {
-                info!("Event 'hello' response: {}", r != 0);
-            }
-            None => {
-                error!("Error calling event 'hello'");
-            }
-        }
-        // plugins.insert(
-        //     candidate_plugin.0,
-        //     Plugin {
-        //         version: candidate_plugin.1.version,
-        //         provided_by: candidate_plugin.1.provided_by,
-        //         dependencies: candidate_plugin.1.dependencies,
-        //         gate: {
-        //             let (gate, receiver) = Gate::new();
-
-        //             tokio::spawn((candidate_plugin.1.entry)(PluginGate {
-        //                 receiver: BwsPluginEventReceiver(
-        //                     unsafe { (receiver as *const _ as *const ()).as_ref() }.unwrap(),
-        //                 ),
-        //                 receive: recv_plugin_event,
-        //                 send: send_oneshot,
-        //             }));
-
-        //             gate
-        //         },
-        //         subscribed_events: candidate_plugin.1.subscribed_events,
-        //         arbitrary_subscribed_events: candidate_plugin.1.arbitrary_subscribed_events,
-        //         library: candidate_plugin.1.library,
-        //     },
-        // );
+        plugin.gate = Some(gate);
 
         info!(
-            "Plugin {:?} loaded. (Provided by {:?})",
-            plugin.0, plugin.1.plugin.provided_by
+            "Plugin {:?} loaded and started. (Provided by {:?})",
+            plugin_name, plugin.plugin.provided_by
         );
     }
 
-    // tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-    // let res = plugins
-    //     .get_mut("test_plugin")
-    //     .unwrap()
-    //     .gate
-    //     .call(PluginEvent::Arbitrary(BwsStr::from_str("hello"), null()))
-    //     .await;
-    // match res {
-    //     Some(r) => {
-    //         info!("Event 'hello' response: {}", unsafe { *(r as *const bool) });
-    //     }
-    //     None => {
-    //         error!("Error calling event 'hello'");
-    //     }
-    // }
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    match plugins
+        .get_mut("test_plugin")
+        .unwrap()
+        .gate
+        .as_mut()
+        .unwrap()
+        .call(PluginEvent::Arbitrary(
+            BwsStr::from_str("hello"),
+            null_mut(),
+        ))
+        .await
+    {
+        Some(r) => {
+            info!("Event 'hello' response: {}", r != 0);
+        }
+        None => {
+            error!("Error calling event 'hello'");
+        }
+    }
 
     Ok(plugins)
 }
