@@ -79,8 +79,8 @@ lazy_static! {
     static ref OPT: Opt = Opt::from_args();
 }
 
-// #[tokio::main]
-#[tokio::main(flavor = "current_thread")]
+#[tokio::main]
+// #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     env_logger::builder()
         .filter_level(log::LevelFilter::Info)

@@ -6,7 +6,7 @@ use log::{error, info};
 use semver::{Version, VersionReq};
 use sha2::digest::generic_array::transmute;
 use std::collections::HashSet;
-use std::mem::swap;
+use std::mem::{swap, ManuallyDrop};
 use std::path::PathBuf;
 use std::ptr::null;
 use std::{
@@ -37,37 +37,46 @@ pub struct Plugin {
 
 // T is event enum, either plugin event or subplugin event
 pub struct Gate<T: Sized> {
-    sender: mpsc::UnboundedSender<Tuple2<T, *const oneshot::Sender<bool>>>,
+    sender: mpsc::UnboundedSender<Tuple2<T, *const oneshot::Sender<*const ()>>>,
 }
 
 impl<T: Sized> Gate<T> {
     pub fn new() -> (
         Self,
-        &'static mut mpsc::UnboundedReceiver<Tuple2<T, *const oneshot::Sender<bool>>>,
+        &'static mut mpsc::UnboundedReceiver<Tuple2<T, *const oneshot::Sender<*const ()>>>,
     ) {
         let (sender, receiver) = mpsc::unbounded_channel();
 
         (Self { sender }, Box::leak(Box::new(receiver)))
     }
-    // false = execute default behaviour
-    pub async fn call(&mut self, message: T) -> bool {
+    // If None, the plugin died while handling the call or was already dead
+    pub async fn call(&mut self, message: T) -> Option<*const ()> {
         let (sender, receiver) = oneshot::channel();
-        if let Err(_) = self.sender.send(Tuple2(message, &sender as *const _)) {
-            return false;
+        let sender = ManuallyDrop::new(sender);
+        if let Err(_) = self.sender.send(Tuple2(message, &*sender as *const _)) {
+            return None;
         }
-        receiver.await.unwrap_or(false)
+        receiver.await.ok()
     }
 }
 
 unsafe extern "C" fn recv_plugin_event(
-    receiver: PluginEventReceiver,
+    receiver: BwsPluginEventReceiver,
     ctx: &mut FfiContext,
-) -> FfiPoll<BwsOption<Tuple2<PluginEvent, OneshotSender>>> {
-    let receiver: &mut mpsc::UnboundedReceiver<Tuple2<PluginEvent, OneshotSender>> =
-        transmute(receiver.0);
+) -> FfiPoll<BwsOption<Tuple2<PluginEvent, BwsOneshotSender>>> {
+    let receiver: &mut mpsc::UnboundedReceiver<Tuple2<PluginEvent, BwsOneshotSender>> =
+        transmute(receiver);
     match ctx.with_as_context(|ctx| receiver.poll_recv(ctx)) {
         std::task::Poll::Ready(r) => FfiPoll::Ready(BwsOption::from_option(r)),
         std::task::Poll::Pending => FfiPoll::Pending,
+    }
+}
+
+unsafe extern "C" fn send_oneshot(sender: BwsOneshotSender, data: *const ()) {
+    let sender: oneshot::Sender<*const ()> =
+        std::ptr::read(sender.0 as *const _ as *const oneshot::Sender<*const ()>);
+    if sender.send(data).is_err() {
+        error!("Error completing event call.");
     }
 }
 
@@ -150,12 +159,20 @@ pub async fn load_plugins() -> Result<Plugins> {
     }
 
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-    plugins
+    let res = plugins
         .get_mut("test_plugin")
         .unwrap()
         .gate
         .call(PluginEvent::Arbitrary(BwsStr::from_str("hello"), null()))
         .await;
+    match res {
+        Some(r) => {
+            info!("Event 'hello' response: {}", unsafe { *(r as *const bool) });
+        }
+        None => {
+            error!("Error calling event 'hello'");
+        }
+    }
 
     Ok(plugins)
 }
@@ -191,7 +208,13 @@ async unsafe fn load_library(plugins: &mut Plugins, path: impl AsRef<Path>) -> R
         name: BwsStr,
         version: Tuple3<u64, u64, u64>,
         dependencies: BwsSlice<Tuple2<BwsStr, BwsStr>>,
-    ) -> Tuple4<RecvPluginEvent, PluginEventReceiver, PluginEntry, PluginSubscribeToEvent> {
+    ) -> Tuple5<
+        _f_RecvPluginEvent,
+        _f_SendOneshot,
+        BwsPluginEventReceiver,
+        _f_PluginEntry,
+        _f_PluginSubscribeToEvent,
+    > {
         let (gate, receiver) = Gate::new();
         TO_REGISTER.push((
             name.into_str().to_owned(),
@@ -207,9 +230,10 @@ async unsafe fn load_library(plugins: &mut Plugins, path: impl AsRef<Path>) -> R
             None,
         ));
 
-        Tuple4(
+        Tuple5(
             recv_plugin_event,
-            PluginEventReceiver((receiver as *const _ as *const ()).as_ref().unwrap()),
+            send_oneshot,
+            BwsPluginEventReceiver((receiver as *const _ as *const ()).as_ref().unwrap()),
             plugin_entry,
             plugin_subscribe_to_event,
         )
@@ -231,7 +255,7 @@ async unsafe fn load_library(plugins: &mut Plugins, path: impl AsRef<Path>) -> R
         }
     }
 
-    let plugin_registrator: Symbol<unsafe extern "C" fn(RegisterPlugin)> =
+    let plugin_registrator: Symbol<unsafe extern "C" fn(_f_RegisterPlugin)> =
         lib.get(b"bws_load_library")?;
 
     (*plugin_registrator)(register_plugin);
