@@ -31,7 +31,7 @@ pub struct InnerGlobalState {
     pub compression_treshold: i32,
     pub port: u16,
     pub clients: RwLock<Slab<Client>>,
-    pub plugins: HashMap<String, crate::plugins::Plugin>,
+    pub plugins: HashMap<String, RwLock<crate::plugins::Plugin>>,
 }
 
 pub struct Client {

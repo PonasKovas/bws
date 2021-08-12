@@ -108,8 +108,15 @@ async fn async_main() -> Result<()> {
         port: OPT.port,
         plugins: plugins::load_plugins()
             .await
-            .context("Error loading plugins")?,
+            .context("Error loading plugins")?
+            .into_iter()
+            .map(|(k, v)| (k, RwLock::new(v)))
+            .collect(),
     });
+
+    plugins::start_plugins(&state)
+        .await
+        .context("Error starting plugins")?;
 
     tokio::select! {
         _ = signal::ctrl_c() => {

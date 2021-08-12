@@ -1,12 +1,15 @@
 #![allow(non_camel_case_types)]
 
 mod events;
+mod pointers;
 mod stable_types;
 
 use std::future::Future;
 
 pub use events::{PluginEvent, SubPluginEvent};
+pub use pointers::{BwsOneshotSender, BwsPluginEventReceiver, BwsSubPluginEventReceiver};
 pub use stable_types::{
+    global_state::BwsGlobalState,
     option::BwsOption,
     slice::BwsSlice,
     string::{BwsStr, BwsString},
@@ -22,37 +25,35 @@ use async_ffi::{ContextExt, FfiContext, FfiFuture, FfiPoll};
 pub struct SendMutPtr<T>(pub *mut T);
 
 unsafe impl<T> Send for SendMutPtr<T> {}
+unsafe impl<T> Sync for SendMutPtr<T> {}
 
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone)]
 pub struct SendPtr<T>(pub *const T);
 
 unsafe impl<T> Send for SendPtr<T> {}
-
-/// Newtype wrapper of a pointer to an unstable `tokio::sync::mpsc::UnboundedReceiver<Tuple2<PluginEvent, BwsOneshotSender>>`
-#[repr(transparent)]
-#[derive(Copy, Clone)]
-pub struct BwsPluginEventReceiver(pub &'static ());
-
-/// Newtype wrapper of a pointer to an unstable `tokio::sync::mpsc::UnboundedReceiver<Tuple2<SubPluginEvent, BwsOneshotSender>>`
-#[repr(transparent)]
-#[derive(Copy, Clone)]
-pub struct BwsSubPluginEventReceiver(pub &'static ());
-
-/// Newtype wrapper of a pointer to an unstable `tokio::sync::oneshot::Sender<*const ()>`
-#[repr(transparent)]
-#[derive(Copy, Clone)]
-pub struct BwsOneshotSender(pub &'static ());
+unsafe impl<T> Sync for SendPtr<T> {}
 
 /// A gate for the plugin side, bundles all that is required to handle events
 #[repr(C)]
 pub struct PluginGate {
-    pub receiver: BwsPluginEventReceiver,
-    pub receive: _f_RecvPluginEvent,
-    pub send: _f_SendOneshot,
+    receiver: BwsPluginEventReceiver,
+    receive: _f_RecvPluginEvent,
+    send: _f_SendOneshot,
 }
 
 impl PluginGate {
+    pub unsafe fn new(
+        receiver: BwsPluginEventReceiver,
+        receive: _f_RecvPluginEvent,
+        send: _f_SendOneshot,
+    ) -> Self {
+        Self {
+            receiver,
+            receive,
+            send,
+        }
+    }
     pub fn finish(&mut self, sender: BwsOneshotSender) {
         unsafe {
             (self.send)(sender);
@@ -124,7 +125,8 @@ pub type _f_RegisterPlugin =
         _f_PluginEntry,
     ) -> Tuple2<_f_PluginSubscribeToEvent, _f_RegisterSubPlugin>;
 /// Defined on the plugin, starts the plugin. Gives the name of the plugin and the gate.
-pub type _f_PluginEntry = unsafe extern "C" fn(BwsStr, PluginGate) -> FfiFuture<Unit>;
+pub type _f_PluginEntry =
+    unsafe extern "C" fn(BwsStr, PluginGate, BwsGlobalState) -> FfiFuture<Unit>;
 
 /// Defined on BWS, lets plugins subscribe to events during (AND ONLY DURING) plugin initialization.
 pub type _f_PluginSubscribeToEvent = unsafe extern "C" fn(BwsStr);

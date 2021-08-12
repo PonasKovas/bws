@@ -19,6 +19,7 @@ use tokio::fs;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 
+use crate::global_state::{GlobalState, InnerGlobalState};
 use crate::plugins;
 use crate::shared::LinearSearch;
 
@@ -71,7 +72,7 @@ impl<T: Sized> Gate<T> {
         (Self { sender }, Box::leak(Box::new(receiver)))
     }
     // If None, the plugin died while handling the call or was already dead
-    pub async fn call(&mut self, message: T) -> Option<()> {
+    pub async fn call(&self, message: T) -> Option<()> {
         let (sender, receiver) = oneshot::channel();
         let sender = ManuallyDrop::new(sender);
         if let Err(_) = self
@@ -88,19 +89,132 @@ unsafe extern "C" fn recv_plugin_event(
     receiver: BwsPluginEventReceiver,
     ctx: &mut FfiContext,
 ) -> FfiPoll<BwsOption<Tuple2<PluginEvent, BwsOneshotSender>>> {
-    let receiver: &mut mpsc::UnboundedReceiver<Tuple2<PluginEvent, BwsOneshotSender>> =
-        transmute(receiver);
-    match ctx.with_as_context(|ctx| receiver.poll_recv(ctx)) {
-        std::task::Poll::Ready(r) => FfiPoll::Ready(BwsOption::from_option(r)),
-        std::task::Poll::Pending => FfiPoll::Pending,
+    // this catch_unwind is useless because the panic hook still triggers and the tokio runtime immediatelly shutdown
+    // without the plugin printing the stacktrace
+    // TODO do something about this
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let receiver: &mut mpsc::UnboundedReceiver<Tuple2<PluginEvent, BwsOneshotSender>> =
+            transmute(receiver);
+        match ctx.with_as_context(|ctx| receiver.poll_recv(ctx)) {
+            std::task::Poll::Ready(r) => FfiPoll::Ready(BwsOption::from_option(r)),
+            std::task::Poll::Pending => FfiPoll::Pending,
+        }
+    })) {
+        Ok(p) => p,
+        Err(_) => FfiPoll::Panicked,
     }
 }
 
 unsafe extern "C" fn send_oneshot(sender: BwsOneshotSender) {
-    let sender = std::ptr::read(sender.0 as *const _ as *const oneshot::Sender<()>);
+    let sender = std::ptr::read(*sender as *const _ as *const oneshot::Sender<()>);
     if sender.send(()).is_err() {
         error!("Error completing event call.");
     }
+}
+
+pub async fn start_plugins(global_state: &GlobalState) -> Result<()> {
+    let plugins = &global_state.plugins;
+
+    // Use the graph theory to order the plugins so that they would load only after all of their dependencies
+    // have loaded.
+    let mut graph = petgraph::graph::DiGraph::<String, ()>::new();
+    let mut indices = Vec::new();
+    for plugin in plugins {
+        indices.push((plugin.0.clone(), graph.add_node(plugin.0.clone())));
+    }
+    // set the edges
+    for plugin in plugins {
+        let pid = indices.search(plugin.0);
+        for dependency in &plugin.1.read().await.plugin.dependencies {
+            graph.update_edge(*indices.search(&dependency.0), *pid, ());
+        }
+    }
+
+    let ordering = match petgraph::algo::toposort(&graph, None) {
+        Ok(o) => o,
+        Err(cycle) => {
+            bail!(
+                "Dependency cycle detected: {}",
+                indices.search_by_val(&cycle.node_id())
+            );
+        }
+    };
+
+    for plugin_id in ordering {
+        let plugin_name = indices.search_by_val(&plugin_id);
+
+        let plugin = &plugins[plugin_name];
+
+        // Create the gate
+        let (gate, receiver) = Gate::new();
+
+        tokio::spawn(unsafe {
+            (plugin.read().await.plugin.entry)(
+                BwsStr::from_str(plugin_name),
+                PluginGate::new(
+                    BwsPluginEventReceiver::new(
+                        (receiver as *const _ as *const ()).as_ref().unwrap(),
+                    ),
+                    recv_plugin_event,
+                    send_oneshot,
+                ),
+                BwsGlobalState::new(
+                    Arc::into_raw(Arc::clone(global_state)) as *const (),
+                    {
+                        unsafe extern "C" fn drop(ptr: *const ()) {
+                            std::mem::drop(Arc::from_raw(ptr as *const _));
+                        }
+                        drop
+                    },
+                    {
+                        unsafe extern "C" fn get_compression_treshold(ptr: *const ()) -> i32 {
+                            (*(ptr as *const InnerGlobalState)).compression_treshold
+                        }
+                        get_compression_treshold
+                    },
+                    {
+                        unsafe extern "C" fn get_port(ptr: *const ()) -> u16 {
+                            (*(ptr as *const InnerGlobalState)).port
+                        }
+                        get_port
+                    },
+                ),
+            )
+        });
+
+        plugin.write().await.gate = Some(gate);
+
+        info!(
+            "Plugin {:?} loaded and started. (Provided by {:?})",
+            plugin_name,
+            plugin.read().await.plugin.provided_by
+        );
+    }
+
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    let mut response = false;
+    let event = PluginEvent::Arbitrary(
+        BwsStr::from_str("hello"),
+        SendMutPtr(&mut response as *mut _ as *mut ()),
+    );
+    match plugins["test_plugin"]
+        .read()
+        .await
+        .gate
+        .as_ref()
+        .unwrap()
+        .call(event)
+        .await
+    {
+        Some(()) => {
+            info!("Event 'hello' response: {}", response);
+        }
+        None => {
+            error!("Error calling event 'hello'");
+        }
+    }
+
+    Ok(())
 }
 
 pub async fn load_plugins() -> Result<HashMap<String, Plugin>> {
@@ -148,87 +262,6 @@ pub async fn load_plugins() -> Result<HashMap<String, Plugin>> {
                     e
                 );
             }
-        }
-    }
-
-    ////////////////////////////////
-    // Actually start the plugins //
-    ////////////////////////////////
-
-    // Use the graph theory to order the plugins so that they would load only after all of their dependencies
-    // have loaded.
-    let mut graph = petgraph::graph::DiGraph::<String, ()>::new();
-    let mut indices = Vec::new();
-    for plugin in &plugins {
-        indices.push((plugin.0.clone(), graph.add_node(plugin.0.clone())));
-    }
-    // set the edges
-    for plugin in &plugins {
-        let pid = indices.search(plugin.0);
-        for dependency in &plugin.1.plugin.dependencies {
-            graph.update_edge(*indices.search(&dependency.0), *pid, ());
-        }
-    }
-
-    let ordering = match petgraph::algo::toposort(&graph, None) {
-        Ok(o) => o,
-        Err(cycle) => {
-            bail!(
-                "Dependency cycle detected: {}",
-                indices.search_by_val(&cycle.node_id())
-            );
-        }
-    };
-
-    for plugin_id in ordering {
-        let plugin_name = indices.search_by_val(&plugin_id);
-
-        let plugin = plugins.get_mut(plugin_name).unwrap();
-
-        // Create the gate
-        let (gate, receiver) = Gate::new();
-
-        tokio::spawn(unsafe {
-            (plugin.plugin.entry)(
-                BwsStr::from_str(plugin_name),
-                PluginGate {
-                    receiver: BwsPluginEventReceiver(
-                        (receiver as *const _ as *const ()).as_ref().unwrap(),
-                    ),
-                    receive: recv_plugin_event,
-                    send: send_oneshot,
-                },
-            )
-        });
-
-        plugin.gate = Some(gate);
-
-        info!(
-            "Plugin {:?} loaded and started. (Provided by {:?})",
-            plugin_name, plugin.plugin.provided_by
-        );
-    }
-
-    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-    let mut response = false;
-    let event = PluginEvent::Arbitrary(
-        BwsStr::from_str("hello"),
-        SendMutPtr(&mut response as *mut _ as *mut ()),
-    );
-    match plugins
-        .get_mut("test_plugin")
-        .unwrap()
-        .gate
-        .as_mut()
-        .unwrap()
-        .call(event)
-        .await
-    {
-        Some(()) => {
-            info!("Event 'hello' response: {}", response);
-        }
-        None => {
-            error!("Error calling event 'hello'");
         }
     }
 
