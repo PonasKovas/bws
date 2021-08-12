@@ -135,5 +135,5 @@ pub type _f_PluginSubscribeToEvent = unsafe extern "C" fn(BwsStr);
 pub type _f_RegisterSubPlugin =
     unsafe extern "C" fn(BwsStr, _f_SubPluginEntry) -> _f_SubPluginSubscribeToEvent;
 
-pub type _f_SubPluginEntry = unsafe extern "C" fn(SubPluginGate) -> FfiFuture<Unit>;
+pub type _f_SubPluginEntry = unsafe extern "C" fn(BwsStr, SubPluginGate) -> FfiFuture<Unit>;
 pub type _f_SubPluginSubscribeToEvent = unsafe extern "C" fn(BwsStr);
