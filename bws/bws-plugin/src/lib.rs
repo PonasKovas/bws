@@ -53,9 +53,9 @@ pub struct PluginGate {
 }
 
 impl PluginGate {
-    pub fn send(&mut self, sender: BwsOneshotSender, data: usize) {
+    pub fn finish(&mut self, sender: BwsOneshotSender) {
         unsafe {
-            (self.send)(sender, data);
+            (self.send)(sender);
         }
     }
 }
@@ -99,8 +99,8 @@ pub type _f_RecvSubPluginEvent =
     ) -> FfiPoll<BwsOption<Tuple2<SubPluginEvent, BwsOneshotSender>>>;
 /// Defined on BWS, lets plugins send data to the tokio `Oneshot` channels.
 ///
-/// Usually this is used to finish an event call.
-pub type _f_SendOneshot = unsafe extern "C" fn(BwsOneshotSender, usize);
+/// This is used to finish an event call.
+pub type _f_SendOneshot = unsafe extern "C" fn(BwsOneshotSender);
 
 /// Defined on BWS, lets dynamic libraries register a plugin.
 ///

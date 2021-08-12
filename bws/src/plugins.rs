@@ -58,20 +58,20 @@ struct SubPluginData {
 
 // T is event enum, either plugin event or subplugin event
 pub struct Gate<T: Sized> {
-    sender: mpsc::UnboundedSender<Tuple2<T, SendPtr<oneshot::Sender<usize>>>>,
+    sender: mpsc::UnboundedSender<Tuple2<T, SendPtr<oneshot::Sender<()>>>>,
 }
 
 impl<T: Sized> Gate<T> {
     pub fn new() -> (
         Self,
-        &'static mut mpsc::UnboundedReceiver<Tuple2<T, SendPtr<oneshot::Sender<usize>>>>,
+        &'static mut mpsc::UnboundedReceiver<Tuple2<T, SendPtr<oneshot::Sender<()>>>>,
     ) {
         let (sender, receiver) = mpsc::unbounded_channel();
 
         (Self { sender }, Box::leak(Box::new(receiver)))
     }
     // If None, the plugin died while handling the call or was already dead
-    pub async fn call(&mut self, message: T) -> Option<usize> {
+    pub async fn call(&mut self, message: T) -> Option<()> {
         let (sender, receiver) = oneshot::channel();
         let sender = ManuallyDrop::new(sender);
         if let Err(_) = self
@@ -96,9 +96,9 @@ unsafe extern "C" fn recv_plugin_event(
     }
 }
 
-unsafe extern "C" fn send_oneshot(sender: BwsOneshotSender, data: usize) {
-    let sender = std::ptr::read(sender.0 as *const _ as *const oneshot::Sender<usize>);
-    if sender.send(data).is_err() {
+unsafe extern "C" fn send_oneshot(sender: BwsOneshotSender) {
+    let sender = std::ptr::read(sender.0 as *const _ as *const oneshot::Sender<()>);
+    if sender.send(()).is_err() {
         error!("Error completing event call.");
     }
 }
@@ -210,18 +210,22 @@ pub async fn load_plugins() -> Result<HashMap<String, Plugin>> {
     }
 
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-    let ptr = SendMutPtr(null_mut());
+    let mut response = false;
+    let event = PluginEvent::Arbitrary(
+        BwsStr::from_str("hello"),
+        SendMutPtr(&mut response as *mut _ as *mut ()),
+    );
     match plugins
         .get_mut("test_plugin")
         .unwrap()
         .gate
         .as_mut()
         .unwrap()
-        .call(PluginEvent::Arbitrary(BwsStr::from_str("hello"), ptr))
+        .call(event)
         .await
     {
-        Some(r) => {
-            info!("Event 'hello' response: {}", r != 0);
+        Some(()) => {
+            info!("Event 'hello' response: {}", response);
         }
         None => {
             error!("Error calling event 'hello'");
