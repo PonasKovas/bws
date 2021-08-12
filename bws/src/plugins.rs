@@ -166,7 +166,7 @@ pub async fn load_plugins() -> Result<HashMap<String, Plugin>> {
     for plugin in &plugins {
         let pid = indices.search(plugin.0);
         for dependency in &plugin.1.plugin.dependencies {
-            graph.update_edge(*pid, *indices.search(&dependency.0), ());
+            graph.update_edge(*indices.search(&dependency.0), *pid, ());
         }
     }
 
