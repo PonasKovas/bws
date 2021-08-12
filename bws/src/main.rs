@@ -1,6 +1,7 @@
 #![feature(array_map)]
 #![feature(box_syntax)]
 #![feature(bench_black_box)]
+#![feature(backtrace)]
 #![deny(unused_must_use)]
 // while developing (TODO remove)
 #![allow(unused_imports)]
@@ -79,9 +80,32 @@ lazy_static! {
     static ref OPT: Opt = Opt::from_args();
 }
 
-#[tokio::main]
-// #[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
+    let rt = tokio::runtime::Runtime::new()?;
+
+    // When any task panics, exit the whole app
+    let (panic_sender, mut panic_receiver) = tokio::sync::mpsc::unbounded_channel();
+    std::panic::set_hook(Box::new(move |info| {
+        let bt = std::backtrace::Backtrace::capture();
+        println!("{}\n{}", info, bt);
+        let _ = panic_sender.send(());
+    }));
+
+    rt.block_on(async move {
+        tokio::select! {
+            _ = panic_receiver.recv() => {
+                // some task panicked
+                shutdown().await;
+                Ok(())
+            },
+            _ = tokio::spawn(async_main()) => {
+                Ok(())
+            }
+        }
+    })
+}
+
+async fn async_main() -> Result<()> {
     env_logger::builder()
         .filter_level(log::LevelFilter::Info)
         .format_timestamp(if OPT.disable_timestamps {

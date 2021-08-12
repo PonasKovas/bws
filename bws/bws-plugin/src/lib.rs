@@ -17,6 +17,18 @@ pub use stable_types::{
 
 use async_ffi::{ContextExt, FfiContext, FfiFuture, FfiPoll};
 
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone)]
+pub struct SendMutPtr<T>(pub *mut T);
+
+unsafe impl<T> Send for SendMutPtr<T> {}
+
+#[repr(transparent)]
+#[derive(Debug, Copy, Clone)]
+pub struct SendPtr<T>(pub *const T);
+
+unsafe impl<T> Send for SendPtr<T> {}
+
 /// Newtype wrapper of a pointer to an unstable `tokio::sync::mpsc::UnboundedReceiver<Tuple2<PluginEvent, BwsOneshotSender>>`
 #[repr(transparent)]
 #[derive(Copy, Clone)]

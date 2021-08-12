@@ -58,13 +58,13 @@ struct SubPluginData {
 
 // T is event enum, either plugin event or subplugin event
 pub struct Gate<T: Sized> {
-    sender: mpsc::UnboundedSender<Tuple2<T, *const oneshot::Sender<usize>>>,
+    sender: mpsc::UnboundedSender<Tuple2<T, SendPtr<oneshot::Sender<usize>>>>,
 }
 
 impl<T: Sized> Gate<T> {
     pub fn new() -> (
         Self,
-        &'static mut mpsc::UnboundedReceiver<Tuple2<T, *const oneshot::Sender<usize>>>,
+        &'static mut mpsc::UnboundedReceiver<Tuple2<T, SendPtr<oneshot::Sender<usize>>>>,
     ) {
         let (sender, receiver) = mpsc::unbounded_channel();
 
@@ -74,7 +74,10 @@ impl<T: Sized> Gate<T> {
     pub async fn call(&mut self, message: T) -> Option<usize> {
         let (sender, receiver) = oneshot::channel();
         let sender = ManuallyDrop::new(sender);
-        if let Err(_) = self.sender.send(Tuple2(message, &*sender as *const _)) {
+        if let Err(_) = self
+            .sender
+            .send(Tuple2(message, SendPtr(&*sender as *const _)))
+        {
             return None;
         }
         receiver.await.ok()
@@ -207,16 +210,14 @@ pub async fn load_plugins() -> Result<HashMap<String, Plugin>> {
     }
 
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    let ptr = SendMutPtr(null_mut());
     match plugins
         .get_mut("test_plugin")
         .unwrap()
         .gate
         .as_mut()
         .unwrap()
-        .call(PluginEvent::Arbitrary(
-            BwsStr::from_str("hello"),
-            null_mut(),
-        ))
+        .call(PluginEvent::Arbitrary(BwsStr::from_str("hello"), ptr))
         .await
     {
         Some(r) => {
