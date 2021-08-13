@@ -5,8 +5,7 @@ pub mod pointers;
 pub mod stable_types;
 pub mod vtable;
 
-use std::future::Future;
-
+use async_ffi::{ContextExt, FfiContext, FfiFuture, FfiPoll};
 pub use events::{PluginEvent, SubPluginEvent};
 pub use pointers::{BwsOneshotSender, BwsPluginEventReceiver, BwsSubPluginEventReceiver};
 pub use stable_types::{
@@ -18,8 +17,8 @@ pub use stable_types::{
     unit::{unit, Unit},
     vec::BwsVec,
 };
-
-use async_ffi::{ContextExt, FfiContext, FfiFuture, FfiPoll};
+use std::future::Future;
+use std::task::Poll;
 
 #[repr(transparent)]
 #[derive(Debug, Copy, Clone)]
@@ -38,14 +37,16 @@ unsafe impl<T> Sync for SendPtr<T> {}
 /// A gate for the plugin side, bundles all that is required to handle events
 #[repr(C)]
 pub struct PluginGate {
-    receiver: BwsPluginEventReceiver,
+    receiver: *const (),
     receive: _f_RecvPluginEvent,
     send: _f_SendOneshot,
 }
 
+unsafe impl Send for PluginGate {}
+
 impl PluginGate {
     pub unsafe fn new(
-        receiver: BwsPluginEventReceiver,
+        receiver: *const (),
         receive: _f_RecvPluginEvent,
         send: _f_SendOneshot,
     ) -> Self {
@@ -55,23 +56,56 @@ impl PluginGate {
             send,
         }
     }
-    pub fn finish(&mut self, sender: BwsOneshotSender) {
+}
+
+pub struct PluginEventGuard {
+    event: Option<PluginEvent<'static>>,
+    sender: *const (),
+}
+
+impl PluginEventGuard {
+    /// Obtain the underlying [`PluginEvent`].
+    ///
+    /// ## Panics
+    ///
+    /// Panics if the method is called twice on the same [`PluginEventGuard`]
+    pub fn event<'a>(&'a mut self) -> PluginEvent<'a> {
         unsafe {
-            (self.send)(sender);
+            std::mem::transmute::<PluginEvent<'static>, PluginEvent<'a>>(
+                self.event
+                    .take()
+                    .expect("Tried to call PluginEventGuard::event() twice"),
+            )
         }
+    }
+    /// Finishes the event call.
+    pub fn finish(self) {
+        println!("{:?}", self.sender);
     }
 }
 
 impl Future for &mut PluginGate {
-    type Output = BwsOption<Tuple2<PluginEvent, BwsOneshotSender>>;
+    type Output = Option<PluginEventGuard>;
 
     fn poll(
         self: std::pin::Pin<&mut Self>,
         ctx: &mut std::task::Context,
     ) -> std::task::Poll<Self::Output> {
-        unsafe { ctx.with_ffi_context(|ctx| (self.receive)(self.receiver, ctx)) }
+        match unsafe { ctx.with_ffi_context(|ctx| (self.receive)(self.receiver, ctx)) }
             .try_into_poll()
-            .unwrap()
+            .unwrap_or_else(|_| panic!("FFI future for receiving event panicked."))
+        {
+            Poll::Ready(r) => {
+                Poll::Ready(
+                    r.into_option()
+                        .map(|Tuple2(event, oneshot_ptr)| PluginEventGuard {
+                            event: Some(event),
+                            sender: oneshot_ptr,
+                        }),
+                )
+            }
+            Poll::Pending => Poll::Pending,
+        }
     }
 }
 
@@ -91,9 +125,9 @@ pub struct SubPluginGate {
 /// receive events from the plugin `Gate`.
 pub type _f_RecvPluginEvent =
     unsafe extern "C" fn(
-        BwsPluginEventReceiver,
+        *const (),
         &mut FfiContext,
-    ) -> FfiPoll<BwsOption<Tuple2<PluginEvent, BwsOneshotSender>>>;
+    ) -> FfiPoll<BwsOption<Tuple2<PluginEvent<'static>, *const ()>>>;
 /// Defined on BWS, a poll fn that sub-plugins can wrap in a [`Future`][std::future::Future] to
 /// receive events from the sub-plugin `Gate`.
 pub type _f_RecvSubPluginEvent =

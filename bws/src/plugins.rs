@@ -29,7 +29,7 @@ use crate::shared::LinearSearch;
 const ABI_VERSION: u64 = ((async_ffi::ABI_VERSION as u64) << 32) | crate::ABI_VERSION as u64;
 
 pub struct Plugin {
-    gate: Option<Gate<PluginEvent>>, // None if the plugin is not active
+    gate: Option<Gate<PluginEvent<'static>>>, // None if the plugin is not active
     plugin: PluginData,
 }
 
@@ -89,14 +89,14 @@ impl<T: Sized> Gate<T> {
 }
 
 unsafe extern "C" fn recv_plugin_event(
-    receiver: BwsPluginEventReceiver,
+    receiver: *const (),
     ctx: &mut FfiContext,
-) -> FfiPoll<BwsOption<Tuple2<PluginEvent, BwsOneshotSender>>> {
+) -> FfiPoll<BwsOption<Tuple2<PluginEvent<'static>, *const ()>>> {
     // this catch_unwind is useless because the panic hook still triggers and the tokio runtime immediatelly shutdown
     // without the plugin printing the stacktrace
     // TODO do something about this
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let receiver: &mut mpsc::UnboundedReceiver<Tuple2<PluginEvent, BwsOneshotSender>> =
+        let receiver: &mut mpsc::UnboundedReceiver<Tuple2<PluginEvent, *const ()>> =
             transmute(receiver);
         match ctx.with_context(|ctx| receiver.poll_recv(ctx)) {
             std::task::Poll::Ready(r) => FfiPoll::Ready(BwsOption::from_option(r)),
@@ -155,9 +155,7 @@ pub async fn start_plugins(global_state: &GlobalState) -> Result<()> {
             (plugin.read().await.plugin.entry)(
                 BwsStr::from_str(plugin_name),
                 PluginGate::new(
-                    BwsPluginEventReceiver::new(
-                        (receiver as *const _ as *const ()).as_ref().unwrap(),
-                    ),
+                    receiver as *const _ as *const (),
                     recv_plugin_event,
                     send_oneshot,
                 ),
