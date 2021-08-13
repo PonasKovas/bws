@@ -1,8 +1,11 @@
+use std::fmt::Debug;
+
+/// `#[repr(C)]` equivalent of `Vec<T>`
 #[repr(C)]
 pub struct BwsVec<T: Sized> {
-    ptr: *mut T,
-    length: usize,
-    capacity: usize,
+    pub(crate) ptr: *mut T,
+    pub(crate) length: usize,
+    pub(crate) capacity: usize,
 }
 
 impl<T: Sized> BwsVec<T> {
@@ -17,7 +20,19 @@ impl<T: Sized> BwsVec<T> {
 
         bws_vec
     }
-    pub unsafe fn into_vec(self) -> Vec<T> {
-        Vec::from_raw_parts(self.ptr, self.length, self.capacity)
+    pub fn into_vec(self) -> Vec<T> {
+        unsafe { Vec::from_raw_parts(self.ptr, self.length, self.capacity) }
+    }
+    pub fn as_bws_slice<'a>(&'a self) -> super::slice::BwsSlice<'a, T> {
+        super::slice::BwsSlice {
+            ptr: unsafe { self.ptr.as_ref().unwrap() },
+            length: self.length,
+        }
+    }
+}
+
+impl<T: Sized + Debug> Debug for BwsVec<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        Debug::fmt(&self.as_bws_slice(), f)
     }
 }

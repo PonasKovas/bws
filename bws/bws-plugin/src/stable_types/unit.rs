@@ -1,3 +1,4 @@
+/// `#[repr(C)]` equivalent of `()`
 #[repr(C)]
 pub struct Unit([u8; 0]);
 

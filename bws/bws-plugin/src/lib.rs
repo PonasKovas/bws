@@ -1,8 +1,9 @@
 #![allow(non_camel_case_types)]
 
-mod events;
-mod pointers;
-mod stable_types;
+pub mod events;
+pub mod pointers;
+pub mod stable_types;
+pub mod vtable;
 
 use std::future::Future;
 
@@ -68,7 +69,9 @@ impl Future for &mut PluginGate {
         self: std::pin::Pin<&mut Self>,
         ctx: &mut std::task::Context,
     ) -> std::task::Poll<Self::Output> {
-        unsafe { ctx.with_as_ffi_context(|ctx| (self.receive)(self.receiver, ctx)) }.into_poll()
+        unsafe { ctx.with_ffi_context(|ctx| (self.receive)(self.receiver, ctx)) }
+            .try_into_poll()
+            .unwrap()
     }
 }
 

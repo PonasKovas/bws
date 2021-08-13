@@ -1,18 +1,18 @@
 use std::fmt::Debug;
 
+/// `#[repr(C)]` equivalent of `String`
 #[repr(C)]
-#[derive(Clone)]
 pub struct BwsString {
-    ptr: *mut u8,
-    length: usize,
-    capacity: usize,
+    pub(crate) ptr: *mut u8,
+    pub(crate) length: usize,
+    pub(crate) capacity: usize,
 }
 
+/// `#[repr(C)]` equivalent of `&'a str`
 #[repr(C)]
-#[derive(Copy, Clone)]
 pub struct BwsStr<'a> {
-    ptr: &'a u8,
-    length: usize,
+    pub(crate) ptr: &'a u8,
+    pub(crate) length: usize,
 }
 
 impl BwsString {
@@ -27,31 +27,37 @@ impl BwsString {
 
         bws_string
     }
-    pub unsafe fn into_string(self) -> String {
-        String::from_raw_parts(self.ptr, self.length, self.capacity)
+    pub fn into_string(self) -> String {
+        unsafe { String::from_raw_parts(self.ptr, self.length, self.capacity) }
+    }
+    pub fn as_bws_str<'a>(&'a self) -> BwsStr<'a> {
+        BwsStr {
+            ptr: unsafe { self.ptr.as_ref().unwrap() },
+            length: self.length,
+        }
     }
 }
 
 impl<'a> BwsStr<'a> {
     pub fn from_str(s: &'a str) -> Self {
         Self {
-            ptr: unsafe { s.as_bytes().as_ptr().as_ref() }.unwrap(),
+            ptr: unsafe { s.as_bytes().as_ptr().as_ref().unwrap() },
             length: s.len(),
         }
     }
-    pub unsafe fn into_str(self) -> &'a str {
-        &std::str::from_utf8_unchecked(std::slice::from_raw_parts(self.ptr, self.length))
+    pub fn as_str<'b>(&'b self) -> &'a str {
+        unsafe { &std::str::from_utf8_unchecked(std::slice::from_raw_parts(self.ptr, self.length)) }
     }
 }
 
 impl Debug for BwsString {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        unsafe { Debug::fmt(&*std::mem::ManuallyDrop::new(self.clone().into_string()), f) }
+        Debug::fmt(&self.as_bws_str(), f)
     }
 }
 
 impl<'a> Debug for BwsStr<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        unsafe { Debug::fmt(self.into_str(), f) }
+        Debug::fmt(self.as_str(), f)
     }
 }

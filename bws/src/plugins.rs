@@ -1,11 +1,13 @@
 use anyhow::{bail, Context, Result};
 use async_ffi::{FfiContext, FfiFuture, FfiPoll};
+use bws_plugin::stable_types::global_state::plugins::{BwsPlugin, BwsPlugins};
 use bws_plugin::*;
 use libloading::{Library, Symbol};
 use log::{error, info};
 use semver::{Version, VersionReq};
 use sha2::digest::generic_array::transmute;
 use std::collections::HashSet;
+use std::marker::PhantomData;
 use std::mem::{swap, ManuallyDrop};
 use std::path::PathBuf;
 use std::ptr::{null, null_mut};
@@ -18,6 +20,7 @@ use std::{
 use tokio::fs;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
+use tokio::sync::RwLock;
 
 use crate::global_state::{GlobalState, InnerGlobalState};
 use crate::plugins;
@@ -95,7 +98,7 @@ unsafe extern "C" fn recv_plugin_event(
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let receiver: &mut mpsc::UnboundedReceiver<Tuple2<PluginEvent, BwsOneshotSender>> =
             transmute(receiver);
-        match ctx.with_as_context(|ctx| receiver.poll_recv(ctx)) {
+        match ctx.with_context(|ctx| receiver.poll_recv(ctx)) {
             std::task::Poll::Ready(r) => FfiPoll::Ready(BwsOption::from_option(r)),
             std::task::Poll::Pending => FfiPoll::Pending,
         }
@@ -158,27 +161,59 @@ pub async fn start_plugins(global_state: &GlobalState) -> Result<()> {
                     recv_plugin_event,
                     send_oneshot,
                 ),
-                BwsGlobalState::new(
-                    Arc::into_raw(Arc::clone(global_state)) as *const (),
-                    {
-                        unsafe extern "C" fn drop(ptr: *const ()) {
-                            std::mem::drop(Arc::from_raw(ptr as *const _));
+                BwsGlobalState::new(Arc::into_raw(Arc::clone(global_state)) as *const (), {
+                    use bws_plugin::stable_types::global_state::{
+                        plugins::{PluginVTable, PluginsIterVTable, PluginsVTable},
+                        GlobalStateVTable,
+                    };
+                    unsafe extern "C" fn drop(ptr: *const ()) {
+                        std::mem::drop(Arc::from_raw(ptr as *const _));
+                    }
+                    unsafe extern "C" fn get_compression_treshold(ptr: *const ()) -> i32 {
+                        (*(ptr as *const InnerGlobalState)).compression_treshold
+                    }
+                    unsafe extern "C" fn get_port(ptr: *const ()) -> u16 {
+                        (*(ptr as *const InnerGlobalState)).port
+                    }
+                    unsafe extern "C" fn get_plugins(
+                        ptr: *const (),
+                    ) -> Tuple2<*const (), PluginsVTable> {
+                        unsafe extern "C" fn get_plugin(
+                            ptr: *const (),
+                            name: BwsStr,
+                        ) -> BwsOption<Tuple2<*const (), PluginVTable>> {
+                            BwsOption::from_option(
+                                (*(ptr as *const HashMap<String, RwLock<Plugin>>))
+                                    .get(name.as_str())
+                                    .map(|plugin| {
+                                        Tuple2(plugin as *const _ as *const (), PluginVTable {})
+                                    }),
+                            )
                         }
-                        drop
-                    },
-                    {
-                        unsafe extern "C" fn get_compression_treshold(ptr: *const ()) -> i32 {
-                            (*(ptr as *const InnerGlobalState)).compression_treshold
+                        unsafe extern "C" fn iter(
+                            ptr: *const (),
+                        ) -> Tuple2<*const (), PluginsIterVTable> {
+                            Box::into_raw(Box::new(
+                                (*(ptr as *const HashMap<String, RwLock<Plugin>>)).iter(),
+                            ));
+                            todo!()
                         }
-                        get_compression_treshold
-                    },
-                    {
-                        unsafe extern "C" fn get_port(ptr: *const ()) -> u16 {
-                            (*(ptr as *const InnerGlobalState)).port
-                        }
-                        get_port
-                    },
-                ),
+                        Tuple2(
+                            &(*(ptr as *const InnerGlobalState)).plugins as *const _ as *const (),
+                            PluginsVTable {
+                                get: get_plugin,
+                                iter: iter,
+                            },
+                        )
+                    }
+
+                    GlobalStateVTable {
+                        drop,
+                        get_compression_treshold,
+                        get_port,
+                        get_plugins,
+                    }
+                }),
             )
         });
 
@@ -296,12 +331,12 @@ async unsafe fn load_library(
         entry: _f_PluginEntry,
     ) -> Tuple2<_f_PluginSubscribeToEvent, _f_RegisterSubPlugin> {
         TO_REGISTER.push(CandidatePlugin {
-            name: name.into_str().to_owned(),
+            name: name.as_str().to_owned(),
             version: Version::new(version.0, version.1, version.2),
             dependencies: dependencies
-                .into_slice()
+                .as_slice()
                 .iter()
-                .map(|e| (e.0.into_str().to_owned(), e.1.into_str().to_owned()))
+                .map(|e| (e.0.as_str().to_owned(), e.1.as_str().to_owned()))
                 .collect(),
             subscribed_events: [0; (PluginEvent::VARIANT_COUNT + 7) / 8],
             arbitrary_subscribed_events: HashSet::new(),
@@ -319,7 +354,7 @@ async unsafe fn load_library(
         let plugin = TO_REGISTER.last_mut().unwrap();
 
         plugin.subplugins.push(SubPluginData {
-            name: name.into_str().to_owned(),
+            name: name.as_str().to_owned(),
             subscribed_events: [0; (SubPluginEvent::VARIANT_COUNT + 7) / 8],
             arbitrary_subscribed_events: HashSet::new(),
             entry,
@@ -331,7 +366,7 @@ async unsafe fn load_library(
     unsafe extern "C" fn plugin_subscribe_to_event(event_name: BwsStr) {
         let plugin = TO_REGISTER.last_mut().unwrap();
 
-        match event_name.into_str() {
+        match event_name.as_str() {
             other => {
                 plugin.arbitrary_subscribed_events.insert(other.to_owned());
             }
@@ -343,7 +378,7 @@ async unsafe fn load_library(
 
         let subplugin = plugin.subplugins.last_mut().unwrap();
 
-        match event_name.into_str() {
+        match event_name.as_str() {
             other => {
                 subplugin
                     .arbitrary_subscribed_events

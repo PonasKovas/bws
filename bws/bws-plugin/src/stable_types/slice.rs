@@ -1,35 +1,26 @@
-use std::{fmt::Debug, mem::transmute};
+use std::fmt::Debug;
 
+/// `#[repr(C)]` equivalent of `&'a [T]`
 #[repr(C)]
-pub struct BwsSlice<T: Sized> {
-    ptr: *const T,
-    length: usize,
+pub struct BwsSlice<'a, T: Sized> {
+    pub(crate) ptr: &'a T,
+    pub(crate) length: usize,
 }
 
-impl<T: Sized> Clone for BwsSlice<T> {
-    fn clone(&self) -> Self {
-        Self {
-            ptr: self.ptr,
-            length: self.length,
-        }
-    }
-}
-impl<T: Sized> Copy for BwsSlice<T> {}
-
-impl<T: Sized> BwsSlice<T> {
+impl<'a, T: Sized> BwsSlice<'a, T> {
     pub fn from_slice(s: &[T]) -> Self {
         Self {
-            ptr: s.as_ptr(),
+            ptr: unsafe { s.as_ptr().as_ref().unwrap() },
             length: s.len(),
         }
     }
-    pub unsafe fn into_slice<'a>(self) -> &'a [T] {
-        &std::slice::from_raw_parts(transmute(self.ptr), self.length)
+    pub fn as_slice<'b>(&'b self) -> &'a [T] {
+        unsafe { &std::slice::from_raw_parts(self.ptr as *const _, self.length) }
     }
 }
 
-impl<T: Sized + Debug> Debug for BwsSlice<T> {
+impl<'a, T: Sized + Debug> Debug for BwsSlice<'a, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        unsafe { Debug::fmt(self.into_slice(), f) }
+        Debug::fmt(self.as_slice(), f)
     }
 }
