@@ -1,6 +1,9 @@
+mod vtable;
+
 use anyhow::{bail, Context, Result};
 use async_ffi::{FfiContext, FfiFuture, FfiPoll};
-use bws_plugin::stable_types::global_state::plugins::{BwsPlugin, BwsPlugins};
+use bws_plugin::pointers::global_state::BwsGlobalState;
+use bws_plugin::register::{_f_PluginEntry, _f_SubPluginEntry};
 use bws_plugin::*;
 use libloading::{Library, Symbol};
 use log::{error, info};
@@ -88,33 +91,6 @@ impl<T: Sized> Gate<T> {
     }
 }
 
-unsafe extern "C" fn recv_plugin_event(
-    receiver: *const (),
-    ctx: &mut FfiContext,
-) -> FfiPoll<BwsOption<Tuple2<PluginEvent<'static>, *const ()>>> {
-    // this catch_unwind is useless because the panic hook still triggers and the tokio runtime immediatelly shutdown
-    // without the plugin printing the stacktrace
-    // TODO do something about this
-    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let receiver: &mut mpsc::UnboundedReceiver<Tuple2<PluginEvent, *const ()>> =
-            transmute(receiver);
-        match ctx.with_context(|ctx| receiver.poll_recv(ctx)) {
-            std::task::Poll::Ready(r) => FfiPoll::Ready(BwsOption::from_option(r)),
-            std::task::Poll::Pending => FfiPoll::Pending,
-        }
-    })) {
-        Ok(p) => p,
-        Err(_) => FfiPoll::Panicked,
-    }
-}
-
-unsafe extern "C" fn send_oneshot(sender: BwsOneshotSender) {
-    let sender = std::ptr::read(*sender as *const _ as *const oneshot::Sender<()>);
-    if sender.send(()).is_err() {
-        error!("Error completing event call.");
-    }
-}
-
 pub async fn start_plugins(global_state: &GlobalState) -> Result<()> {
     let plugins = &global_state.plugins;
 
@@ -154,64 +130,65 @@ pub async fn start_plugins(global_state: &GlobalState) -> Result<()> {
         tokio::spawn(unsafe {
             (plugin.read().await.plugin.entry)(
                 BwsStr::from_str(plugin_name),
-                PluginGate::new(
+                bws_plugin::pointers::plugin_gate::PluginGate::new(
                     receiver as *const _ as *const (),
-                    recv_plugin_event,
-                    send_oneshot,
                 ),
-                BwsGlobalState::new(Arc::into_raw(Arc::clone(global_state)) as *const (), {
-                    use bws_plugin::stable_types::global_state::{
-                        plugins::{PluginVTable, PluginsIterVTable, PluginsVTable},
-                        GlobalStateVTable,
-                    };
-                    unsafe extern "C" fn drop(ptr: *const ()) {
-                        std::mem::drop(Arc::from_raw(ptr as *const _));
-                    }
-                    unsafe extern "C" fn get_compression_treshold(ptr: *const ()) -> i32 {
-                        (*(ptr as *const InnerGlobalState)).compression_treshold
-                    }
-                    unsafe extern "C" fn get_port(ptr: *const ()) -> u16 {
-                        (*(ptr as *const InnerGlobalState)).port
-                    }
-                    unsafe extern "C" fn get_plugins(
-                        ptr: *const (),
-                    ) -> Tuple2<*const (), PluginsVTable> {
-                        unsafe extern "C" fn get_plugin(
-                            ptr: *const (),
-                            name: BwsStr,
-                        ) -> BwsOption<Tuple2<*const (), PluginVTable>> {
-                            BwsOption::from_option(
-                                (*(ptr as *const HashMap<String, RwLock<Plugin>>))
-                                    .get(name.as_str())
-                                    .map(|plugin| {
-                                        Tuple2(plugin as *const _ as *const (), PluginVTable {})
-                                    }),
-                            )
-                        }
-                        unsafe extern "C" fn iter(
-                            ptr: *const (),
-                        ) -> Tuple2<*const (), PluginsIterVTable> {
-                            Box::into_raw(Box::new(
-                                (*(ptr as *const HashMap<String, RwLock<Plugin>>)).iter(),
-                            ));
-                            todo!()
-                        }
-                        Tuple2(
-                            &(*(ptr as *const InnerGlobalState)).plugins as *const _ as *const (),
-                            PluginsVTable {
-                                get: get_plugin,
-                                iter: iter,
-                            },
-                        )
-                    }
+                BwsGlobalState::new(
+                    Arc::into_raw(Arc::clone(global_state)) as *const (),
+                    //  {
+                    //     use bws_plugin::stable_types::global_state::{
+                    //         plugins::{PluginVTable, PluginsIterVTable, PluginsVTable},
+                    //         GlobalStateVTable,
+                    //     };
+                    //     unsafe extern "C" fn drop(ptr: *const ()) {
+                    //         std::mem::drop(Arc::from_raw(ptr as *const _));
+                    //     }
+                    //     unsafe extern "C" fn get_compression_treshold(ptr: *const ()) -> i32 {
+                    //         (*(ptr as *const InnerGlobalState)).compression_treshold
+                    //     }
+                    //     unsafe extern "C" fn get_port(ptr: *const ()) -> u16 {
+                    //         (*(ptr as *const InnerGlobalState)).port
+                    //     }
+                    //     unsafe extern "C" fn get_plugins(
+                    //         ptr: *const (),
+                    //     ) -> Tuple2<*const (), PluginsVTable> {
+                    //         unsafe extern "C" fn get_plugin(
+                    //             ptr: *const (),
+                    //             name: BwsStr,
+                    //         ) -> BwsOption<Tuple2<*const (), PluginVTable>> {
+                    //             BwsOption::from_option(
+                    //                 (*(ptr as *const HashMap<String, RwLock<Plugin>>))
+                    //                     .get(name.as_str())
+                    //                     .map(|plugin| {
+                    //                         Tuple2(plugin as *const _ as *const (), PluginVTable {})
+                    //                     }),
+                    //             )
+                    //         }
+                    //         unsafe extern "C" fn iter(
+                    //             ptr: *const (),
+                    //         ) -> Tuple2<*const (), PluginsIterVTable> {
+                    //             Box::into_raw(Box::new(
+                    //                 (*(ptr as *const HashMap<String, RwLock<Plugin>>)).iter(),
+                    //             ));
+                    //             todo!()
+                    //         }
+                    //         Tuple2(
+                    //             &(*(ptr as *const InnerGlobalState)).plugins as *const _ as *const (),
+                    //             PluginsVTable {
+                    //                 get: get_plugin,
+                    //                 iter: iter,
+                    //             },
+                    //         )
+                    //     }
 
-                    GlobalStateVTable {
-                        drop,
-                        get_compression_treshold,
-                        get_port,
-                        get_plugins,
-                    }
-                }),
+                    //     GlobalStateVTable {
+                    //         drop,
+                    //         get_compression_treshold,
+                    //         get_port,
+                    //         get_plugins,
+                    //     }
+                    // }
+                ),
             )
         });
 
@@ -320,78 +297,15 @@ async unsafe fn load_library(
 
     // register the plugins
 
-    static mut TO_REGISTER: Vec<CandidatePlugin> = Vec::new();
+    let init: Symbol<unsafe extern "C" fn(&VTable)> = lib.get(b"bws_library_init")?;
 
-    unsafe extern "C" fn register_plugin(
-        name: BwsStr,
-        version: Tuple3<u64, u64, u64>,
-        dependencies: BwsSlice<Tuple2<BwsStr, BwsStr>>,
-        entry: _f_PluginEntry,
-    ) -> Tuple2<_f_PluginSubscribeToEvent, _f_RegisterSubPlugin> {
-        TO_REGISTER.push(CandidatePlugin {
-            name: name.as_str().to_owned(),
-            version: Version::new(version.0, version.1, version.2),
-            dependencies: dependencies
-                .as_slice()
-                .iter()
-                .map(|e| (e.0.as_str().to_owned(), e.1.as_str().to_owned()))
-                .collect(),
-            subscribed_events: [0; (PluginEvent::VARIANT_COUNT + 7) / 8],
-            arbitrary_subscribed_events: HashSet::new(),
-            entry,
-            subplugins: Vec::new(),
-        });
-
-        Tuple2(plugin_subscribe_to_event, register_subplugin)
-    }
-
-    unsafe extern "C" fn register_subplugin(
-        name: BwsStr,
-        entry: _f_SubPluginEntry,
-    ) -> _f_SubPluginSubscribeToEvent {
-        let plugin = TO_REGISTER.last_mut().unwrap();
-
-        plugin.subplugins.push(SubPluginData {
-            name: name.as_str().to_owned(),
-            subscribed_events: [0; (SubPluginEvent::VARIANT_COUNT + 7) / 8],
-            arbitrary_subscribed_events: HashSet::new(),
-            entry,
-        });
-
-        subplugin_subscribe_to_event
-    }
-
-    unsafe extern "C" fn plugin_subscribe_to_event(event_name: BwsStr) {
-        let plugin = TO_REGISTER.last_mut().unwrap();
-
-        match event_name.as_str() {
-            other => {
-                plugin.arbitrary_subscribed_events.insert(other.to_owned());
-            }
-        }
-    }
-
-    unsafe extern "C" fn subplugin_subscribe_to_event(event_name: BwsStr) {
-        let plugin = TO_REGISTER.last_mut().unwrap();
-
-        let subplugin = plugin.subplugins.last_mut().unwrap();
-
-        match event_name.as_str() {
-            other => {
-                subplugin
-                    .arbitrary_subscribed_events
-                    .insert(other.to_owned());
-            }
-        }
-    }
-
-    let plugin_registrator: Symbol<unsafe extern "C" fn(_f_RegisterPlugin)> =
-        lib.get(b"bws_load_library")?;
-
-    (*plugin_registrator)(register_plugin);
+    (*init)(&vtable::VTABLE);
 
     let mut to_register_non_static = Vec::new();
-    swap(&mut TO_REGISTER, &mut to_register_non_static);
+    swap(
+        &mut vtable::PLUGINS_TO_REGISTER,
+        &mut to_register_non_static,
+    );
     for plugin in to_register_non_static {
         plugins.insert(
             plugin.name,
