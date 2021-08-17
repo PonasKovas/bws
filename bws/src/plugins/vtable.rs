@@ -2,6 +2,7 @@ use super::{CandidatePlugin, SubPluginData};
 use crate::global_state::{GlobalState, InnerGlobalState};
 use async_ffi::FfiContext;
 use async_ffi::FfiPoll;
+use bitvec::prelude::*;
 use bws_plugin::{
     prelude::*,
     register::{_f_PluginEntry, _f_SubPluginEntry},
@@ -14,9 +15,6 @@ use std::mem::transmute;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 
-// The CandidatePlugins are boxed so they are fixed in memory as the vector grows
-// So the pointers returned in register_plugin and register_subplugin are always valid
-// (at least in the scope of the initial bws_library_init FFI function)
 pub(super) static mut PLUGINS_TO_REGISTER: Vec<CandidatePlugin> = Vec::new();
 
 pub static VTABLE: VTable = {
@@ -24,7 +22,7 @@ pub static VTABLE: VTable = {
         name: BwsStr,
         version: Tuple3<u64, u64, u64>,
         dependencies: BwsSlice<Tuple2<BwsStr, BwsStr>>,
-        events: BwsSlice<BwsStr>,
+        events: BwsSlice<u32>,
         entry: _f_PluginEntry,
     ) -> usize {
         let mut plugin = CandidatePlugin {
@@ -35,20 +33,14 @@ pub static VTABLE: VTable = {
                 .iter()
                 .map(|e| (e.0.as_str().to_owned(), e.1.as_str().to_owned()))
                 .collect(),
-            subscribed_events: Vec::new(),
+            subscribed_events: BitVec::new(),
             entry,
             subplugins: Vec::new(),
         };
 
-        // for event in events.as_slice() {
-        //     match event.as_str() {
-        //         other => {
-        //             plugin
-        //                 .arbitrary_subscribed_events
-        //                 .insert(event.as_str().to_owned());
-        //         }
-        //     }
-        // }
+        for event in events.as_slice() {
+            place(&mut plugin.subscribed_events, *event as usize, true);
+        }
 
         PLUGINS_TO_REGISTER.push(plugin);
 
@@ -57,26 +49,20 @@ pub static VTABLE: VTable = {
     unsafe extern "C" fn register_subplugin(
         plugin: usize,
         name: BwsStr,
-        events: BwsSlice<BwsStr>,
+        events: BwsSlice<u32>,
         entry: _f_SubPluginEntry,
     ) {
         let plugin = &mut PLUGINS_TO_REGISTER[plugin];
 
         let mut subplugin = SubPluginData {
             name: name.as_str().to_owned(),
-            subscribed_events: Vec::new(),
+            subscribed_events: BitVec::new(),
             entry,
         };
 
-        // for event in events.as_slice() {
-        //     match event.as_str() {
-        //         other => {
-        //             subplugin
-        //                 .arbitrary_subscribed_events
-        //                 .insert(event.as_str().to_owned());
-        //         }
-        //     }
-        // }
+        for event in events.as_slice() {
+            place(&mut subplugin.subscribed_events, *event as usize, true);
+        }
 
         plugin.subplugins.push(subplugin);
     }
@@ -116,3 +102,10 @@ pub static VTABLE: VTable = {
         gs_get_port,
     }
 };
+
+fn place(bits: &mut BitVec, pos: usize, val: bool) {
+    if bits.len() >= pos {
+        bits.resize(pos + 1, false);
+    }
+    bits.set(pos, val);
+}

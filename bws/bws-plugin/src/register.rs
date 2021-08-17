@@ -10,7 +10,7 @@ pub struct Plugin {
     pub name: String,
     pub version: (u64, u64, u64),
     pub dependencies: Vec<(String, String)>,
-    pub subscribed_events: Vec<String>,
+    pub subscribed_events: Vec<u32>,
     pub subplugins: Vec<SubPlugin>,
     pub entry: _f_PluginEntry,
 }
@@ -18,7 +18,7 @@ pub struct Plugin {
 #[derive(Clone)]
 pub struct SubPlugin {
     pub name: String,
-    pub subscribed_events: Vec<String>,
+    pub subscribed_events: Vec<u32>,
     pub entry: _f_SubPluginEntry,
 }
 
@@ -33,8 +33,8 @@ impl Plugin {
             entry,
         }
     }
-    pub fn add_event(mut self, event: impl AsRef<str>) -> Self {
-        self.subscribed_events.push(event.as_ref().to_owned());
+    pub fn add_event(mut self, event: u32) -> Self {
+        self.subscribed_events.push(event);
 
         self
     }
@@ -69,13 +69,7 @@ impl Plugin {
                         })
                         .collect::<Vec<_>>()[..],
                 ),
-                BwsSlice::from_slice(
-                    &self
-                        .subscribed_events
-                        .iter()
-                        .map(|e| BwsStr::from_str(&e))
-                        .collect::<Vec<_>>()[..],
-                ),
+                BwsSlice::from_slice(&self.subscribed_events[..]),
                 self.entry,
             )
         };
@@ -85,13 +79,7 @@ impl Plugin {
                 (crate::vtable::VTABLE.register_subplugin)(
                     plugin_id,
                     BwsStr::from_str(&subplugin.name),
-                    BwsSlice::from_slice(
-                        &self
-                            .subscribed_events
-                            .iter()
-                            .map(|e| BwsStr::from_str(&e))
-                            .collect::<Vec<_>>()[..],
-                    ),
+                    BwsSlice::from_slice(&self.subscribed_events[..]),
                     subplugin.entry,
                 );
             }
@@ -106,5 +94,10 @@ impl SubPlugin {
             subscribed_events: Vec::new(),
             entry,
         }
+    }
+    pub fn add_event(mut self, event: u32) -> Self {
+        self.subscribed_events.push(event);
+
+        self
     }
 }

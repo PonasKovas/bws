@@ -29,6 +29,7 @@ use tokio::sync::RwLock;
 use crate::global_state::{GlobalState, InnerGlobalState};
 use crate::plugins;
 use crate::shared::LinearSearch;
+use bitvec::prelude::*;
 
 const ABI_VERSION: u64 = ((async_ffi::ABI_VERSION as u64) << 32) | crate::ABI_VERSION as u64;
 
@@ -42,7 +43,7 @@ pub struct PluginData {
     pub provided_by: PathBuf,
     pub dependencies: Vec<(String, VersionReq)>,
     /// Bitmask of event IDs
-    pub subscribed_events: Vec<u8>,
+    pub subscribed_events: BitVec,
     pub library: Arc<Library>,
     pub entry: _f_PluginEntry,
 }
@@ -52,7 +53,7 @@ struct CandidatePlugin {
     version: Version,
     dependencies: Vec<(String, String)>,
     /// Bitmask of event IDs
-    subscribed_events: Vec<u8>,
+    subscribed_events: BitVec,
     entry: _f_PluginEntry,
     subplugins: Vec<SubPluginData>,
 }
@@ -60,7 +61,7 @@ struct CandidatePlugin {
 struct SubPluginData {
     name: String,
     /// Bitmask of event IDs
-    subscribed_events: Vec<u8>,
+    subscribed_events: BitVec,
     entry: _f_SubPluginEntry,
 }
 
@@ -133,62 +134,7 @@ pub async fn start_plugins(global_state: &GlobalState) -> Result<()> {
                 bws_plugin::pointers::plugin_gate::PluginGate::new(
                     receiver as *const _ as *const (),
                 ),
-                BwsGlobalState::new(
-                    Arc::into_raw(Arc::clone(global_state)) as *const (),
-                    //  {
-                    //     use bws_plugin::stable_types::global_state::{
-                    //         plugins::{PluginVTable, PluginsIterVTable, PluginsVTable},
-                    //         GlobalStateVTable,
-                    //     };
-                    //     unsafe extern "C" fn drop(ptr: *const ()) {
-                    //         std::mem::drop(Arc::from_raw(ptr as *const _));
-                    //     }
-                    //     unsafe extern "C" fn get_compression_treshold(ptr: *const ()) -> i32 {
-                    //         (*(ptr as *const InnerGlobalState)).compression_treshold
-                    //     }
-                    //     unsafe extern "C" fn get_port(ptr: *const ()) -> u16 {
-                    //         (*(ptr as *const InnerGlobalState)).port
-                    //     }
-                    //     unsafe extern "C" fn get_plugins(
-                    //         ptr: *const (),
-                    //     ) -> Tuple2<*const (), PluginsVTable> {
-                    //         unsafe extern "C" fn get_plugin(
-                    //             ptr: *const (),
-                    //             name: BwsStr,
-                    //         ) -> BwsOption<Tuple2<*const (), PluginVTable>> {
-                    //             BwsOption::from_option(
-                    //                 (*(ptr as *const HashMap<String, RwLock<Plugin>>))
-                    //                     .get(name.as_str())
-                    //                     .map(|plugin| {
-                    //                         Tuple2(plugin as *const _ as *const (), PluginVTable {})
-                    //                     }),
-                    //             )
-                    //         }
-                    //         unsafe extern "C" fn iter(
-                    //             ptr: *const (),
-                    //         ) -> Tuple2<*const (), PluginsIterVTable> {
-                    //             Box::into_raw(Box::new(
-                    //                 (*(ptr as *const HashMap<String, RwLock<Plugin>>)).iter(),
-                    //             ));
-                    //             todo!()
-                    //         }
-                    //         Tuple2(
-                    //             &(*(ptr as *const InnerGlobalState)).plugins as *const _ as *const (),
-                    //             PluginsVTable {
-                    //                 get: get_plugin,
-                    //                 iter: iter,
-                    //             },
-                    //         )
-                    //     }
-
-                    //     GlobalStateVTable {
-                    //         drop,
-                    //         get_compression_treshold,
-                    //         get_port,
-                    //         get_plugins,
-                    //     }
-                    // }
-                ),
+                BwsGlobalState::new(Arc::into_raw(Arc::clone(global_state)) as *const ()),
             )
         });
 

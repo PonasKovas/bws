@@ -19,7 +19,7 @@ pub struct VTable {
         BwsStr,
         Tuple3<u64, u64, u64>,
         BwsSlice<Tuple2<BwsStr, BwsStr>>,
-        BwsSlice<BwsStr>,
+        BwsSlice<u32>,
         _f_PluginEntry,
     ) -> usize,
     /// Takes:
@@ -27,8 +27,7 @@ pub struct VTable {
     /// 2. Subplugin's name
     /// 3. A list of subscribed events
     /// 4. Entry point for the subplugin.
-    pub register_subplugin:
-        unsafe extern "C" fn(usize, BwsStr, BwsSlice<BwsStr>, _f_SubPluginEntry),
+    pub register_subplugin: unsafe extern "C" fn(usize, BwsStr, BwsSlice<u32>, _f_SubPluginEntry),
     /// Takes:
     /// 1. A pointer to the receiver
     /// 2. FfiContext reference
