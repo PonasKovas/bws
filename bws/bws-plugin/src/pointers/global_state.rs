@@ -1,5 +1,5 @@
-use crate::*;
-use std::marker::PhantomData;
+use crate::prelude::*;
+use crate::vtable::VTABLE;
 
 /// Wrapper of an Arc pointer to `InnerGlobalState`.
 #[repr(C)]

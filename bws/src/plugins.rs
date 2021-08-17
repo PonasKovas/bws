@@ -3,8 +3,9 @@ mod vtable;
 use anyhow::{bail, Context, Result};
 use async_ffi::{FfiContext, FfiFuture, FfiPoll};
 use bws_plugin::pointers::global_state::BwsGlobalState;
+use bws_plugin::prelude::*;
 use bws_plugin::register::{_f_PluginEntry, _f_SubPluginEntry};
-use bws_plugin::*;
+use bws_plugin::vtable::VTable;
 use libloading::{Library, Symbol};
 use log::{error, info};
 use semver::{Version, VersionReq};
@@ -32,7 +33,7 @@ use crate::shared::LinearSearch;
 const ABI_VERSION: u64 = ((async_ffi::ABI_VERSION as u64) << 32) | crate::ABI_VERSION as u64;
 
 pub struct Plugin {
-    gate: Option<Gate<PluginEvent<'static>>>, // None if the plugin is not active
+    gate: Option<Gate>, // None if the plugin is not active
     plugin: PluginData,
 }
 
@@ -40,8 +41,8 @@ pub struct PluginData {
     pub version: Version,
     pub provided_by: PathBuf,
     pub dependencies: Vec<(String, VersionReq)>,
-    pub subscribed_events: [u8; (PluginEvent::VARIANT_COUNT + 7) / 8], // +7 so it would round up
-    pub arbitrary_subscribed_events: HashSet<String>,
+    /// Bitmask of event IDs
+    pub subscribed_events: Vec<u8>,
     pub library: Arc<Library>,
     pub entry: _f_PluginEntry,
 }
@@ -50,35 +51,34 @@ struct CandidatePlugin {
     name: String,
     version: Version,
     dependencies: Vec<(String, String)>,
-    subscribed_events: [u8; (PluginEvent::VARIANT_COUNT + 7) / 8],
-    arbitrary_subscribed_events: HashSet<String>,
+    /// Bitmask of event IDs
+    subscribed_events: Vec<u8>,
     entry: _f_PluginEntry,
     subplugins: Vec<SubPluginData>,
 }
 
 struct SubPluginData {
     name: String,
-    subscribed_events: [u8; (SubPluginEvent::VARIANT_COUNT + 7) / 8],
-    arbitrary_subscribed_events: HashSet<String>,
+    /// Bitmask of event IDs
+    subscribed_events: Vec<u8>,
     entry: _f_SubPluginEntry,
 }
 
-// T is event enum, either plugin event or subplugin event
-pub struct Gate<T: Sized> {
-    sender: mpsc::UnboundedSender<Tuple2<T, SendPtr<oneshot::Sender<()>>>>,
+pub struct Gate {
+    sender: mpsc::UnboundedSender<Tuple2<Event<'static>, SendPtr<oneshot::Sender<()>>>>,
 }
 
-impl<T: Sized> Gate<T> {
+impl Gate {
     pub fn new() -> (
         Self,
-        &'static mut mpsc::UnboundedReceiver<Tuple2<T, SendPtr<oneshot::Sender<()>>>>,
+        &'static mut mpsc::UnboundedReceiver<Tuple2<Event<'static>, SendPtr<oneshot::Sender<()>>>>,
     ) {
         let (sender, receiver) = mpsc::unbounded_channel();
 
         (Self { sender }, Box::leak(Box::new(receiver)))
     }
     // If None, the plugin died while handling the call or was already dead
-    pub async fn call(&self, message: T) -> Option<()> {
+    pub async fn call(&self, message: Event<'static>) -> Option<()> {
         let (sender, receiver) = oneshot::channel();
         let sender = ManuallyDrop::new(sender);
         if let Err(_) = self
@@ -203,10 +203,7 @@ pub async fn start_plugins(global_state: &GlobalState) -> Result<()> {
 
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     let mut response = false;
-    let event = PluginEvent::Arbitrary(
-        BwsStr::from_str("hello"),
-        SendMutPtr(&mut response as *mut _ as *mut ()),
-    );
+    let event = Event::new(0, &mut response as *mut _ as *mut ());
     match plugins["test_plugin"]
         .read()
         .await
@@ -327,7 +324,6 @@ async unsafe fn load_library(
                             Ok(acc)
                         })?,
                     subscribed_events: plugin.subscribed_events,
-                    arbitrary_subscribed_events: plugin.arbitrary_subscribed_events,
                     entry: plugin.entry,
                     library: Arc::clone(&lib),
                 },

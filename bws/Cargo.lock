@@ -134,7 +134,6 @@ name = "bws-plugin"
 version = "0.1.0"
 dependencies = [
  "async-ffi",
- "variant_count",
 ]
 
 [[package]]
@@ -1577,16 +1576,6 @@ dependencies = [
  "idna",
  "matches",
  "percent-encoding",
-]
-
-[[package]]
-name = "variant_count"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aae2faf80ac463422992abf4de234731279c058aaf33171ca70277c98406b124"
-dependencies = [
- "quote",
- "syn",
 ]
 
 [[package]]

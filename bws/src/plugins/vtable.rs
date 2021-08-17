@@ -3,8 +3,9 @@ use crate::global_state::{GlobalState, InnerGlobalState};
 use async_ffi::FfiContext;
 use async_ffi::FfiPoll;
 use bws_plugin::{
+    prelude::*,
     register::{_f_PluginEntry, _f_SubPluginEntry},
-    *,
+    vtable::VTable,
 };
 use log::{error, info, warn};
 use semver::Version;
@@ -34,21 +35,20 @@ pub static VTABLE: VTable = {
                 .iter()
                 .map(|e| (e.0.as_str().to_owned(), e.1.as_str().to_owned()))
                 .collect(),
-            subscribed_events: [0; (PluginEvent::VARIANT_COUNT + 7) / 8],
-            arbitrary_subscribed_events: HashSet::new(),
+            subscribed_events: Vec::new(),
             entry,
             subplugins: Vec::new(),
         };
 
-        for event in events.as_slice() {
-            match event.as_str() {
-                other => {
-                    plugin
-                        .arbitrary_subscribed_events
-                        .insert(event.as_str().to_owned());
-                }
-            }
-        }
+        // for event in events.as_slice() {
+        //     match event.as_str() {
+        //         other => {
+        //             plugin
+        //                 .arbitrary_subscribed_events
+        //                 .insert(event.as_str().to_owned());
+        //         }
+        //     }
+        // }
 
         PLUGINS_TO_REGISTER.push(plugin);
 
@@ -64,29 +64,27 @@ pub static VTABLE: VTable = {
 
         let mut subplugin = SubPluginData {
             name: name.as_str().to_owned(),
-            subscribed_events: [0; (SubPluginEvent::VARIANT_COUNT + 7) / 8],
-            arbitrary_subscribed_events: HashSet::new(),
+            subscribed_events: Vec::new(),
             entry,
         };
 
-        for event in events.as_slice() {
-            match event.as_str() {
-                other => {
-                    subplugin
-                        .arbitrary_subscribed_events
-                        .insert(event.as_str().to_owned());
-                }
-            }
-        }
+        // for event in events.as_slice() {
+        //     match event.as_str() {
+        //         other => {
+        //             subplugin
+        //                 .arbitrary_subscribed_events
+        //                 .insert(event.as_str().to_owned());
+        //         }
+        //     }
+        // }
 
         plugin.subplugins.push(subplugin);
     }
     unsafe extern "C" fn recv_plugin_event(
         receiver: *const (),
         ctx: &mut FfiContext,
-    ) -> FfiPoll<BwsOption<Tuple2<PluginEvent<'static>, *const ()>>> {
-        let receiver: &mut mpsc::UnboundedReceiver<Tuple2<PluginEvent, *const ()>> =
-            transmute(receiver);
+    ) -> FfiPoll<BwsOption<Tuple2<Event<'static>, *const ()>>> {
+        let receiver: &mut mpsc::UnboundedReceiver<Tuple2<Event, *const ()>> = transmute(receiver);
         match ctx.with_context(|ctx| receiver.poll_recv(ctx)) {
             std::task::Poll::Ready(r) => FfiPoll::Ready(BwsOption::from_option(r)),
             std::task::Poll::Pending => FfiPoll::Pending,

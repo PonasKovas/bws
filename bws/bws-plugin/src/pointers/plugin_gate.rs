@@ -1,4 +1,8 @@
-use crate::*;
+use crate::prelude::*;
+use crate::vtable::VTABLE;
+use async_ffi::ContextExt;
+use std::future::Future;
+use std::task::Poll;
 
 /// A gate for the plugin side, newtype around a pointer to the receiver
 /// Allows to handle events
@@ -14,7 +18,7 @@ impl PluginGate {
 }
 
 pub struct PluginEventGuard {
-    event: Option<PluginEvent<'static>>,
+    event: Option<Event<'static>>,
     sender: *const (),
 }
 
@@ -24,9 +28,9 @@ impl PluginEventGuard {
     /// ## Panics
     ///
     /// Panics if the method is called twice on the same [`PluginEventGuard`]
-    pub fn event<'a>(&'a mut self) -> PluginEvent<'a> {
+    pub fn event<'b>(&'b mut self) -> Event<'b> {
         unsafe {
-            std::mem::transmute::<PluginEvent<'static>, PluginEvent<'a>>(
+            std::mem::transmute::<Event<'static>, Event<'b>>(
                 self.event
                     .take()
                     .expect("Tried to call PluginEventGuard::event() twice"),

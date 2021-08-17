@@ -4,6 +4,5 @@ version = "0.1.0"
 edition = "2018"
 
 [dependencies]
-variant_count = "1.1.0"
 async-ffi = { path = "/home/mykolas/Projects/rust/async-ffi/" }
 #async-ffi = "0.2"

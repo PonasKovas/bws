@@ -1,20 +1,24 @@
-use crate::{BwsStr, SendMutPtr};
-use variant_count::VariantCount;
+use std::marker::PhantomData;
 
-#[derive(VariantCount, Debug)]
-#[repr(C, u32)]
-pub enum PluginEvent<'a> {
-    /// The [`BwsStr`] is not actually `'static`, it is valid until the event call is finished
-    /// by sending a response to the oneshot channel.
-    // TODO make the finishing method take this to guarrantee there are no more references to it
-    // once the call is finished?
-    Arbitrary(BwsStr<'a>, SendMutPtr<()>),
+use crate::prelude::*;
+
+#[repr(C)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct Event<'a> {
+    pub id: u32,
+    pub data: *mut (),
+    phantom: PhantomData<&'a ()>,
 }
 
-#[derive(VariantCount, Debug)]
-#[repr(C, u32)]
-pub enum SubPluginEvent {
-    /// The [`BwsStr`] is not actually `'static`, it is valid until the event call is finished
-    /// by sending a response to the oneshot channel.
-    Arbitrary(BwsStr<'static>, SendMutPtr<()>),
+unsafe impl<'a> Sync for Event<'a> {}
+unsafe impl<'a> Send for Event<'a> {}
+
+impl Event<'static> {
+    pub fn new(id: u32, data: *mut ()) -> Self {
+        Self {
+            id,
+            data,
+            phantom: PhantomData,
+        }
+    }
 }

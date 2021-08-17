@@ -1,7 +1,8 @@
 use crate::{
+    prelude::*,
     register::{_f_PluginEntry, _f_SubPluginEntry},
-    *,
 };
+use async_ffi::{FfiContext, FfiPoll};
 
 #[repr(C)]
 #[derive(Clone)]
@@ -35,12 +36,11 @@ pub struct VTable {
     /// Returns:
     /// `None` if the channel is dead and no more events can be received.
     /// A plugin event and a pointer to the oneshot channel for signaling end of event handling.
-    pub recv_plugin_event: unsafe extern "C" fn(
-        *const (),
-        &mut FfiContext,
-    ) -> FfiPoll<
-        BwsOption<Tuple2<PluginEvent<'static>, *const ()>>,
-    >,
+    pub recv_plugin_event:
+        unsafe extern "C" fn(
+            *const (),
+            &mut FfiContext,
+        ) -> FfiPoll<BwsOption<Tuple2<Event<'static>, *const ()>>>,
     /// Takes:
     /// 1. A pointer to the sender
     pub send_oneshot: unsafe extern "C" fn(*const ()),

@@ -1,8 +1,9 @@
-use crate::*;
+use crate::prelude::*;
+use async_ffi::FfiFuture;
 
 pub type _f_PluginEntry =
     unsafe extern "C" fn(BwsStr, PluginGate, BwsGlobalState) -> FfiFuture<Unit>;
-pub type _f_SubPluginEntry = unsafe extern "C" fn(BwsStr, SubPluginGate) -> FfiFuture<Unit>;
+pub type _f_SubPluginEntry = unsafe extern "C" fn(BwsStr, PluginGate) -> FfiFuture<Unit>;
 
 #[derive(Clone)]
 pub struct Plugin {
