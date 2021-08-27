@@ -22,21 +22,21 @@ unsafe impl<T> Sync for SendPtr<T> {}
 
 /// A gate for the plugin side, bundles all that is required to handle events for sub-plugins
 #[repr(C)]
-pub struct SubPluginGate {
+pub struct BwsSubPluginGate {
     receiver: *const (),
 }
 
 pub mod prelude {
-    pub use crate::events::Event;
-    pub use crate::pointers::{global_state::BwsGlobalState, plugin_gate::PluginGate};
+    pub use crate::events::BwsEvent;
+    pub use crate::pointers::{global_state::BwsGlobalState, plugin_gate::BwsPluginGate};
     pub use crate::stable_types::{
         option::BwsOption,
         slice::BwsSlice,
         string::{BwsStr, BwsString},
-        tuples::{Tuple2, Tuple3, Tuple4, Tuple5},
-        unit::{unit, Unit},
+        tuples::{BwsTuple2, BwsTuple3, BwsTuple4, BwsTuple5},
+        unit::{unit, BwsUnit},
         vec::BwsVec,
     };
-    pub use crate::vtable::VTable;
+    pub use crate::vtable::BwsVTable;
     pub use crate::{SendMutPtr, SendPtr};
 }

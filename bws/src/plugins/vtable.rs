@@ -6,7 +6,7 @@ use bitvec::prelude::*;
 use bws_plugin::{
     prelude::*,
     register::{_f_PluginEntry, _f_SubPluginEntry},
-    vtable::VTable,
+    vtable::BwsVTable,
 };
 use log::{error, info, warn};
 use semver::Version;
@@ -17,11 +17,11 @@ use tokio::sync::{mpsc, oneshot};
 
 pub(super) static mut PLUGINS_TO_REGISTER: Vec<CandidatePlugin> = Vec::new();
 
-pub static VTABLE: VTable = {
+pub static VTABLE: BwsVTable = {
     unsafe extern "C" fn register_plugin(
         name: BwsStr,
-        version: Tuple3<u64, u64, u64>,
-        dependencies: BwsSlice<Tuple2<BwsStr, BwsStr>>,
+        version: BwsTuple3<u64, u64, u64>,
+        dependencies: BwsSlice<BwsTuple2<BwsStr, BwsStr>>,
         events: BwsSlice<u32>,
         entry: _f_PluginEntry,
     ) -> usize {
@@ -69,8 +69,9 @@ pub static VTABLE: VTable = {
     unsafe extern "C" fn recv_plugin_event(
         receiver: *const (),
         ctx: &mut FfiContext,
-    ) -> FfiPoll<BwsOption<Tuple2<Event<'static>, *const ()>>> {
-        let receiver: &mut mpsc::UnboundedReceiver<Tuple2<Event, *const ()>> = transmute(receiver);
+    ) -> FfiPoll<BwsOption<BwsTuple2<BwsEvent<'static>, *const ()>>> {
+        let receiver: &mut mpsc::UnboundedReceiver<BwsTuple2<BwsEvent, *const ()>> =
+            transmute(receiver);
         match ctx.with_context(|ctx| receiver.poll_recv(ctx)) {
             std::task::Poll::Ready(r) => FfiPoll::Ready(BwsOption::from_option(r)),
             std::task::Poll::Pending => FfiPoll::Pending,
@@ -92,7 +93,7 @@ pub static VTABLE: VTable = {
         (*(gs as *const InnerGlobalState)).port
     }
 
-    VTable {
+    BwsVTable {
         register_plugin,
         register_subplugin,
         recv_plugin_event,
@@ -103,6 +104,8 @@ pub static VTABLE: VTable = {
     }
 };
 
+/// Places a value to a specific position in a bitvec,
+/// increasing the size of the vec if necessary.
 fn place(bits: &mut BitVec, pos: usize, val: bool) {
     if bits.len() >= pos {
         bits.resize(pos + 1, false);

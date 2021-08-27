@@ -2,8 +2,8 @@ use crate::prelude::*;
 use async_ffi::FfiFuture;
 
 pub type _f_PluginEntry =
-    unsafe extern "C" fn(BwsStr, PluginGate, BwsGlobalState) -> FfiFuture<Unit>;
-pub type _f_SubPluginEntry = unsafe extern "C" fn(BwsStr, PluginGate) -> FfiFuture<Unit>;
+    unsafe extern "C" fn(BwsStr, BwsPluginGate, BwsGlobalState) -> FfiFuture<BwsUnit>;
+pub type _f_SubPluginEntry = unsafe extern "C" fn(BwsStr, BwsPluginGate) -> FfiFuture<BwsUnit>;
 
 #[derive(Clone)]
 pub struct Plugin {
@@ -59,13 +59,13 @@ impl Plugin {
         let plugin_id = unsafe {
             (crate::vtable::VTABLE.register_plugin)(
                 BwsStr::from_str(&self.name),
-                Tuple3(self.version.0, self.version.1, self.version.2),
+                BwsTuple3(self.version.0, self.version.1, self.version.2),
                 BwsSlice::from_slice(
                     &self
                         .dependencies
                         .iter()
                         .map(|(name, version_req)| {
-                            Tuple2(BwsStr::from_str(&name), BwsStr::from_str(&version_req))
+                            BwsTuple2(BwsStr::from_str(&name), BwsStr::from_str(&version_req))
                         })
                         .collect::<Vec<_>>()[..],
                 ),

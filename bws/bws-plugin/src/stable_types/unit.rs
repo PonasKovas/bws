@@ -1,7 +1,7 @@
 /// `#[repr(C)]` equivalent of `()`
 #[repr(C)]
-pub struct Unit([u8; 0]);
+pub struct BwsUnit([u8; 0]);
 
-pub fn unit() -> Unit {
-    Unit([0; 0])
+pub fn unit() -> BwsUnit {
+    BwsUnit([0; 0])
 }

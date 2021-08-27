@@ -7,30 +7,30 @@ use std::task::Poll;
 /// A gate for the plugin side, newtype around a pointer to the receiver
 /// Allows to handle events
 #[repr(transparent)]
-pub struct PluginGate(*const ());
+pub struct BwsPluginGate(*const ());
 
-unsafe impl Send for PluginGate {}
+unsafe impl Send for BwsPluginGate {}
 
-impl PluginGate {
+impl BwsPluginGate {
     pub unsafe fn new(receiver: *const ()) -> Self {
         Self(receiver)
     }
 }
 
-pub struct PluginEventGuard {
-    event: Option<Event<'static>>,
+pub struct BwsPluginEventGuard {
+    event: Option<BwsEvent<'static>>,
     sender: *const (),
 }
 
-impl PluginEventGuard {
+impl BwsPluginEventGuard {
     /// Obtain the underlying [`PluginEvent`].
     ///
     /// ## Panics
     ///
     /// Panics if the method is called twice on the same [`PluginEventGuard`]
-    pub fn event<'b>(&'b mut self) -> Event<'b> {
+    pub fn event<'b>(&'b mut self) -> BwsEvent<'b> {
         unsafe {
-            std::mem::transmute::<Event<'static>, Event<'b>>(
+            std::mem::transmute::<BwsEvent<'static>, BwsEvent<'b>>(
                 self.event
                     .take()
                     .expect("Tried to call PluginEventGuard::event() twice"),
@@ -45,8 +45,8 @@ impl PluginEventGuard {
     }
 }
 
-impl Future for &mut PluginGate {
-    type Output = Option<PluginEventGuard>;
+impl Future for &mut BwsPluginGate {
+    type Output = Option<BwsPluginEventGuard>;
 
     fn poll(
         self: std::pin::Pin<&mut Self>,
@@ -56,15 +56,12 @@ impl Future for &mut PluginGate {
             .try_into_poll()
             .unwrap_or_else(|_| panic!("FFI future for receiving event panicked."))
         {
-            Poll::Ready(r) => {
-                Poll::Ready(
-                    r.into_option()
-                        .map(|Tuple2(event, oneshot_ptr)| PluginEventGuard {
-                            event: Some(event),
-                            sender: oneshot_ptr,
-                        }),
-                )
-            }
+            Poll::Ready(r) => Poll::Ready(r.into_option().map(|BwsTuple2(event, oneshot_ptr)| {
+                BwsPluginEventGuard {
+                    event: Some(event),
+                    sender: oneshot_ptr,
+                }
+            })),
             Poll::Pending => Poll::Pending,
         }
     }

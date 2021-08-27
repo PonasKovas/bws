@@ -5,7 +5,7 @@ use async_ffi::{FfiContext, FfiFuture, FfiPoll};
 use bws_plugin::pointers::global_state::BwsGlobalState;
 use bws_plugin::prelude::*;
 use bws_plugin::register::{_f_PluginEntry, _f_SubPluginEntry};
-use bws_plugin::vtable::VTable;
+use bws_plugin::vtable::BwsVTable;
 use libloading::{Library, Symbol};
 use log::{error, info};
 use semver::{Version, VersionReq};
@@ -66,25 +66,27 @@ struct SubPluginData {
 }
 
 pub struct Gate {
-    sender: mpsc::UnboundedSender<Tuple2<Event<'static>, SendPtr<oneshot::Sender<()>>>>,
+    sender: mpsc::UnboundedSender<BwsTuple2<BwsEvent<'static>, SendPtr<oneshot::Sender<()>>>>,
 }
 
 impl Gate {
     pub fn new() -> (
         Self,
-        &'static mut mpsc::UnboundedReceiver<Tuple2<Event<'static>, SendPtr<oneshot::Sender<()>>>>,
+        &'static mut mpsc::UnboundedReceiver<
+            BwsTuple2<BwsEvent<'static>, SendPtr<oneshot::Sender<()>>>,
+        >,
     ) {
         let (sender, receiver) = mpsc::unbounded_channel();
 
         (Self { sender }, Box::leak(Box::new(receiver)))
     }
     // If None, the plugin died while handling the call or was already dead
-    pub async fn call(&self, message: Event<'static>) -> Option<()> {
+    pub async fn call(&self, message: BwsEvent<'static>) -> Option<()> {
         let (sender, receiver) = oneshot::channel();
         let sender = ManuallyDrop::new(sender);
         if let Err(_) = self
             .sender
-            .send(Tuple2(message, SendPtr(&*sender as *const _)))
+            .send(BwsTuple2(message, SendPtr(&*sender as *const _)))
         {
             return None;
         }
@@ -131,7 +133,7 @@ pub async fn start_plugins(global_state: &GlobalState) -> Result<()> {
         tokio::spawn(unsafe {
             (plugin.read().await.plugin.entry)(
                 BwsStr::from_str(plugin_name),
-                bws_plugin::pointers::plugin_gate::PluginGate::new(
+                bws_plugin::pointers::plugin_gate::BwsPluginGate::new(
                     receiver as *const _ as *const (),
                 ),
                 BwsGlobalState::new(Arc::into_raw(Arc::clone(global_state)) as *const ()),
@@ -149,7 +151,7 @@ pub async fn start_plugins(global_state: &GlobalState) -> Result<()> {
 
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     let mut response = false;
-    let event = Event::new(0, &mut response as *mut _ as *mut ());
+    let event = BwsEvent::new(0, &mut response as *mut _ as *mut ());
     match plugins["test_plugin"]
         .read()
         .await
@@ -170,8 +172,10 @@ pub async fn start_plugins(global_state: &GlobalState) -> Result<()> {
     Ok(())
 }
 
-pub async fn load_plugins() -> Result<HashMap<String, Plugin>> {
+// Returns plugins and event name mappings
+pub async fn load_plugins() -> Result<(HashMap<String, Plugin>, Box<Vec<String>>)> {
     let mut plugins: HashMap<String, Plugin> = HashMap::new();
+    let mut events: Box<Vec<String>> = Box::new(Vec::new());
 
     let mut read_dir = fs::read_dir("plugins").await?;
     while let Some(path) = read_dir.next_entry().await? {
@@ -192,7 +196,7 @@ pub async fn load_plugins() -> Result<HashMap<String, Plugin>> {
             }
         }
 
-        if let Err(e) = unsafe { load_library(&mut plugins, &path).await } {
+        if let Err(e) = unsafe { load_library(&mut plugins, &mut events, &path).await } {
             error!("Error loading {:?}: {:?}", path.file_name().unwrap(), e);
         }
     }
@@ -218,11 +222,12 @@ pub async fn load_plugins() -> Result<HashMap<String, Plugin>> {
         }
     }
 
-    Ok(plugins)
+    Ok((plugins, events))
 }
 
 async unsafe fn load_library(
     plugins: &mut HashMap<String, Plugin>,
+    events: &mut Box<Vec<String>>,
     path: impl AsRef<Path>,
 ) -> Result<()> {
     let path = path.as_ref();
@@ -240,7 +245,7 @@ async unsafe fn load_library(
 
     // register the plugins
 
-    let init: Symbol<unsafe extern "C" fn(&VTable)> = lib.get(b"bws_library_init")?;
+    let init: Symbol<unsafe extern "C" fn(&BwsVTable)> = lib.get(b"bws_library_init")?;
 
     (*init)(&vtable::VTABLE);
 

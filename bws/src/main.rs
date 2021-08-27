@@ -102,16 +102,19 @@ async fn async_main() -> Result<()> {
 
     info!("Initializing...");
 
+    let (plugins, events) = plugins::load_plugins()
+        .await
+        .context("Error loading plugins")?;
+
     let state = Arc::new(InnerGlobalState {
         clients: RwLock::new(Slab::new()),
         compression_treshold: OPT.compression_treshold,
         port: OPT.port,
-        plugins: plugins::load_plugins()
-            .await
-            .context("Error loading plugins")?
+        plugins: plugins
             .into_iter()
             .map(|(k, v)| (k, RwLock::new(v)))
             .collect(),
+        events,
     });
 
     plugins::start_plugins(&state)

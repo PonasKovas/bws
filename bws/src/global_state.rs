@@ -32,6 +32,9 @@ pub struct InnerGlobalState {
     pub port: u16,
     pub clients: RwLock<Slab<Client>>,
     pub plugins: HashMap<String, RwLock<crate::plugins::Plugin>>,
+    // You can get the numerical ID of an event by name, by searching for it in this vector.
+    // The Vec is boxed so it would have a stable address.
+    pub events: Box<Vec<String>>,
 }
 
 pub struct Client {
