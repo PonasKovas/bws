@@ -1,8 +1,0 @@
-/target
-accounts.bwsdata
-player_data.ron
-banned.addresses
-assets/maps/*
-!assets/maps/.gitkeep 
-plugins/*
-!plugins/.gitkeep
