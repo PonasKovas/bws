@@ -5,3 +5,14 @@ authors = ["Ponas <mykolas.peteraitis@gmail.com>"]
 edition = "2021"
 
 [dependencies]
+libloading = "0.7.2"
+async-ffi = "0.3.1"
+semver = "1.0.4"
+petgraph = "0.6.0"
+anyhow = "1.0.52"
+tokio = { version = "1.15.0", features = ["full"]}
+log = "0.4.14"
+env_logger = "0.9.0"
+structopt = "0.3.25"
+lazy_static = "1.4.0"
+bws_plugin = { git = "https://github.com/PonasKovas/bws_plugin.git" }
