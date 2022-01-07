@@ -55,9 +55,10 @@ impl Plugin {
 
         self
     }
-    pub fn register(self) {
+    pub fn register(self, reg_ptr: *mut ()) {
         let plugin_id = unsafe {
             (crate::vtable::VTABLE.register_plugin)(
+                reg_ptr,
                 BwsStr::from_str(&self.name),
                 BwsTuple3(self.version.0, self.version.1, self.version.2),
                 BwsSlice::from_slice(
@@ -77,6 +78,7 @@ impl Plugin {
         for subplugin in self.subplugins {
             unsafe {
                 (crate::vtable::VTABLE.register_subplugin)(
+                    reg_ptr,
                     plugin_id,
                     BwsStr::from_str(&subplugin.name),
                     BwsSlice::from_slice(&self.subscribed_events[..]),

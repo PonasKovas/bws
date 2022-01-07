@@ -8,14 +8,16 @@ use async_ffi::{FfiContext, FfiPoll};
 #[derive(Clone)]
 pub struct BwsVTable {
     /// Takes:
-    /// 1. Plugin's name
-    /// 2. Semver version (major.minor.patch)
-    /// 3. Plugin's dependencies [(Name, VersionRequirement)]
-    /// 4. A list of subscribed events
-    /// 5. Entry point for the plugin
+    /// 1. A pointer to the registrator (given in the lib init function)
+    /// 2. Plugin's name
+    /// 3. Semver version (major.minor.patch)
+    /// 4. Plugin's dependencies [(Name, VersionRequirement)]
+    /// 5. A list of subscribed events
+    /// 6. Entry point for the plugin
     ///
     /// Returns an index of the plugin for adding subplugins
     pub register_plugin: unsafe extern "C" fn(
+        *mut (),
         BwsStr,
         BwsTuple3<u64, u64, u64>,
         BwsSlice<BwsTuple2<BwsStr, BwsStr>>,
@@ -23,11 +25,13 @@ pub struct BwsVTable {
         _f_PluginEntry,
     ) -> usize,
     /// Takes:
-    /// 1. Index of the plugin (from register_plugin)
-    /// 2. Subplugin's name
-    /// 3. A list of subscribed events
-    /// 4. Entry point for the subplugin.
-    pub register_subplugin: unsafe extern "C" fn(usize, BwsStr, BwsSlice<u32>, _f_SubPluginEntry),
+    /// 1. A pointer to the registrator (given in the lib init function)
+    /// 2. Index of the plugin (from register_plugin)
+    /// 3. Subplugin's name
+    /// 4. A list of subscribed events
+    /// 5. Entry point for the subplugin.
+    pub register_subplugin:
+        unsafe extern "C" fn(*mut (), usize, BwsStr, BwsSlice<u32>, _f_SubPluginEntry),
     /// Takes:
     /// 1. A pointer to the receiver
     /// 2. FfiContext reference

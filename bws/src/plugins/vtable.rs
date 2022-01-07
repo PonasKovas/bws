@@ -15,10 +15,9 @@ use std::mem::transmute;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 
-pub(super) static mut PLUGINS_TO_REGISTER: Vec<CandidatePlugin> = Vec::new();
-
 pub static VTABLE: BwsVTable = {
     unsafe extern "C" fn register_plugin(
+        reg_ptr: *mut (),
         name: BwsStr,
         version: BwsTuple3<u64, u64, u64>,
         dependencies: BwsSlice<BwsTuple2<BwsStr, BwsStr>>,
@@ -42,17 +41,18 @@ pub static VTABLE: BwsVTable = {
             place(&mut plugin.subscribed_events, *event as usize, true);
         }
 
-        PLUGINS_TO_REGISTER.push(plugin);
+        (&mut *(reg_ptr as *mut Vec<CandidatePlugin>)).push(plugin);
 
-        PLUGINS_TO_REGISTER.len() - 1
+        (&*(reg_ptr as *mut Vec<CandidatePlugin>)).len() - 1
     }
     unsafe extern "C" fn register_subplugin(
+        reg_ptr: *mut (),
         plugin: usize,
         name: BwsStr,
         events: BwsSlice<u32>,
         entry: _f_SubPluginEntry,
     ) {
-        let plugin = &mut PLUGINS_TO_REGISTER[plugin];
+        let plugin = &mut (&mut *(reg_ptr as *mut Vec<CandidatePlugin>))[plugin];
 
         let mut subplugin = SubPluginData {
             name: name.as_str().to_owned(),

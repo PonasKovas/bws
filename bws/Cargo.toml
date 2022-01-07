@@ -34,8 +34,7 @@ ron = "0.6"
 include_bytes_aligned = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 libloading = "0.7.0"
-#async-ffi = "0.2"
-async-ffi = { path = "/home/mykolas/Projects/rust/async-ffi/" }
+async-ffi = "0.3"
 semver = "1.0.4"
 petgraph = "0.6.0"
 bitvec = "0.22"

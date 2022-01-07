@@ -52,8 +52,6 @@ struct CandidatePlugin {
     name: String,
     version: Version,
     dependencies: Vec<(String, String)>,
-    /// Bitmask of event IDs
-    subscribed_events: BitVec,
     entry: _f_PluginEntry,
     subplugins: Vec<SubPluginData>,
 }
@@ -245,16 +243,33 @@ async unsafe fn load_library(
 
     // register the plugins
 
-    let init: Symbol<unsafe extern "C" fn(&BwsVTable)> = lib.get(b"bws_library_init")?;
+    static mut registered: Vec<CandidatePlugin> = Vec::new();
 
-    (*init)(&vtable::VTABLE);
+    #[repr(C)]
+    struct PluginStructure {
+        name: BwsStr<'static>,
+        version: BwsStr<'static>,
+        dependencies: BwsSlice<'static, BwsTuple2<BwsStr<'static>, BwsStr<'static>>>,
+        entry: _f_PluginEntry,
+        subplugins: BwsSlice<'static, SubPluginStructure>,
+    }
 
-    let mut to_register_non_static = Vec::new();
-    swap(
-        &mut vtable::PLUGINS_TO_REGISTER,
-        &mut to_register_non_static,
-    );
-    for plugin in to_register_non_static {
+    #[repr(C)]
+    struct SubPluginStructure {
+        name: BwsStr<'static>,
+        dependencies: BwsSlice<'static, BwsTuple2<BwsStr<'static>, BwsStr<'static>>>,
+        entry: _f_SubPluginEntry,
+    }
+
+    unsafe extern "C" fn register(plugin: PluginStructure) {}
+
+    let mut to_register: Vec<CandidatePlugin> = Vec::new();
+
+    let init: Symbol<unsafe extern "C" fn(*mut (), &BwsVTable)> = lib.get(b"bws_library_init")?;
+
+    (*init)(&mut to_register as *mut _ as *mut (), &vtable::VTABLE);
+
+    for plugin in to_register {
         plugins.insert(
             plugin.name,
             Plugin {
