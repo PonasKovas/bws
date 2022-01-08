@@ -75,7 +75,6 @@ dependencies = [
 [[package]]
 name = "bws_plugin"
 version = "0.1.0"
-source = "git+https://github.com/PonasKovas/bws_plugin.git#d85f8bec15e872e4ebf60cd361a10ba0c9b033cf"
 dependencies = [
  "async-ffi",
 ]

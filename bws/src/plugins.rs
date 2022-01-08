@@ -29,7 +29,7 @@ const BWS_ABI_VERSION: u64 = ((async_ffi::ABI_VERSION as u64) << 32)
 pub struct Plugin {
     name: String,
     gate: Option<Gate>, // None if the plugin is not active
-    plugin: PluginData,
+    plugin_data: PluginData,
 }
 
 pub struct PluginData {
@@ -71,30 +71,20 @@ pub async fn load_plugins() -> Result<()> {
         }
     }
 
-    // // check if all dependencies of plugins are satisfied
-    // for plugin in &plugins {
-    //     match check_dependencies(plugin.0, &plugins) {
-    //         Ok(true) => {}
-    //         Ok(false) => {
-    //             bail!(
-    //                 "Plugin {:?} could not be loaded, because it's dependencies weren't satisfied. (Provided by {:?})",
-    //                 plugin.0, plugins[plugin.0].plugin.provided_by
-    //             );
-    //         }
-    //         Err(e) => {
-    //             bail!(
-    //                 "Error reading dependencies of plugin {:?} (Provided by {:?}): {:?}",
-    //                 plugin.0,
-    //                 plugins[plugin.0].plugin.provided_by,
-    //                 e
-    //             );
-    //         }
-    //     }
-    // }
+    // check if all dependencies of plugins are satisfied
+    for plugin in &plugins {
+        if !check_dependencies(&plugin, &plugins) {
+            bail!(
+                "Plugin {:?} could not be loaded, because it's dependencies weren't satisfied. (Provided by {:?})",
+                plugin.name, plugin.plugin_data.provided_by
+            );
+        }
+    }
 
     Ok(())
 }
 
+// loads a library file and adds the plugins it registers
 async unsafe fn load_library(plugins: &mut Vec<Plugin>, path: impl AsRef<Path>) -> Result<()> {
     let path = path.as_ref();
     let lib = Arc::new(Library::new(path)?);
@@ -114,13 +104,16 @@ async unsafe fn load_library(plugins: &mut Vec<Plugin>, path: impl AsRef<Path>) 
     // this is the thing that FFI functions will operate on and
     // that's why it has to be static.
     // later it's content will be parsed and moved to the plugins variable.
+    #[allow(non_upper_case_globals)]
     static mut registered: Vec<PluginStructure> = Vec::new();
 
+    // used only here, to pass plugin information to the host
+    // must match with the struct on the plugin side
     #[repr(C)]
     struct PluginStructure {
-        name: BwsStr<'static>,
+        name: BwsString,
         version: BwsTuple3<u64, u64, u64>,
-        dependencies: BwsSlice<'static, BwsTuple2<BwsStr<'static>, BwsStr<'static>>>,
+        dependencies: BwsVec<BwsTuple2<BwsString, BwsString>>,
         entry: PluginEntrySignature,
     }
 
@@ -135,36 +128,44 @@ async unsafe fn load_library(plugins: &mut Vec<Plugin>, path: impl AsRef<Path>) 
 
     // now parse the contents of the static variable
 
-    for plugin in &registered {
+    // can't move out of a static so efficiently make the vector non-static
+    // and leave a new empty vector in it's place
+    let mut non_static_registered = Vec::new();
+    std::mem::swap(&mut non_static_registered, &mut registered);
+
+    for plugin in non_static_registered {
         // make sure the plugin name is unique
         if let Some(other_plugin) = plugins
             .iter()
-            .find(|other_plugin| other_plugin.name == plugin.name.as_str())
+            .find(|other_plugin| other_plugin.name == plugin.name.as_bws_str().as_str())
         {
             error!(
                 "Plugin name collision: {:?} both registered by {:?} and {:?}",
-                plugin.name.as_str(),
+                plugin.name.into_string(),
                 path,
-                other_plugin.plugin.provided_by
+                other_plugin.plugin_data.provided_by
             );
             continue;
         }
 
         plugins.push(Plugin {
-            name: plugin.name.as_str().to_owned(),
+            name: plugin.name.into_string(),
             gate: None,
-            plugin: PluginData {
+            plugin_data: PluginData {
                 version: Version::new(plugin.version.0, plugin.version.1, plugin.version.2),
                 provided_by: path.to_path_buf(),
                 dependencies: plugin
                     .dependencies
-                    .as_slice()
+                    .into_vec()
                     .into_iter()
                     .try_fold::<_, _, Result<_>>(Vec::new(), |mut acc, dep| {
+                        let name = dep.0.into_string();
+                        let version_req = dep.1.into_string();
                         acc.push((
-                            dep.0.as_str().to_owned(),
-                            VersionReq::parse(dep.1.as_str())
-                                .context("error parsing version requirement")?,
+                            name,
+                            VersionReq::parse(&version_req).with_context(|| {
+                                format!("error parsing version requirement {:?}", version_req)
+                            })?,
                         ));
 
                         Ok(acc)
@@ -176,4 +177,28 @@ async unsafe fn load_library(plugins: &mut Vec<Plugin>, path: impl AsRef<Path>) 
     }
 
     Ok(())
+}
+
+// checks if all dependencies of the given plugin are satisfied
+fn check_dependencies(plugin: &Plugin, plugins: &Vec<Plugin>) -> bool {
+    let mut result = true;
+
+    for dependency in &plugin.plugin_data.dependencies {
+        if let Some(dep_plugin) = plugins.iter().find(|p| p.name == dependency.0) {
+            if !dependency.1.matches(&dep_plugin.plugin_data.version) {
+                error!(
+                        "Plugin {:?} depends on {:?} {} which was not found. {:?} {} is present, but does not match the {} version requirement.",
+                        plugin.name, dependency.0, dependency.1, dependency.0, dep_plugin.plugin_data.version, dependency.1
+                    );
+                result = false;
+            }
+        } else {
+            error!(
+                "Plugin {:?} depends on {:?} {} which was not found.",
+                plugin.name, dependency.0, dependency.1
+            );
+            result = false;
+        }
+    }
+    result
 }
