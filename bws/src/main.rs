@@ -1,6 +1,11 @@
 #![feature(backtrace)]
 
+mod linear_search;
 mod plugins;
+
+use std::time::Duration;
+
+pub use linear_search::LinearSearch;
 
 use anyhow::{bail, Context, Result};
 use lazy_static::lazy_static;
@@ -63,6 +68,36 @@ fn main() -> Result<()> {
 
 async fn async_main() -> Result<()> {
     info!("Loading plugins...");
-    plugins::load_plugins().await?;
-    Ok(())
+    let mut plugins = plugins::load_plugins()
+        .await
+        .context("Error loading plugins")?;
+
+    plugins::start_plugins(&mut plugins)
+        .await
+        .context("Error starting plugins")?;
+
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {
+            Ok(())
+        },
+        // On Unixes, handle SIGTERM too
+        _ = async move {
+            #[cfg(unix)]
+            {
+                let mut sig = tokio::signal::unix::signal(
+                    tokio::signal::unix::SignalKind::terminate()
+                ).unwrap();
+                sig.recv().await
+            }
+            #[cfg(not(unix))]
+            {
+                futures::future::pending().await
+            }
+        } => {
+            Ok(())
+        },
+        // _ = run(state.clone()) => {
+        //     Ok(())
+        // },
+    }
 }

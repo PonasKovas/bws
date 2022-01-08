@@ -1,5 +1,6 @@
 mod vtable;
 
+use crate::LinearSearch;
 use anyhow::{bail, Context, Result};
 use async_ffi::{FfiContext, FfiFuture, FfiPoll};
 use bws_plugin::prelude::*;
@@ -23,14 +24,14 @@ use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio::sync::RwLock;
 
-const ABI_VERSION: u16 = 0;
-const BWS_ABI_VERSION: u64 = ((async_ffi::ABI_VERSION as u64) << 32)
-    | ((bws_plugin::BWS_PLUGIN_ABI_VERSION as u64) << 16)
-    | ABI_VERSION as u64;
+const BWS_ABI_VERSION: u64 =
+    ((async_ffi::ABI_VERSION as u64) << 32) | (bws_plugin::ABI_VERSION as u64);
+
+type EventSender = mpsc::UnboundedSender<BwsTuple3<u32, SendPtr<()>, SendPtr<oneshot::Sender<()>>>>;
 
 pub struct Plugin {
     name: String,
-    gate: Option<Gate>, // None if the plugin is not active
+    event_sender: Option<EventSender>, // None if the plugin is not active at the moment
     plugin_data: PluginData,
 }
 
@@ -42,11 +43,7 @@ pub struct PluginData {
     pub entry: PluginEntrySignature,
 }
 
-pub struct Gate {
-    // sender: mpsc::UnboundedSender<BwsTuple2<BwsEvent<'static>, SendPtr<oneshot::Sender<()>>>>,
-}
-
-pub async fn load_plugins() -> Result<()> {
+pub async fn load_plugins() -> Result<Vec<Plugin>> {
     let mut plugins: Vec<Plugin> = Vec::new();
 
     let mut read_dir = fs::read_dir("plugins").await?;
@@ -83,7 +80,7 @@ pub async fn load_plugins() -> Result<()> {
         }
     }
 
-    Ok(())
+    Ok(plugins)
 }
 
 // loads a library file and adds the plugins it registers
@@ -142,7 +139,7 @@ async unsafe fn load_library(plugins: &mut Vec<Plugin>, path: impl AsRef<Path>) 
 
         plugins.push(Plugin {
             name: plugin.name.into_string(),
-            gate: None,
+            event_sender: None,
             plugin_data: PluginData {
                 version: Version::new(plugin.version.0, plugin.version.1, plugin.version.2),
                 provided_by: path.to_path_buf(),
@@ -193,4 +190,83 @@ fn check_dependencies(plugin: &Plugin, plugins: &Vec<Plugin>) -> bool {
         }
     }
     result
+}
+
+pub async fn start_plugins(plugins: &mut Vec<Plugin>) -> Result<()> {
+    // Use the graph theory to order the plugins so that they would load
+    // only after all of their dependencies have loaded.
+    let mut graph = petgraph::graph::DiGraph::<String, ()>::new();
+    let mut indices = Vec::new();
+    for plugin in &*plugins {
+        indices.push((plugin.name.clone(), graph.add_node(plugin.name.clone())));
+    }
+
+    // set the edges
+    // (in other words, connect the nodes with arrows in the way of dependence)
+    for plugin in &*plugins {
+        let id = indices.search(&plugin.name);
+        for dependency in &plugin.plugin_data.dependencies {
+            graph.update_edge(*indices.search(&dependency.0), *id, ());
+        }
+    }
+
+    // perform the topological sort of the nodes 😎
+    let ordering = match petgraph::algo::toposort(&graph, None) {
+        Ok(o) => o,
+        Err(cycle) => {
+            bail!(
+                "Dependency cycle detected: {}",
+                indices.search_by_val(&cycle.node_id())
+            );
+        }
+    };
+
+    // now that we now the order, we can start the plugins one by one
+    for plugin_id in ordering {
+        let plugin_name = indices.search_by_val(&plugin_id);
+
+        let plugin_id = plugins.iter().position(|p| &p.name == plugin_name).unwrap();
+        let plugin = &mut plugins[plugin_id];
+
+        // Create the events channel
+        let (sender, receiver) = mpsc::unbounded_channel();
+        let receiver = Box::leak(Box::new(receiver));
+
+        tokio::spawn(unsafe {
+            (plugin.plugin_data.entry)(
+                BwsString::from_string(plugin_name.clone()),
+                vtable::VTABLE.clone(),
+                receiver as *const _ as *const (),
+            )
+        });
+
+        plugin.event_sender = Some(sender);
+
+        info!(
+            "Plugin {:?} loaded and started. (Provided by {:?})",
+            plugin_name, plugin.plugin_data.provided_by
+        );
+    }
+
+    // tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    // let mut response = false;
+    // let event = BwsEvent::new(0, &mut response as *mut _ as *mut ());
+    // match plugins["test_plugin"]
+    //     .read()
+    //     .await
+    //     .gate
+    //     .as_ref()
+    //     .unwrap()
+    //     .call(event)
+    //     .await
+    // {
+    //     Some(()) => {
+    //         info!("Event 'hello' response: {}", response);
+    //     }
+    //     None => {
+    //         error!("Error calling event 'hello'");
+    //     }
+    // }
+
+    Ok(())
 }

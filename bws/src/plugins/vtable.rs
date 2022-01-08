@@ -1,4 +1,4 @@
-//! VTable thats given to the plugins so they can do stuff 😐
+//! the VTable that is given to the plugins so they can do stuff 😐
 
 use async_ffi::{FfiContext, FfiPoll};
 use bws_plugin::prelude::*;
