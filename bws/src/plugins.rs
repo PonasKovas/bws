@@ -1,7 +1,7 @@
 use anyhow::{bail, Context, Result};
 use async_ffi::{FfiContext, FfiFuture, FfiPoll};
 use bws_plugin::prelude::*;
-use bws_plugin::PluginEntrySignature;
+use bws_plugin::register::{PluginEntrySignature, RegPluginStruct};
 use libloading::{Library, Symbol};
 use log::{error, info};
 use semver::{Version, VersionReq};
@@ -105,23 +105,13 @@ async unsafe fn load_library(plugins: &mut Vec<Plugin>, path: impl AsRef<Path>) 
     // that's why it has to be static.
     // later it's content will be parsed and moved to the plugins variable.
     #[allow(non_upper_case_globals)]
-    static mut registered: Vec<PluginStructure> = Vec::new();
+    static mut registered: Vec<RegPluginStruct> = Vec::new();
 
-    // used only here, to pass plugin information to the host
-    // must match with the struct on the plugin side
-    #[repr(C)]
-    struct PluginStructure {
-        name: BwsString,
-        version: BwsTuple3<u64, u64, u64>,
-        dependencies: BwsVec<BwsTuple2<BwsString, BwsString>>,
-        entry: PluginEntrySignature,
-    }
-
-    unsafe extern "C" fn register(plugin: PluginStructure) {
+    unsafe extern "C" fn register(plugin: RegPluginStruct) {
         registered.push(plugin);
     }
 
-    let init: Symbol<unsafe extern "C" fn(unsafe extern "C" fn(PluginStructure))> =
+    let init: Symbol<unsafe extern "C" fn(unsafe extern "C" fn(RegPluginStruct))> =
         lib.get(b"bws_library_init")?;
 
     (*init)(register);
