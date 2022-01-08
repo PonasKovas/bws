@@ -1,3 +1,5 @@
+mod vtable;
+
 use anyhow::{bail, Context, Result};
 use async_ffi::{FfiContext, FfiFuture, FfiPoll};
 use bws_plugin::prelude::*;
