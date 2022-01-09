@@ -8,10 +8,10 @@ use tokio::sync::mpsc;
 
 pub static VTABLE: BwsVTable = {
     unsafe extern "C" fn poll_recv_plugin_event(
-        receiver: *const (),
+        receiver: SendPtr<()>,
         ctx: &mut FfiContext,
-    ) -> FfiPoll<BwsOption<BwsTuple3<u32, *const (), *const ()>>> {
-        let receiver: &mut mpsc::UnboundedReceiver<BwsTuple3<u32, *const (), *const ()>> =
+    ) -> FfiPoll<BwsOption<BwsTuple3<u32, SendPtr<()>, SendPtr<()>>>> {
+        let receiver: &mut mpsc::UnboundedReceiver<BwsTuple3<u32, SendPtr<()>, SendPtr<()>>> =
             transmute(receiver);
         match ctx.with_context(|ctx| receiver.poll_recv(ctx)) {
             std::task::Poll::Ready(r) => FfiPoll::Ready(BwsOption::from_option(r)),

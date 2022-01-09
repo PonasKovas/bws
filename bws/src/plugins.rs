@@ -2,7 +2,7 @@ mod vtable;
 
 use crate::LinearSearch;
 use anyhow::{bail, Context, Result};
-use async_ffi::{FfiContext, FfiFuture, FfiPoll};
+use async_ffi::{FfiContext, FfiFuture, FfiPoll, LocalFfiFuture};
 use bws_plugin::prelude::*;
 use bws_plugin::register::{PluginEntrySignature, RegPluginStruct};
 use libloading::{Library, Symbol};
@@ -230,13 +230,13 @@ pub async fn start_plugins(plugins: &mut Vec<Plugin>) -> Result<()> {
 
         // Create the events channel
         let (sender, receiver) = mpsc::unbounded_channel();
-        let receiver = Box::leak(Box::new(receiver));
+        let receiver = SendPtr(Box::leak(Box::new(receiver)) as *const _ as *const ());
 
         tokio::spawn(unsafe {
             (plugin.plugin_data.entry)(
                 BwsString::from_string(plugin_name.clone()),
                 vtable::VTABLE.clone(),
-                receiver as *const _ as *const (),
+                receiver,
             )
         });
 
@@ -246,27 +246,15 @@ pub async fn start_plugins(plugins: &mut Vec<Plugin>) -> Result<()> {
             "Plugin {:?} loaded and started. (Provided by {:?})",
             plugin_name, plugin.plugin_data.provided_by
         );
-    }
 
-    // tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-    // let mut response = false;
-    // let event = BwsEvent::new(0, &mut response as *mut _ as *mut ());
-    // match plugins["test_plugin"]
-    //     .read()
-    //     .await
-    //     .gate
-    //     .as_ref()
-    //     .unwrap()
-    //     .call(event)
-    //     .await
-    // {
-    //     Some(()) => {
-    //         info!("Event 'hello' response: {}", response);
-    //     }
-    //     None => {
-    //         error!("Error calling event 'hello'");
-    //     }
-    // }
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        plugin
+            .event_sender
+            .as_ref()
+            .unwrap()
+            .send(BwsTuple3(14, SendPtr(null()), SendPtr(null())))
+            .unwrap();
+    }
 
     Ok(())
 }
