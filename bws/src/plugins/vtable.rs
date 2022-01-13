@@ -27,8 +27,29 @@ pub static VTABLE: BwsVTable = {
         unsafe { sender.read() }.send(()).is_ok()
     }
 
-    unsafe extern "C" fn log(msg: BwsStr<'static>, level: LogLevel) {
-        super::plugin_log(msg, level);
+    unsafe extern "C" fn log(plugin_name: BwsStr<'static>, msg: BwsStr<'static>, level: LogLevel) {
+        log::log!(
+            target: &format!("[plugin] {}", plugin_name.as_str()),
+            match level {
+                LogLevel::Error => {
+                    log::Level::Error
+                }
+                LogLevel::Warning => {
+                    log::Level::Warn
+                }
+                LogLevel::Info => {
+                    log::Level::Info
+                }
+                LogLevel::Debug => {
+                    log::Level::Debug
+                }
+                LogLevel::Trace => {
+                    log::Level::Trace
+                }
+            },
+            "{}",
+            msg.as_str()
+        );
     }
 
     BwsVTable {

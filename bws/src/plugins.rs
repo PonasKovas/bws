@@ -265,25 +265,3 @@ pub async fn start_plugins(plugins: &mut Vec<Plugin>) -> Result<()> {
 
     Ok(())
 }
-
-// defined here instead of vtable, so that the logger says bws::plugins
-// and not bws::plugins::vtable
-fn plugin_log(msg: BwsStr<'static>, level: LogLevel) {
-    match level {
-        LogLevel::Error => {
-            error!("{}", msg.as_str());
-        }
-        LogLevel::Warning => {
-            warn!("{}", msg.as_str());
-        }
-        LogLevel::Info => {
-            info!("{}", msg.as_str());
-        }
-        LogLevel::Debug => {
-            debug!("{}", msg.as_str());
-        }
-        LogLevel::Trace => {
-            trace!("{}", msg.as_str());
-        }
-    }
-}
