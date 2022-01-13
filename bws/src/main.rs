@@ -1,4 +1,5 @@
 #![feature(backtrace)]
+#![deny(unsafe_op_in_unsafe_fn)]
 
 mod linear_search;
 mod plugins;

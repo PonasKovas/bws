@@ -3,10 +3,10 @@ mod vtable;
 use crate::LinearSearch;
 use anyhow::{bail, Context, Result};
 use async_ffi::{FfiContext, FfiFuture, FfiPoll, LocalFfiFuture};
-use bws_plugin::prelude::*;
 use bws_plugin::register::{PluginEntrySignature, RegPluginStruct};
+use bws_plugin::{prelude::*, LogLevel};
 use libloading::{Library, Symbol};
-use log::{error, info};
+use log::{debug, error, info, trace, warn};
 use semver::{Version, VersionReq};
 use std::collections::HashSet;
 use std::marker::PhantomData;
@@ -21,17 +21,17 @@ use std::{
 };
 use tokio::fs;
 use tokio::sync::mpsc;
-use tokio::sync::oneshot;
+use tokio::sync::oneshot::{self, channel};
 use tokio::sync::RwLock;
 
 const BWS_ABI_VERSION: u64 =
     ((async_ffi::ABI_VERSION as u64) << 32) | (bws_plugin::ABI_VERSION as u64);
 
-type EventSender = mpsc::UnboundedSender<BwsTuple3<u32, SendPtr<()>, SendPtr<oneshot::Sender<()>>>>;
-
 pub struct Plugin {
     name: String,
-    event_sender: Option<EventSender>, // None if the plugin is not active at the moment
+    // None if the plugin is not active at the moment
+    /// Event id, event data pointer (optional, depending on event), oneshot sender pointer
+    event_sender: Option<mpsc::UnboundedSender<BwsTuple3<u32, SendPtr<()>, SendPtr<()>>>>,
     plugin_data: PluginData,
 }
 
@@ -86,11 +86,11 @@ pub async fn load_plugins() -> Result<Vec<Plugin>> {
 // loads a library file and adds the plugins it registers
 async unsafe fn load_library(plugins: &mut Vec<Plugin>, path: impl AsRef<Path>) -> Result<()> {
     let path = path.as_ref();
-    let lib = Arc::new(Library::new(path)?);
+    let lib = Arc::new(unsafe { Library::new(path)? });
 
-    let abi_version: Symbol<*const u64> = lib.get(b"BWS_ABI_VERSION")?;
+    let abi_version: Symbol<*const u64> = unsafe { lib.get(b"BWS_ABI_VERSION")? };
 
-    if **abi_version != BWS_ABI_VERSION {
+    if unsafe { **abi_version } != BWS_ABI_VERSION {
         bail!(
         	"plugin is compiled with a non-compatible ABI version. BWS uses {}, while the library was compiled with {}.",
         	BWS_ABI_VERSION,
@@ -107,20 +107,20 @@ async unsafe fn load_library(plugins: &mut Vec<Plugin>, path: impl AsRef<Path>) 
     static mut registered: Vec<RegPluginStruct> = Vec::new();
 
     unsafe extern "C" fn register(plugin: RegPluginStruct) {
-        registered.push(plugin);
+        unsafe { registered.push(plugin) }
     }
 
     let init: Symbol<unsafe extern "C" fn(unsafe extern "C" fn(RegPluginStruct))> =
-        lib.get(b"bws_library_init")?;
+        unsafe { lib.get(b"bws_library_init")? };
 
-    (*init)(register);
+    unsafe { (*init)(register) };
 
     // now parse the contents of the static variable
 
     // can't move out of a static so efficiently make the vector non-static
     // and leave a new empty vector in it's place
     let mut non_static_registered = Vec::new();
-    std::mem::swap(&mut non_static_registered, &mut registered);
+    std::mem::swap(&mut non_static_registered, unsafe { &mut registered });
 
     for plugin in non_static_registered {
         // make sure the plugin name is unique
@@ -248,13 +248,42 @@ pub async fn start_plugins(plugins: &mut Vec<Plugin>) -> Result<()> {
         );
 
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        let (oneshot_sender, oneshot_receiver) = channel::<()>();
+        let oneshot_sender = ManuallyDrop::new(oneshot_sender);
         plugin
             .event_sender
             .as_ref()
             .unwrap()
-            .send(BwsTuple3(14, SendPtr(null()), SendPtr(null())))
+            .send(BwsTuple3(
+                14,
+                SendPtr(null()),
+                SendPtr(&*oneshot_sender as *const _ as *const ()),
+            ))
             .unwrap();
+        info!("{:?}", oneshot_receiver.await);
     }
 
     Ok(())
+}
+
+// defined here instead of vtable, so that the logger says bws::plugins
+// and not bws::plugins::vtable
+fn plugin_log(msg: BwsStr<'static>, level: LogLevel) {
+    match level {
+        LogLevel::Error => {
+            error!("{}", msg.as_str());
+        }
+        LogLevel::Warning => {
+            warn!("{}", msg.as_str());
+        }
+        LogLevel::Info => {
+            info!("{}", msg.as_str());
+        }
+        LogLevel::Debug => {
+            debug!("{}", msg.as_str());
+        }
+        LogLevel::Trace => {
+            trace!("{}", msg.as_str());
+        }
+    }
 }
