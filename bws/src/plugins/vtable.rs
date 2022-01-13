@@ -1,6 +1,6 @@
 //! the VTable that is given to the plugins so they can do stuff 😐
 
-use async_ffi::{FfiContext, FfiPoll};
+use async_ffi::{FfiContext, FfiFuture, FfiPoll};
 use bws_plugin::vtable::BwsVTable;
 use bws_plugin::{prelude::*, LogLevel};
 use log::{debug, error, info, trace, warn};
@@ -52,9 +52,14 @@ pub static VTABLE: BwsVTable = {
         );
     }
 
+    unsafe extern "C" fn spawn_task(future: FfiFuture<BwsUnit>) {
+        tokio::spawn(future);
+    }
+
     BwsVTable {
         poll_recv_plugin_event,
         fire_oneshot_plugin_event,
         log,
+        spawn_task,
     }
 };
