@@ -56,10 +56,20 @@ pub static VTABLE: BwsVTable = {
         tokio::spawn(future);
     }
 
+    unsafe extern "C" fn get_port() -> u16 {
+        crate::OPT.port
+    }
+
+    unsafe extern "C" fn get_compression_treshold() -> i32 {
+        crate::OPT.compression_treshold
+    }
+
     BwsVTable {
         poll_recv_plugin_event,
         fire_oneshot_plugin_event,
         log,
         spawn_task,
+        get_port,
+        get_compression_treshold,
     }
 };

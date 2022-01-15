@@ -10,6 +10,8 @@ pub use linear_search::LinearSearch;
 use log::{debug, error, info, warn};
 use std::future::pending;
 use std::sync::atomic::Ordering;
+use std::sync::mpsc::Receiver;
+use std::sync::Mutex;
 use std::{sync::atomic::AtomicU32, time::Duration};
 use structopt::StructOpt;
 use tokio::sync::{broadcast, mpsc};
@@ -31,18 +33,26 @@ pub struct Opt {
 }
 
 lazy_static! {
-    static ref OPT: Opt = Opt::from_args();
+    pub static ref OPT: Opt = Opt::from_args();
 }
 
 lazy_static! {
     // a broadcast channel that will go off on a shutdown to let tasks gracefully exit
-    pub static ref GRACEFUL_EXIT_SENDER: broadcast::Sender<()> = broadcast::channel(1).0;
+    static ref GRACEFUL_EXIT_SENDER: broadcast::Sender<()> = broadcast::channel(1).0;
+}
+
+lazy_static! {
+    // An mpsc that will let anyone from anywhere exit the whole program gracefully
+    pub static ref SHUTDOWN: (mpsc::Sender<()>, Mutex<Option<mpsc::Receiver<()>>>) = {
+        let (sender, receiver) = mpsc::channel(1);
+        (sender, Mutex::new(Some(receiver)))
+    };
 }
 
 // The number for which to wait on a shutdown before forcefully exiting all remaining tasks
-pub static NUMBER_TO_WAIT_ON_SHUTDOWN: AtomicU32 = AtomicU32::new(0);
+static NUMBER_TO_WAIT_ON_SHUTDOWN: AtomicU32 = AtomicU32::new(0);
 // All gracefully exiting tasks will increase this after exiting on a shutdown
-pub static GRACEFULLY_EXITED: AtomicU32 = AtomicU32::new(0);
+static GRACEFULLY_EXITED: AtomicU32 = AtomicU32::new(0);
 
 /// Call to make sure the program doesnt shutdown without waiting for you to exit
 /// returns a receiver that goes off on a shutdown so you can exit gracefully
@@ -51,6 +61,11 @@ pub fn register_graceful_shutdown() -> (broadcast::Receiver<()>, &'static Atomic
     NUMBER_TO_WAIT_ON_SHUTDOWN.fetch_add(1, Ordering::SeqCst);
 
     (GRACEFUL_EXIT_SENDER.subscribe(), &GRACEFULLY_EXITED)
+}
+
+/// Call to iniate a clean shutdown of the program
+pub fn shutdown() {
+    let _ = SHUTDOWN.0.send(());
 }
 
 fn main() -> Result<()> {
@@ -66,20 +81,20 @@ fn main() -> Result<()> {
 
     let rt = tokio::runtime::Runtime::new()?;
 
-    // An mpsc that will let anyone from anywhere exit the whole program gracefully
-    let (shutdown_sender, mut shutdown_receiver) = mpsc::channel(1);
-
     // When any task panics, exit the whole app
-    let shutdown_sender_clone = shutdown_sender.clone();
     std::panic::set_hook(Box::new(move |info| {
         let bt = std::backtrace::Backtrace::capture();
         println!("{info}\n{bt}");
-        // if this fails, that means some other task just panicked too
-        // and the shutdown is on its way already, so we dont care
-        let _ = shutdown_sender_clone.send(());
+        // if this fails, that means the shutdown is on its way already,
+        // so we dont care
+        let _ = SHUTDOWN.0.send(());
     }));
 
+    let mut shutdown_receiver = SHUTDOWN.1.lock().unwrap().take().unwrap();
+
     rt.block_on(async move {
+        tokio::spawn(async_main());
+
         tokio::select! {
             _ = shutdown_receiver.recv() => {},
             _ = tokio::signal::ctrl_c() => {},
@@ -97,7 +112,6 @@ fn main() -> Result<()> {
                     futures::future::pending().await
                 }
             } => {},
-            _ = tokio::spawn(async_main(shutdown_sender)) => {}
         }
         // gracefully shutdown
 
@@ -115,7 +129,7 @@ fn main() -> Result<()> {
     })
 }
 
-async fn async_main(shutdown_sender: mpsc::Sender<()>) -> Result<()> {
+async fn async_main() -> Result<()> {
     info!("Loading plugins...");
     let mut plugins = plugins::load_plugins()
         .await
