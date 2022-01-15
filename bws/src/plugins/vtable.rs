@@ -1,10 +1,11 @@
 //! the VTable that is given to the plugins so they can do stuff 😐
 
-use async_ffi::{FfiContext, FfiFuture, FfiPoll};
+use async_ffi::{FfiContext, FfiFuture, FfiPoll, FutureExt};
 use bws_plugin::vtable::BwsVTable;
 use bws_plugin::{prelude::*, LogLevel};
 use log::{debug, error, info, trace, warn};
 use std::mem::transmute;
+use std::sync::atomic::{AtomicU32, Ordering};
 use tokio::sync::mpsc;
 use tokio::sync::oneshot::Sender;
 
@@ -12,8 +13,8 @@ pub static VTABLE: BwsVTable = {
     unsafe extern "C" fn poll_recv_plugin_event(
         receiver: SendPtr<()>,
         ctx: &mut FfiContext,
-    ) -> FfiPoll<BwsOption<BwsTuple3<u32, SendPtr<()>, SendPtr<()>>>> {
-        let receiver: &mut mpsc::UnboundedReceiver<BwsTuple3<u32, SendPtr<()>, SendPtr<()>>> =
+    ) -> FfiPoll<BwsOption<BwsTuple3<u32, SendMutPtr<()>, SendPtr<()>>>> {
+        let receiver: &mut mpsc::UnboundedReceiver<BwsTuple3<u32, SendMutPtr<()>, SendPtr<()>>> =
             unsafe { transmute(receiver) };
         match ctx.with_context(|ctx| receiver.poll_recv(ctx)) {
             std::task::Poll::Ready(r) => FfiPoll::Ready(BwsOption::from_option(r)),
@@ -64,6 +65,29 @@ pub static VTABLE: BwsVTable = {
         crate::OPT.compression_treshold
     }
 
+    unsafe extern "C" fn shutdown() {
+        crate::shutdown();
+    }
+
+    unsafe extern "C" fn register_for_graceful_shutdown(
+    ) -> BwsTuple2<FfiFuture<BwsUnit>, SendPtr<()>> {
+        let (mut receiver, atomic) = crate::register_for_graceful_shutdown();
+        BwsTuple2(
+            async move {
+                let _ = receiver.recv().await;
+                unit()
+            }
+            .into_ffi(),
+            SendPtr(atomic as *const _ as *const ()),
+        )
+    }
+
+    unsafe extern "C" fn gracefully_exited(atomic: SendPtr<()>) {
+        unsafe { (atomic.0 as *const AtomicU32).as_ref() }
+            .unwrap()
+            .fetch_add(1, Ordering::SeqCst);
+    }
+
     BwsVTable {
         poll_recv_plugin_event,
         fire_oneshot_plugin_event,
@@ -71,5 +95,8 @@ pub static VTABLE: BwsVTable = {
         spawn_task,
         get_port,
         get_compression_treshold,
+        shutdown,
+        register_for_graceful_shutdown,
+        gracefully_exited,
     }
 };

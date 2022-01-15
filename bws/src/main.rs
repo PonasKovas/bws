@@ -57,7 +57,7 @@ static GRACEFULLY_EXITED: AtomicU32 = AtomicU32::new(0);
 /// Call to make sure the program doesnt shutdown without waiting for you to exit
 /// returns a receiver that goes off on a shutdown so you can exit gracefully
 /// and a reference to an atomic integer for you to increase once you're finished
-pub fn register_graceful_shutdown() -> (broadcast::Receiver<()>, &'static AtomicU32) {
+pub fn register_for_graceful_shutdown() -> (broadcast::Receiver<()>, &'static AtomicU32) {
     NUMBER_TO_WAIT_ON_SHUTDOWN.fetch_add(1, Ordering::SeqCst);
 
     (GRACEFUL_EXIT_SENDER.subscribe(), &GRACEFULLY_EXITED)
