@@ -27,24 +27,24 @@ use tokio::sync::RwLock;
 const BWS_ABI_VERSION: u64 =
     ((async_ffi::ABI_VERSION as u64) << 32) | (bws_plugin::ABI_VERSION as u64);
 
-pub struct Plugin {
-    name: String,
-    // None if the plugin is not active at the moment
-    /// Event id, event data pointer (optional, depending on event), oneshot sender pointer
-    event_sender: Option<mpsc::UnboundedSender<BwsTuple3<u32, SendPtr<()>, SendPtr<()>>>>,
-    plugin_data: PluginData,
+pub struct Lib {
+    pub path: PathBuf,
+    pub library: &'static mut Library,
+    // (Plugin name, plugin data)
+    pub plugins: Vec<(String, Plugin)>,
 }
 
-pub struct PluginData {
+pub struct Plugin {
+    // None if the plugin is not active at the moment
+    /// Event id, event data pointer (optional, depending on event), oneshot sender pointer
+    pub event_sender: Option<mpsc::UnboundedSender<BwsTuple3<u32, SendPtr<()>, SendPtr<()>>>>,
     pub version: Version,
-    pub provided_by: PathBuf,
     pub dependencies: Vec<(String, VersionReq)>,
-    pub library: Arc<Library>,
     pub entry: PluginEntrySignature,
 }
 
-pub async fn load_plugins() -> Result<Vec<Plugin>> {
-    let mut plugins: Vec<Plugin> = Vec::new();
+pub async fn load_plugins() -> Result<Vec<Lib>> {
+    let mut libs: Vec<Lib> = Vec::new();
 
     let mut read_dir = fs::read_dir("plugins").await?;
     while let Some(path) = read_dir.next_entry().await? {
@@ -65,35 +65,36 @@ pub async fn load_plugins() -> Result<Vec<Plugin>> {
             }
         }
 
-        if let Err(e) = unsafe { load_library(&mut plugins, &path).await } {
-            error!("Error loading {:?}: {:?}", path.file_name().unwrap(), e);
+        if let Err(e) = unsafe { load_library(&mut libs, &path).await } {
+            error!("Error loading {:?}: {e:?}", path.file_name().unwrap());
         }
     }
 
     // check if all dependencies of plugins are satisfied
-    for plugin in &plugins {
-        if !check_dependencies(&plugin, &plugins) {
-            bail!(
+    for lib in &libs {
+        for plugin in &lib.plugins {
+            if !check_dependencies(&plugin, &libs) {
+                bail!(
                 "Plugin {:?} could not be loaded, because it's dependencies weren't satisfied. (Provided by {:?})",
-                plugin.name, plugin.plugin_data.provided_by
+                plugin.0, lib.path
             );
+            }
         }
     }
 
-    Ok(plugins)
+    Ok(libs)
 }
 
 // loads a library file and adds the plugins it registers
-async unsafe fn load_library(plugins: &mut Vec<Plugin>, path: impl AsRef<Path>) -> Result<()> {
+async unsafe fn load_library(libs: &mut Vec<Lib>, path: impl AsRef<Path>) -> Result<()> {
     let path = path.as_ref();
-    let lib = Arc::new(unsafe { Library::new(path)? });
+    let lib = unsafe { Library::new(path)? };
 
     let abi_version: Symbol<*const u64> = unsafe { lib.get(b"BWS_ABI_VERSION")? };
 
     if unsafe { **abi_version } != BWS_ABI_VERSION {
         bail!(
-        	"plugin is compiled with a non-compatible ABI version. BWS uses {}, while the library was compiled with {}.",
-        	BWS_ABI_VERSION,
+        	"plugin is compiled with a non-compatible ABI version. BWS uses {BWS_ABI_VERSION}, while the library was compiled with {}.",
         	**abi_version
         );
     }
@@ -117,32 +118,36 @@ async unsafe fn load_library(plugins: &mut Vec<Plugin>, path: impl AsRef<Path>) 
 
     // now parse the contents of the static variable
 
-    // can't move out of a static so efficiently make the vector non-static
+    // can't move out of a static, so efficiently make the vector non-static
     // and leave a new empty vector in it's place
     let mut non_static_registered = Vec::new();
     std::mem::swap(&mut non_static_registered, unsafe { &mut registered });
 
+    let mut plugins: Vec<(String, Plugin)> = Vec::new();
+
     for plugin in non_static_registered {
         // make sure the plugin name is unique
-        if let Some(other_plugin) = plugins
-            .iter()
-            .find(|other_plugin| other_plugin.name == plugin.name.as_bws_str().as_str())
-        {
+        if let Some(other_provided_by) = libs.iter().find_map(|other_lib| {
+            other_lib.plugins.iter().find_map(|other_plugin| {
+                if other_plugin.0 == plugin.name.as_bws_str().as_str() {
+                    Some(&other_lib.path)
+                } else {
+                    None
+                }
+            })
+        }) {
             error!(
-                "Plugin name collision: {:?} both registered by {:?} and {:?}",
-                plugin.name.into_string(),
-                path,
-                other_plugin.plugin_data.provided_by
+                "Plugin name collision: {:?} both registered by {path:?} and {other_provided_by:?}",
+                plugin.name.as_bws_str().as_str()
             );
             continue;
         }
 
-        plugins.push(Plugin {
-            name: plugin.name.into_string(),
-            event_sender: None,
-            plugin_data: PluginData {
+        plugins.push((
+            plugin.name.into_string(),
+            Plugin {
+                event_sender: None,
                 version: Version::new(plugin.version.0, plugin.version.1, plugin.version.2),
-                provided_by: path.to_path_buf(),
                 dependencies: plugin
                     .dependencies
                     .into_vec()
@@ -153,38 +158,53 @@ async unsafe fn load_library(plugins: &mut Vec<Plugin>, path: impl AsRef<Path>) 
                         acc.push((
                             name,
                             VersionReq::parse(&version_req).with_context(|| {
-                                format!("error parsing version requirement {:?}", version_req)
+                                format!("error parsing version requirement {version_req:?}")
                             })?,
                         ));
 
                         Ok(acc)
                     })?,
                 entry: plugin.entry,
-                library: Arc::clone(&lib),
             },
-        });
+        ));
     }
+
+    libs.push(Lib {
+        path: path.to_path_buf(),
+        // gotta leak that box to make sure it doesn't get dropped accidentally
+        // while tokio is still executing tasks from it
+        library: Box::leak(Box::new(lib)),
+        plugins,
+    });
 
     Ok(())
 }
 
 // checks if all dependencies of the given plugin are satisfied
-fn check_dependencies(plugin: &Plugin, plugins: &Vec<Plugin>) -> bool {
+fn check_dependencies(plugin: &(String, Plugin), libs: &Vec<Lib>) -> bool {
     let mut result = true;
 
-    for dependency in &plugin.plugin_data.dependencies {
-        if let Some(dep_plugin) = plugins.iter().find(|p| p.name == dependency.0) {
-            if !dependency.1.matches(&dep_plugin.plugin_data.version) {
+    for dependency in &plugin.1.dependencies {
+        if let Some(dep_plugin) = libs.iter().find_map(|lib| {
+            lib.plugins.iter().find_map(|other_plugin| {
+                if other_plugin.0 == dependency.0 {
+                    Some(other_plugin)
+                } else {
+                    None
+                }
+            })
+        }) {
+            if !dependency.1.matches(&dep_plugin.1.version) {
                 error!(
                         "Plugin {:?} depends on {:?} {} which was not found. {:?} {} is present, but does not match the {} version requirement.",
-                        plugin.name, dependency.0, dependency.1, dependency.0, dep_plugin.plugin_data.version, dependency.1
+                        plugin.0, dependency.0, dependency.1, dependency.0, dep_plugin.1.version, dependency.1
                     );
                 result = false;
             }
         } else {
             error!(
                 "Plugin {:?} depends on {:?} {} which was not found.",
-                plugin.name, dependency.0, dependency.1
+                plugin.0, dependency.0, dependency.1
             );
             result = false;
         }
@@ -192,21 +212,25 @@ fn check_dependencies(plugin: &Plugin, plugins: &Vec<Plugin>) -> bool {
     result
 }
 
-pub async fn start_plugins(plugins: &mut Vec<Plugin>) -> Result<()> {
+pub async fn start_plugins(libs: &mut Vec<Lib>) -> Result<()> {
     // Use the graph theory to order the plugins so that they would load
     // only after all of their dependencies have loaded.
     let mut graph = petgraph::graph::DiGraph::<String, ()>::new();
     let mut indices = Vec::new();
-    for plugin in &*plugins {
-        indices.push((plugin.name.clone(), graph.add_node(plugin.name.clone())));
+    for lib in &*libs {
+        for plugin in &lib.plugins {
+            indices.push((plugin.0.clone(), graph.add_node(plugin.0.clone())));
+        }
     }
 
     // set the edges
     // (in other words, connect the nodes with arrows in the way of dependence)
-    for plugin in &*plugins {
-        let id = indices.search(&plugin.name);
-        for dependency in &plugin.plugin_data.dependencies {
-            graph.update_edge(*indices.search(&dependency.0), *id, ());
+    for lib in &*libs {
+        for plugin in &lib.plugins {
+            let id = indices.search(&plugin.0);
+            for dependency in &plugin.1.dependencies {
+                graph.update_edge(*indices.search(&dependency.0), *id, ());
+            }
         }
     }
 
@@ -221,47 +245,58 @@ pub async fn start_plugins(plugins: &mut Vec<Plugin>) -> Result<()> {
         }
     };
 
-    // now that we now the order, we can start the plugins one by one
+    // now that we know the order, we can start the plugins one by one
     for plugin_id in ordering {
         let plugin_name = indices.search_by_val(&plugin_id);
 
-        let plugin_id = plugins.iter().position(|p| &p.name == plugin_name).unwrap();
-        let plugin = &mut plugins[plugin_id];
-
-        // Create the events channel
-        let (sender, receiver) = mpsc::unbounded_channel();
-        let receiver = SendPtr(Box::leak(Box::new(receiver)) as *const _ as *const ());
-
-        tokio::spawn(unsafe {
-            (plugin.plugin_data.entry)(
-                BwsString::from_string(plugin_name.clone()),
-                vtable::VTABLE.clone(),
-                receiver,
-            )
-        });
-
-        plugin.event_sender = Some(sender);
-
-        info!(
-            "Plugin {:?} loaded and started. (Provided by {:?})",
-            plugin_name, plugin.plugin_data.provided_by
-        );
-
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        let (oneshot_sender, oneshot_receiver) = channel::<()>();
-        let oneshot_sender = ManuallyDrop::new(oneshot_sender);
-        plugin
-            .event_sender
-            .as_ref()
-            .unwrap()
-            .send(BwsTuple3(
-                14,
-                SendPtr(null()),
-                SendPtr(&*oneshot_sender as *const _ as *const ()),
-            ))
-            .unwrap();
-        info!("{:?}", oneshot_receiver.await);
+        start_plugin(plugin_name, libs).await;
     }
 
     Ok(())
+}
+
+pub async fn start_plugin(plugin_name: &String, libs: &mut Vec<Lib>) {
+    let (provided_by, plugin) = libs
+        .iter_mut()
+        .find_map(|lib| {
+            lib.plugins.iter_mut().find_map(|plugin| {
+                if &plugin.0 == plugin_name {
+                    Some((&lib.path, &mut plugin.1))
+                } else {
+                    None
+                }
+            })
+        })
+        .unwrap();
+
+    // Create the events channel
+    let (sender, receiver) = mpsc::unbounded_channel();
+    let receiver = SendPtr(Box::leak(Box::new(receiver)) as *const _ as *const ());
+
+    tokio::spawn(unsafe {
+        (plugin.entry)(
+            BwsString::from_string(plugin_name.clone()),
+            vtable::VTABLE.clone(),
+            receiver,
+        )
+    });
+
+    plugin.event_sender = Some(sender);
+
+    info!("Plugin {plugin_name:?} loaded and started. (Provided by {provided_by:?})",);
+
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    let (oneshot_sender, oneshot_receiver) = channel::<()>();
+    let oneshot_sender = ManuallyDrop::new(oneshot_sender);
+    plugin
+        .event_sender
+        .as_ref()
+        .unwrap()
+        .send(BwsTuple3(
+            14,
+            SendPtr(null()),
+            SendPtr(&*oneshot_sender as *const _ as *const ()),
+        ))
+        .unwrap();
+    info!("{:?}", oneshot_receiver.await);
 }
