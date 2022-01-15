@@ -4,14 +4,15 @@
 mod linear_search;
 mod plugins;
 
-use std::time::Duration;
-
-pub use linear_search::LinearSearch;
-
 use anyhow::{bail, Context, Result};
 use lazy_static::lazy_static;
+pub use linear_search::LinearSearch;
 use log::{debug, error, info, warn};
+use std::future::pending;
+use std::sync::atomic::Ordering;
+use std::{sync::atomic::AtomicU32, time::Duration};
 use structopt::StructOpt;
+use tokio::sync::{broadcast, mpsc};
 
 #[derive(Debug, StructOpt, Clone)]
 #[structopt(name = "bws", about = "A light-weight and modular minecraft server")]
@@ -33,6 +34,25 @@ lazy_static! {
     static ref OPT: Opt = Opt::from_args();
 }
 
+lazy_static! {
+    // a broadcast channel that will go off on a shutdown to let tasks gracefully exit
+    pub static ref GRACEFUL_EXIT_SENDER: broadcast::Sender<()> = broadcast::channel(1).0;
+}
+
+// The number for which to wait on a shutdown before forcefully exiting all remaining tasks
+pub static NUMBER_TO_WAIT_ON_SHUTDOWN: AtomicU32 = AtomicU32::new(0);
+// All gracefully exiting tasks will increase this after exiting on a shutdown
+pub static GRACEFULLY_EXITED: AtomicU32 = AtomicU32::new(0);
+
+/// Call to make sure the program doesnt shutdown without waiting for you to exit
+/// returns a receiver that goes off on a shutdown so you can exit gracefully
+/// and a reference to an atomic integer for you to increase once you're finished
+pub fn register_graceful_shutdown() -> (broadcast::Receiver<()>, &'static AtomicU32) {
+    NUMBER_TO_WAIT_ON_SHUTDOWN.fetch_add(1, Ordering::SeqCst);
+
+    (GRACEFUL_EXIT_SENDER.subscribe(), &GRACEFULLY_EXITED)
+}
+
 fn main() -> Result<()> {
     env_logger::builder()
         .filter_level(log::LevelFilter::Info)
@@ -46,28 +66,56 @@ fn main() -> Result<()> {
 
     let rt = tokio::runtime::Runtime::new()?;
 
+    // An mpsc that will let anyone from anywhere exit the whole program gracefully
+    let (shutdown_sender, mut shutdown_receiver) = mpsc::channel(1);
+
     // When any task panics, exit the whole app
-    let (panic_sender, mut panic_receiver) = tokio::sync::mpsc::unbounded_channel();
+    let shutdown_sender_clone = shutdown_sender.clone();
     std::panic::set_hook(Box::new(move |info| {
         let bt = std::backtrace::Backtrace::capture();
-        println!("{}\n{}", info, bt);
-        let _ = panic_sender.send(());
+        println!("{info}\n{bt}");
+        // if this fails, that means some other task just panicked too
+        // and the shutdown is on its way already, so we dont care
+        let _ = shutdown_sender_clone.send(());
     }));
 
     rt.block_on(async move {
         tokio::select! {
-            _ = panic_receiver.recv() => {
-                // some task panicked
-                Ok(())
-            },
-            _ = tokio::spawn(async_main()) => {
-                Ok(())
-            }
+            _ = shutdown_receiver.recv() => {},
+            _ = tokio::signal::ctrl_c() => {},
+            // On Unixes, handle SIGTERM too
+            _ = async move {
+                #[cfg(unix)]
+                {
+                    let mut sig = tokio::signal::unix::signal(
+                        tokio::signal::unix::SignalKind::terminate()
+                    ).unwrap();
+                    sig.recv().await
+                }
+                #[cfg(not(unix))]
+                {
+                    futures::future::pending().await
+                }
+            } => {},
+            _ = tokio::spawn(async_main(shutdown_sender)) => {}
         }
+        // gracefully shutdown
+
+        // tell that we're shutting down to all tasks that need it
+        let _ = GRACEFUL_EXIT_SENDER.send(());
+
+        // wait for them
+        while GRACEFULLY_EXITED.load(Ordering::SeqCst)
+            < NUMBER_TO_WAIT_ON_SHUTDOWN.load(Ordering::SeqCst)
+        {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        std::process::exit(0)
     })
 }
 
-async fn async_main() -> Result<()> {
+async fn async_main(shutdown_sender: mpsc::Sender<()>) -> Result<()> {
     info!("Loading plugins...");
     let mut plugins = plugins::load_plugins()
         .await
@@ -77,28 +125,5 @@ async fn async_main() -> Result<()> {
         .await
         .context("Error starting plugins")?;
 
-    tokio::select! {
-        _ = tokio::signal::ctrl_c() => {
-            Ok(())
-        },
-        // On Unixes, handle SIGTERM too
-        _ = async move {
-            #[cfg(unix)]
-            {
-                let mut sig = tokio::signal::unix::signal(
-                    tokio::signal::unix::SignalKind::terminate()
-                ).unwrap();
-                sig.recv().await
-            }
-            #[cfg(not(unix))]
-            {
-                futures::future::pending().await
-            }
-        } => {
-            Ok(())
-        },
-        // _ = run(state.clone()) => {
-        //     Ok(())
-        // },
-    }
+    pending().await
 }
