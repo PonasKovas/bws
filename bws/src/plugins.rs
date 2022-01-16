@@ -1,3 +1,4 @@
+mod events;
 mod vtable;
 
 use crate::LinearSearch;
@@ -37,7 +38,7 @@ pub struct Lib {
 pub struct Plugin {
     // None if the plugin is not active at the moment
     /// Event id, event data pointer (optional, depending on event), oneshot sender pointer
-    pub event_sender: Option<mpsc::UnboundedSender<BwsTuple3<u32, SendPtr<()>, SendPtr<()>>>>,
+    pub event_sender: Option<mpsc::UnboundedSender<BwsTuple3<usize, SendMutPtr<()>, SendPtr<()>>>>,
     pub version: Version,
     pub dependencies: Vec<(String, VersionReq)>,
     pub entry: PluginEntrySignature,
@@ -285,18 +286,10 @@ pub async fn start_plugin(plugin_name: &String, libs: &mut Vec<Lib>) {
 
     info!("Plugin {plugin_name:?} loaded and started. (Provided by {provided_by:?})",);
 
+    let id = events::get_event_id("core", "test").await;
+
+    events::subscribe_to_event(id, 0.0, plugin.event_sender.as_ref().unwrap().clone()).await;
+
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-    let (oneshot_sender, oneshot_receiver) = channel::<()>();
-    let oneshot_sender = ManuallyDrop::new(oneshot_sender);
-    plugin
-        .event_sender
-        .as_ref()
-        .unwrap()
-        .send(BwsTuple3(
-            14,
-            SendPtr(null()),
-            SendPtr(&*oneshot_sender as *const _ as *const ()),
-        ))
-        .unwrap();
-    info!("{:?}", oneshot_receiver.await);
+    events::fire_event(id, SendMutPtr::NULL).await;
 }

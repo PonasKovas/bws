@@ -1,5 +1,6 @@
 #![feature(backtrace)]
 #![deny(unsafe_op_in_unsafe_fn)]
+#![allow(unused_imports)]
 
 mod linear_search;
 mod plugins;
@@ -125,6 +126,8 @@ fn main() -> Result<()> {
             std::thread::sleep(Duration::from_millis(10));
         }
 
+        // just kill the whole process at this point,
+        // forcefully ending all tasks that didn't exit gracefully
         std::process::exit(0)
     })
 }
@@ -139,5 +142,5 @@ async fn async_main() -> Result<()> {
         .await
         .context("Error starting plugins")?;
 
-    pending().await
+    Ok(())
 }

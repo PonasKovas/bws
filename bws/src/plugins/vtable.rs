@@ -13,8 +13,8 @@ pub static VTABLE: BwsVTable = {
     unsafe extern "C" fn poll_recv_plugin_event(
         receiver: SendPtr<()>,
         ctx: &mut FfiContext,
-    ) -> FfiPoll<BwsOption<BwsTuple3<u32, SendMutPtr<()>, SendPtr<()>>>> {
-        let receiver: &mut mpsc::UnboundedReceiver<BwsTuple3<u32, SendMutPtr<()>, SendPtr<()>>> =
+    ) -> FfiPoll<BwsOption<BwsTuple3<usize, SendMutPtr<()>, SendPtr<()>>>> {
+        let receiver: &mut mpsc::UnboundedReceiver<BwsTuple3<usize, SendMutPtr<()>, SendPtr<()>>> =
             unsafe { transmute(receiver) };
         match ctx.with_context(|ctx| receiver.poll_recv(ctx)) {
             std::task::Poll::Ready(r) => FfiPoll::Ready(BwsOption::from_option(r)),
@@ -22,10 +22,10 @@ pub static VTABLE: BwsVTable = {
         }
     }
 
-    unsafe extern "C" fn fire_oneshot_plugin_event(sender: SendPtr<()>) -> bool {
-        let sender: *const Sender<()> = unsafe { transmute(sender) };
+    unsafe extern "C" fn fire_oneshot_plugin_event(sender: SendPtr<()>, stop: bool) {
+        let sender: *const Sender<bool> = unsafe { transmute(sender) };
 
-        unsafe { sender.read() }.send(()).is_ok()
+        unsafe { sender.read() }.send(stop).unwrap()
     }
 
     unsafe extern "C" fn log(plugin_name: BwsStr<'static>, msg: BwsStr<'static>, level: LogLevel) {
@@ -88,6 +88,14 @@ pub static VTABLE: BwsVTable = {
             .fetch_add(1, Ordering::SeqCst);
     }
 
+    unsafe extern "C" fn get_event_id(
+        namespace: BwsStr<'static>,
+        name: BwsStr<'static>,
+    ) -> FfiFuture<usize> {
+        async move { super::events::get_event_id(namespace.as_str(), name.as_str()).await }
+            .into_ffi()
+    }
+
     BwsVTable {
         poll_recv_plugin_event,
         fire_oneshot_plugin_event,
@@ -98,5 +106,6 @@ pub static VTABLE: BwsVTable = {
         shutdown,
         register_for_graceful_shutdown,
         gracefully_exited,
+        get_event_id,
     }
 };
