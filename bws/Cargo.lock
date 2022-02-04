@@ -118,6 +118,7 @@ dependencies = [
  "libloading",
  "log",
  "once_cell",
+ "semver 1.0.4",
  "tokio",
 ]
 
