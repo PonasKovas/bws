@@ -1,24 +1,36 @@
 use super::GState;
 use crate::BwsPlugin;
 use abi_stable::{
-    external_types::RRwLock,
+    external_types::{parking_lot::rw_lock::RReadGuard, RRwLock},
     std_types::{RArc, RSlice, RStr, RString, RVec, Tuple2},
 };
 use repr_c_types::std::SArcOpaque;
-use std::path::Path;
+use std::{
+    ops::{Deref, DerefMut},
+    path::Path,
+};
 
 #[repr(C)]
-pub struct PluginList {
-    /// (plugin_name, plugin)
-    pub plugins: RVec<Tuple2<RString, RArc<Plugin>>>,
+/// (plugin_name, plugin)
+pub struct PluginList(pub RVec<Tuple2<RString, RArc<Plugin>>>);
+
+impl Deref for PluginList {
+    type Target = RVec<Tuple2<RString, RArc<Plugin>>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for PluginList {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
 }
 
 impl PluginList {
     pub fn get(&self, name: RStr) -> Option<&RArc<Plugin>> {
-        self.plugins
-            .iter()
-            .find(|p| p.0.as_rstr() == name)
-            .map(|p| &p.1)
+        self.iter().find(|p| p.0.as_rstr() == name).map(|p| &p.1)
     }
 }
 
@@ -51,11 +63,16 @@ impl Plugin {
         &self.path
     }
     /// Returns None if the plugin is not enabled
-    pub fn root<'a>(&'a self) -> Option<&'a BwsPlugin> {
-        if !*self.enabled.read() {
+    pub fn root<'a>(&'a self) -> Option<RootGuard<'a>> {
+        let enabled_lock = self.enabled.read();
+        if !*enabled_lock {
             return None;
         }
-        Some(self.root)
+
+        Some(RootGuard {
+            root: self.root,
+            _enabled_lock: enabled_lock,
+        })
     }
     pub fn name(&self) -> RStr {
         self.root.name
@@ -93,5 +110,25 @@ impl Plugin {
         (self.root.disable)(gstate);
 
         Ok(())
+    }
+}
+
+/// Doesn't let anyone disable the plugin
+/// until this guard is dropped
+pub struct RootGuard<'a> {
+    pub root: &'a BwsPlugin,
+    _enabled_lock: RReadGuard<'a, bool>,
+}
+
+impl<'a> Deref for RootGuard<'a> {
+    type Target = &'a BwsPlugin;
+
+    fn deref(&self) -> &Self::Target {
+        &self.root
+    }
+}
+impl<'a> DerefMut for RootGuard<'a> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.root
     }
 }

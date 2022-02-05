@@ -6,6 +6,7 @@
 //   Waiting for https://github.com/rust-lang/rust/issues/74990
 //
 
+pub mod extra;
 pub mod global_state;
 #[cfg(feature = "plugin")]
 pub mod macros;
@@ -14,6 +15,7 @@ use abi_stable::{
     sabi_types::{RMut, VersionStrings},
     std_types::{RArc, RBox, RBoxError, RCow, RResult, RSlice, RStr, RString, RVec, Tuple2},
 };
+use extra::Extra;
 use global_state::GState;
 
 pub const ABI: u32 = 14;
@@ -30,6 +32,7 @@ pub const ABI: u32 = 14;
 ///     dependencies: RSlice::from_slice(&[]),
 ///     enable,
 ///     disable,
+///     ...
 /// };
 ///
 /// fn enable(gstate: &GState) {
@@ -38,6 +41,7 @@ pub const ABI: u32 = 14;
 /// fn disable(_gstate: &GState) {
 ///     println!("Plugin template disabled");
 /// }
+/// ...
 /// ```
 ///
 #[repr(C)]
@@ -48,4 +52,6 @@ pub struct BwsPlugin {
 
     pub enable: fn(gstate: &GState),
     pub disable: fn(gstate: &GState),
+
+    pub extra: Extra,
 }
