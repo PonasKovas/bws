@@ -118,6 +118,8 @@ dependencies = [
  "libloading",
  "log",
  "once_cell",
+ "petgraph",
+ "repr_c_types",
  "semver 1.0.4",
  "tokio",
 ]
@@ -127,6 +129,7 @@ name = "bws_plugin_interface"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
+ "repr_c_types",
 ]
 
 [[package]]
@@ -211,6 +214,12 @@ dependencies = [
  "regex",
  "termcolor",
 ]
+
+[[package]]
+name = "fixedbitset"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "279fb028e20b3c4c320317955b77c5e0c9701f05a1d309905d6fc702cdc5053e"
 
 [[package]]
 name = "flume"
@@ -457,6 +466,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0744126afe1a6dd7f394cb50a716dbe086cb06e255e53d8d0185d82828358fb5"
 
 [[package]]
+name = "petgraph"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4a13a2fa9d0b63e5f22328828741e523766fff0ee9e779316902290dff3f824f"
+dependencies = [
+ "fixedbitset",
+ "indexmap",
+]
+
+[[package]]
 name = "pin-project"
 version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -525,6 +544,11 @@ name = "regex-syntax"
 version = "0.6.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f497285884f3fcff424ffc933e56d7cbca511def0c9831a7f9b5f6153e3cc89b"
+
+[[package]]
+name = "repr_c_types"
+version = "0.1.0"
+source = "git+https://github.com/PonasKovas/repr_c_types.git#04453e9c0bc0d5e127b6cb63219a66920c460326"
 
 [[package]]
 name = "repr_offset"
