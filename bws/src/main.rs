@@ -53,12 +53,12 @@ fn main() -> Result<()> {
 
     // Construct the global state, which may be needed when starting plugins already
     let global_state = RArc::new(GlobalState {
-        plugins: RRwLock::new(PluginList {
-            plugins: plugins
+        plugins: RRwLock::new(PluginList(
+            plugins
                 .into_iter()
                 .map(|p| Tuple2(RString::from(p.name()), RArc::new(p)))
                 .collect(),
-        }),
+        )),
         vtable: vtable::VTABLE,
     });
 

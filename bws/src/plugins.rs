@@ -7,7 +7,6 @@ use bws_plugin_interface::global_state::{GState, GlobalState};
 use bws_plugin_interface::BwsPlugin;
 use libloading::{Library, Symbol};
 use log::{error, info, warn};
-use notify::{watcher, RecursiveMode, Watcher};
 use repr_c_types::std::SArcOpaque;
 use semver::{Version, VersionReq};
 use std::fmt::Debug;
@@ -150,7 +149,7 @@ pub fn start_plugins(gstate: &GState) -> Result<()> {
     // only after all of their dependencies have loaded.
 
     let plugins_lock = gstate.plugins.read();
-    let plugins = &plugins_lock.plugins;
+    let plugins = &plugins_lock.0;
 
     let mut graph = petgraph::graph::DiGraph::<RString, ()>::new();
     let mut indices: Vec<(RString, _)> = Vec::new();

@@ -18,4 +18,3 @@ repr_c_types = { git = "https://github.com/PonasKovas/repr_c_types.git" }
 bws_plugin_interface = { path = "../bws_plugin_interface", default-features = false }
 semver = "1.0.5"
 petgraph = "0.6.0"
-notify = "4.0.17"
