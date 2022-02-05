@@ -48,7 +48,7 @@ pub fn load_plugins() -> Result<Vec<Plugin>> {
 
     // Check if dependencies are satisfied
     for lib in (0..libs.len()).rev() {
-        if unsafe { check_dependencies(&libs, lib).context("Error checking dependencies")? } {
+        if check_dependencies(&libs, lib).context("Error checking dependencies")? {
             info!(
                 "loaded {} {} ({}).",
                 libs[lib].name(),
@@ -102,7 +102,7 @@ pub unsafe fn load_lib(path: impl AsRef<Path>) -> Result<Plugin> {
     ))
 }
 
-pub unsafe fn check_dependencies(libs: &[Plugin], lib: usize) -> Result<bool> {
+pub fn check_dependencies(libs: &[Plugin], lib: usize) -> Result<bool> {
     let mut res = true;
 
     let deps = libs[lib].dependencies().as_slice();
@@ -142,26 +142,22 @@ pub unsafe fn check_dependencies(libs: &[Plugin], lib: usize) -> Result<bool> {
     Ok(res)
 }
 
-pub fn start_plugins(global_state: &GState) -> Result<()> {
+pub fn start_plugins(gstate: &GState) -> Result<()> {
     // Use the graph theory to order the plugins so that they would load
     // only after all of their dependencies have loaded.
 
-    let gstate_lock = global_state.read();
+    let gstate_lock = gstate.read();
     let plugins = &gstate_lock.plugins;
 
     let mut graph = petgraph::graph::DiGraph::<RString, ()>::new();
     let mut indices: Vec<(RString, _)> = Vec::new();
     for plugin in plugins {
-        let plugin = plugin.read();
-
         indices.push((plugin.name().into(), graph.add_node(plugin.name().into())));
     }
 
     // set the edges
     // (in other words, connect dependencies)
     for plugin in plugins {
-        let plugin = plugin.read();
-
         let id = indices.search(&RString::from(plugin.name()));
         for dependency in plugin.dependencies().as_slice() {
             graph.update_edge(*indices.search(&RString::from(dependency.0)), *id, ());
@@ -180,25 +176,26 @@ pub fn start_plugins(global_state: &GState) -> Result<()> {
     };
 
     // drop the read-only global state lock
+    // so we could lock and unlock every iteration below:
     drop(gstate_lock);
 
     // now that we know the order, we can start the plugins one by one
     for plugin_id in ordering {
         let plugin_name = indices.search_by_val(&plugin_id);
 
-        let gstate_lock = global_state.read();
+        let gstate_lock = gstate.read();
 
         let plugin = RArc::clone(
             gstate_lock
                 .plugins
                 .iter()
-                .find(|p| &p.read().name() == plugin_name)
+                .find(|p| &p.name() == plugin_name)
                 .unwrap(),
         );
 
         drop(gstate_lock); // in case enable() needs global state
 
-        if plugin.write().enable().is_err() {
+        if plugin.enable(&gstate).is_err() {
             bail!("{} was already started", plugin_name);
         }
 

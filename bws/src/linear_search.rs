@@ -1,5 +1,5 @@
 //! Just a convenience trait for performing a linear search
-//! on (K, V) arrays
+//! on [(K, V)] slices
 
 use std::borrow::Borrow;
 

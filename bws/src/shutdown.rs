@@ -23,12 +23,12 @@ pub fn shutdown() {
     let _ = SHUTDOWN.0.try_send(());
 }
 
-pub async fn wait_for_shutdown_async() {
+pub async fn wait_for_shutdown() {
     // can't fail, since there's always at least one sender in the same static
     SHUTDOWN.1.recv_async().await.unwrap();
 }
 
-pub fn wait_for_shutdown() {
-    // can't fail, since there's always at least one sender in the same static
-    SHUTDOWN.1.recv().unwrap();
+/// Returns true if shutdown already initiated
+pub fn shutdown_started() -> bool {
+    SHUTDOWN.1.try_recv().is_ok()
 }

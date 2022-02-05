@@ -14,7 +14,7 @@ use bws_plugin_interface::global_state::GlobalState;
 pub use linear_search::LinearSearch;
 use log::{debug, error, info, warn};
 use once_cell::sync::{Lazy, OnceCell};
-pub use shutdown::{shutdown, wait_for_shutdown, wait_for_shutdown_async};
+pub use shutdown::{shutdown, shutdown_started, wait_for_shutdown};
 use std::future::pending;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::Receiver;
@@ -51,10 +51,7 @@ fn main() -> Result<()> {
 
     // Construct the global state, which may be needed when starting plugins already
     let global_state: RArc<RRwLock<GlobalState>> = RArc::new(RRwLock::new(GlobalState {
-        plugins: plugins
-            .into_iter()
-            .map(|p| RArc::new(RRwLock::new(p)))
-            .collect(),
+        plugins: plugins.into_iter().map(|p| RArc::new(p)).collect(),
     }));
 
     plugins::start_plugins(&global_state).context("Couldn't start plugins")?;
@@ -65,7 +62,7 @@ fn main() -> Result<()> {
         tokio::spawn(net());
 
         tokio::select! {
-            _ = wait_for_shutdown_async() => {},
+            _ = wait_for_shutdown() => {},
             _ = tokio::signal::ctrl_c() => {},
             // On Unixes, handle SIGTERM too
             _ = async move {
@@ -91,7 +88,7 @@ fn main() -> Result<()> {
 
 async fn net() -> Result<()> {
     tokio::select! {
-        _ = wait_for_shutdown_async() => {},
+        _ = wait_for_shutdown() => {},
         _ = async move {
             // do work here
         } => {},
