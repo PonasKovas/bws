@@ -1,10 +1,12 @@
-use abi_stable::std_types::{RSlice, RStr, RString, Tuple2};
+use super::GState;
+use crate::BwsPlugin;
+use abi_stable::{
+    external_types::RRwLock,
+    std_types::{RSlice, RStr, RString, Tuple2},
+};
 use repr_c_types::std::SArcOpaque;
 use std::path::Path;
 
-use crate::BwsPlugin;
-
-#[derive(Debug)]
 #[repr(C)]
 pub struct Plugin {
     /// path to the file which provides this plugin
@@ -16,7 +18,7 @@ pub struct Plugin {
     // exposed through a method to make sure the reference doesn't outlive the struct
     root: &'static BwsPlugin,
     // Whether the plugin is enabled
-    enabled: bool,
+    enabled: RRwLock<bool>,
 }
 
 impl Plugin {
@@ -26,12 +28,12 @@ impl Plugin {
             path,
             library,
             root,
-            enabled: false,
+            enabled: RRwLock::new(false),
         }
     }
     /// Returns None if the plugin is not enabled
     pub fn root<'a>(&'a self) -> Option<&'a BwsPlugin> {
-        if !self.enabled {
+        if !*self.enabled.read() {
             return None;
         }
         Some(self.root)
@@ -47,29 +49,29 @@ impl Plugin {
     }
     /// Whether the plugin is enabled
     pub fn enabled(&self) -> bool {
-        self.enabled
+        *self.enabled.read()
     }
     /// Enables the plugin. Returns Err if was already enabled
     /// otherwise Ok
-    pub fn enable(&mut self) -> Result<(), ()> {
-        if self.enabled {
+    pub fn enable(&self, gstate: &GState) -> Result<(), ()> {
+        if *self.enabled.read() {
             return Err(());
         }
 
-        self.enabled = true;
-        (self.root.enable)();
+        *self.enabled.write() = true;
+        (self.root.enable)(gstate);
 
         Ok(())
     }
     /// Disables the plugin. Returns Err if was already disabled
     /// otherwise Ok
-    pub fn disable(&mut self) -> Result<(), ()> {
-        if !self.enabled {
+    pub fn disable(&self, gstate: &GState) -> Result<(), ()> {
+        if !*self.enabled.read() {
             return Err(());
         }
 
-        self.enabled = false;
-        (self.root.disable)();
+        *self.enabled.write() = false;
+        (self.root.disable)(gstate);
 
         Ok(())
     }
