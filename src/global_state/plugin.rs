@@ -2,18 +2,33 @@ use super::GState;
 use crate::BwsPlugin;
 use abi_stable::{
     external_types::RRwLock,
-    std_types::{RSlice, RStr, RString, Tuple2},
+    std_types::{RArc, RSlice, RStr, RString, RVec, Tuple2},
 };
 use repr_c_types::std::SArcOpaque;
 use std::path::Path;
 
 #[repr(C)]
+pub struct PluginList {
+    /// (plugin_name, plugin)
+    pub plugins: RVec<Tuple2<RString, RArc<Plugin>>>,
+}
+
+impl PluginList {
+    pub fn get(&self, name: RStr) -> Option<&RArc<Plugin>> {
+        self.plugins
+            .iter()
+            .find(|p| p.0.as_rstr() == name)
+            .map(|p| &p.1)
+    }
+}
+
+#[repr(C)]
 pub struct Plugin {
     /// path to the file which provides this plugin
-    pub path: RString,
+    path: RString,
     /// Basically only here to make sure that Library stays in memory
     /// as long as this struct exists
-    pub library: SArcOpaque,
+    library: SArcOpaque,
     // Valid as long as the library above is valid
     // exposed through a method to make sure the reference doesn't outlive the struct
     root: &'static BwsPlugin,
@@ -30,6 +45,10 @@ impl Plugin {
             root,
             enabled: RRwLock::new(false),
         }
+    }
+    /// Returns the path of the file that provides this plugin
+    pub fn path(&self) -> &RString {
+        &self.path
     }
     /// Returns None if the plugin is not enabled
     pub fn root<'a>(&'a self) -> Option<&'a BwsPlugin> {

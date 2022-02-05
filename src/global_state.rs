@@ -1,16 +1,17 @@
 pub mod plugin;
-
-use std::fmt::Debug;
+pub mod vtable;
 
 use abi_stable::{
     external_types::RRwLock,
-    std_types::{RArc, RVec},
+    std_types::{RArc, RStr, RString, RVec, Tuple2},
 };
-use plugin::Plugin;
+use plugin::{Plugin, PluginList};
+use std::fmt::Debug;
 
-pub type GState = RArc<RRwLock<GlobalState>>;
+pub type GState = RArc<GlobalState>;
 
 #[repr(C)]
 pub struct GlobalState {
-    pub plugins: RVec<RArc<Plugin>>,
+    pub plugins: RRwLock<PluginList>,
+    pub vtable: vtable::VTable,
 }

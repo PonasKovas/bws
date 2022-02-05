@@ -6,3 +6,7 @@ edition = "2021"
 [dependencies]
 abi_stable = "0.10.4"
 repr_c_types = { git = "https://github.com/PonasKovas/repr_c_types.git" }
+
+[features]
+default = ["plugin"]
+plugin = []
