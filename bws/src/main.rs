@@ -6,10 +6,12 @@ mod linear_search;
 mod opt;
 mod plugins;
 mod shutdown;
+mod vtable;
 
 use abi_stable::external_types::RRwLock;
-use abi_stable::std_types::{RArc, RVec};
+use abi_stable::std_types::{RArc, RString, RVec, Tuple2};
 use anyhow::{bail, Context, Result};
+use bws_plugin_interface::global_state::plugin::PluginList;
 use bws_plugin_interface::global_state::GlobalState;
 pub use linear_search::LinearSearch;
 use log::{debug, error, info, warn};
@@ -50,13 +52,17 @@ fn main() -> Result<()> {
     let plugins = plugins::load_plugins().context("Error loading plugins")?;
 
     // Construct the global state, which may be needed when starting plugins already
-    let global_state: RArc<RRwLock<GlobalState>> = RArc::new(RRwLock::new(GlobalState {
-        plugins: plugins.into_iter().map(|p| RArc::new(p)).collect(),
-    }));
+    let global_state = RArc::new(GlobalState {
+        plugins: RRwLock::new(PluginList {
+            plugins: plugins
+                .into_iter()
+                .map(|p| Tuple2(RString::from(p.name()), RArc::new(p)))
+                .collect(),
+        }),
+        vtable: vtable::VTABLE,
+    });
 
     plugins::start_plugins(&global_state).context("Couldn't start plugins")?;
-    info!("All plugins loaded.");
-    info!("Starting TCP listener");
 
     rt.block_on(async move {
         tokio::spawn(net());

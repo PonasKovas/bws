@@ -7,9 +7,12 @@ use bws_plugin_interface::global_state::{GState, GlobalState};
 use bws_plugin_interface::BwsPlugin;
 use libloading::{Library, Symbol};
 use log::{error, info, warn};
+use notify::{watcher, RecursiveMode, Watcher};
 use repr_c_types::std::SArcOpaque;
 use semver::{Version, VersionReq};
 use std::fmt::Debug;
+use std::thread;
+use std::time::Duration;
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -53,14 +56,14 @@ pub fn load_plugins() -> Result<Vec<Plugin>> {
                 "loaded {} {} ({}).",
                 libs[lib].name(),
                 libs[lib].version(),
-                libs[lib].path
+                libs[lib].path()
             );
         } else {
             warn!(
                 "Couldn't load {} {} ({}).",
                 libs[lib].name(),
                 libs[lib].version(),
-                libs[lib].path
+                libs[lib].path()
             );
             // remove the lib from the list
             libs.remove(lib);
@@ -146,20 +149,20 @@ pub fn start_plugins(gstate: &GState) -> Result<()> {
     // Use the graph theory to order the plugins so that they would load
     // only after all of their dependencies have loaded.
 
-    let gstate_lock = gstate.read();
-    let plugins = &gstate_lock.plugins;
+    let plugins_lock = gstate.plugins.read();
+    let plugins = &plugins_lock.plugins;
 
     let mut graph = petgraph::graph::DiGraph::<RString, ()>::new();
     let mut indices: Vec<(RString, _)> = Vec::new();
     for plugin in plugins {
-        indices.push((plugin.name().into(), graph.add_node(plugin.name().into())));
+        indices.push((plugin.0.clone(), graph.add_node(plugin.0.clone())));
     }
 
     // set the edges
     // (in other words, connect dependencies)
     for plugin in plugins {
-        let id = indices.search(&RString::from(plugin.name()));
-        for dependency in plugin.dependencies().as_slice() {
+        let id = indices.search(&plugin.0.clone());
+        for dependency in plugin.1.dependencies().as_slice() {
             graph.update_edge(*indices.search(&RString::from(dependency.0)), *id, ());
         }
     }
@@ -175,25 +178,19 @@ pub fn start_plugins(gstate: &GState) -> Result<()> {
         }
     };
 
-    // drop the read-only global state lock
+    // drop the read-only plugins lock
     // so we could lock and unlock every iteration below:
-    drop(gstate_lock);
+    drop(plugins_lock);
 
     // now that we know the order, we can start the plugins one by one
     for plugin_id in ordering {
         let plugin_name = indices.search_by_val(&plugin_id);
 
-        let gstate_lock = gstate.read();
+        let plugins_lock = gstate.plugins.read();
 
-        let plugin = RArc::clone(
-            gstate_lock
-                .plugins
-                .iter()
-                .find(|p| &p.name() == plugin_name)
-                .unwrap(),
-        );
+        let plugin = RArc::clone(plugins_lock.get(plugin_name.as_rstr()).unwrap());
 
-        drop(gstate_lock); // in case enable() needs global state
+        drop(plugins_lock); // in case enable() needs plugins
 
         if plugin.enable(&gstate).is_err() {
             bail!("{} was already started", plugin_name);
