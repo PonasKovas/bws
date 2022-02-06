@@ -4,7 +4,7 @@ use abi_stable::{
     external_types::{parking_lot::rw_lock::RReadGuard, RRwLock},
     std_types::{RArc, RSlice, RStr, RString, RVec, Tuple2},
 };
-use repr_c_types::std::SArcOpaque;
+use repr_c_types::std::sync::SArcOpaque;
 use std::{
     ops::{Deref, DerefMut},
     path::Path,
