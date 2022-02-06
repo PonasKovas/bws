@@ -113,7 +113,6 @@ async fn net(gstate: &GState) -> Result<()> {
         let conn = listener.accept().await?;
 
         let gstate_clone = RArc::clone(gstate);
-
         tokio::spawn(async move {
             if let Err(e) = handle_connection::handle_connection(gstate_clone, conn).await {
                 debug!("Connection handler error: {}", e);

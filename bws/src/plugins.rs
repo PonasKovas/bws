@@ -7,7 +7,7 @@ use bws_plugin_interface::global_state::{GState, GlobalState};
 use bws_plugin_interface::BwsPlugin;
 use libloading::{Library, Symbol};
 use log::{error, info, warn};
-use repr_c_types::std::SArcOpaque;
+use repr_c_types::std::sync::SArcOpaque;
 use semver::{Version, VersionReq};
 use std::fmt::Debug;
 use std::thread;
