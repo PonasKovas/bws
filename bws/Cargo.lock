@@ -119,7 +119,7 @@ dependencies = [
  "log",
  "once_cell",
  "petgraph",
- "repr_c_types",
+ "safe_types",
  "semver 1.0.5",
  "tokio",
 ]
@@ -129,7 +129,7 @@ name = "bws_plugin_interface"
 version = "0.1.0"
 dependencies = [
  "abi_stable",
- "repr_c_types",
+ "safe_types",
 ]
 
 [[package]]
@@ -546,10 +546,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f497285884f3fcff424ffc933e56d7cbca511def0c9831a7f9b5f6153e3cc89b"
 
 [[package]]
-name = "repr_c_types"
-version = "0.1.0"
-
-[[package]]
 name = "repr_offset"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -581,6 +577,22 @@ name = "ryu"
 version = "1.0.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "73b4b750c782965c211b42f022f59af1fbceabdd026623714f104152f1ec149f"
+
+[[package]]
+name = "safe_types"
+version = "0.1.0"
+dependencies = [
+ "safe_types_derive",
+]
+
+[[package]]
+name = "safe_types_derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
 
 [[package]]
 name = "scopeguard"

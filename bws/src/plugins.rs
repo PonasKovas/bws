@@ -7,7 +7,7 @@ use bws_plugin_interface::global_state::{GState, GlobalState};
 use bws_plugin_interface::BwsPlugin;
 use libloading::{Library, Symbol};
 use log::{error, info, warn};
-use repr_c_types::std::sync::SArcOpaque;
+use safe_types::std::sync::SArcOpaque;
 use semver::{Version, VersionReq};
 use std::fmt::Debug;
 use std::thread;
@@ -22,6 +22,8 @@ const PLUGIN_DIR: &str = "plugins/";
 
 pub fn load_plugins() -> Result<Vec<Plugin>> {
     let mut libs = Vec::new();
+
+    let mut success = true;
 
     for entry in fs::read_dir(PLUGIN_DIR)? {
         let path = entry?.path();
@@ -44,6 +46,7 @@ pub fn load_plugins() -> Result<Vec<Plugin>> {
             Ok(l) => libs.push(l),
             Err(e) => {
                 error!("Error loading {:?}: {e:?}", path.file_name().unwrap());
+                success = false;
             }
         }
     }
@@ -58,25 +61,28 @@ pub fn load_plugins() -> Result<Vec<Plugin>> {
                 libs[lib].path()
             );
         } else {
-            warn!(
+            error!(
                 "Couldn't load {} {} ({}).",
                 libs[lib].name(),
                 libs[lib].version(),
                 libs[lib].path()
             );
-            // remove the lib from the list
-            libs.remove(lib);
+            success = false;
         }
     }
 
-    Ok(libs)
+    if success {
+        Ok(libs)
+    } else {
+        bail!("Some plugins couldn't be loaded.");
+    }
 }
 
 pub unsafe fn load_lib(path: impl AsRef<Path>) -> Result<Plugin> {
     let path = path.as_ref();
 
     let lib = unsafe { Library::new(path)? };
-    let abi: Symbol<*const u32> = unsafe {
+    let abi: Symbol<*const u64> = unsafe {
         lib.get(b"BWS_ABI")
             .context("Error getting BWS_ABI symbol in plugin")?
     };
