@@ -10,6 +10,7 @@ pub mod extra;
 pub mod global_state;
 #[cfg(feature = "plugin")]
 pub mod macros;
+pub mod stream;
 
 use abi_stable::{
     sabi_types::{RMut, VersionStrings},
@@ -18,7 +19,7 @@ use abi_stable::{
 use extra::Extra;
 use global_state::GState;
 
-pub const ABI: u32 = 14;
+pub const ABI: u64 = 14 | (safe_types::ABI_VERSION as u64) << 32;
 
 /// The main struct that all plugins should expose with the `BWS_PLUGIN_ROOT` name
 ///

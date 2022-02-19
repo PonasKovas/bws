@@ -4,13 +4,13 @@ use abi_stable::{
     external_types::{parking_lot::rw_lock::RReadGuard, RRwLock},
     std_types::{RArc, RSlice, RStr, RString, RVec, Tuple2},
 };
-use repr_c_types::std::sync::SArcOpaque;
+use safe_types::std::sync::SArcOpaque;
 use std::{
     ops::{Deref, DerefMut},
     path::Path,
 };
 
-#[repr(C)]
+#[repr(transparent)]
 /// (plugin_name, plugin)
 pub struct PluginList(pub RVec<Tuple2<RString, RArc<Plugin>>>);
 
@@ -42,7 +42,7 @@ pub struct Plugin {
     /// as long as this struct exists
     library: SArcOpaque,
     // Valid as long as the library above is valid
-    // exposed through a method to make sure the reference doesn't outlive the struct
+    // exposed only through a method to make sure the reference doesn't outlive the struct
     root: &'static BwsPlugin,
     // Whether the plugin is enabled
     enabled: RRwLock<bool>,
@@ -63,6 +63,8 @@ impl Plugin {
         &self.path
     }
     /// Returns None if the plugin is not enabled
+    ///
+    /// Avoid holding this lock for a long time
     pub fn root<'a>(&'a self) -> Option<RootGuard<'a>> {
         let enabled_lock = self.enabled.read();
         if !*enabled_lock {
