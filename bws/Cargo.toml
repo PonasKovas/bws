@@ -14,7 +14,7 @@ clap = { version = "3.0.14", features = ["env", "unicode", "cargo"] }
 once_cell = "1.9.0"
 flume = "0.10.10"
 abi_stable = "0.10.4"
-safe_types = { path = "../safe_types" }
+safe_types = { path = "../../safe_types" }
 bws_plugin_interface = { path = "../bws_plugin_interface", default-features = false }
 semver = "1.0.5"
 petgraph = "0.6.0"
