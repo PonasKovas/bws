@@ -1,3 +1,1 @@
-# BWS (******B******roken and **W**orthless **S**erver)
-
-test ads
+# BWS (******B******eatiful and **W**holesome **S**erver)
