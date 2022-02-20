@@ -2,11 +2,14 @@
 pub mod commands_builder;
 /// Data types uesd in the Minecraft protocol
 pub mod datatypes;
+/// NBT stuff
+pub mod nbt;
 /// All packets of the Minecraft protocol
 pub mod packets;
 #[macro_use]
 mod macros;
 
+#[doc(hidden)]
 #[macro_export]
 macro_rules! cfg_ser {
     ($($item:item)*) => {

@@ -1,5 +1,5 @@
 use super::*;
-use super::{Deserializable, Serializable};
+use crate::{Deserializable, Serializable};
 use std::borrow::Cow;
 use std::cmp::max;
 use std::convert::TryInto;
