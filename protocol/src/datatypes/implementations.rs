@@ -3,7 +3,7 @@ use super::{Deserializable, Serializable};
 use std::borrow::Cow;
 use std::cmp::max;
 use std::convert::TryInto;
-use std::io::{self, Cursor, ErrorKind, Read, Result, Write};
+use std::io::{self, Cursor, Error, ErrorKind, Read, Result, Write};
 
 impl Serializable for ChunkSections {
     fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
@@ -361,24 +361,29 @@ impl Serializable for Nbt {
             stream: output,
         };
 
-        quartz_nbt::io::write_nbt(
+        // todo when quartz_nbt error type implements Into<std::io::Error> we can just use ? op
+        if let Err(e) = quartz_nbt::io::write_nbt(
             &mut output_wrapper,
             None,
             &self.0,
             quartz_nbt::io::Flavor::Uncompressed,
-        )
-        .unwrap(); // todo should use '?' but error doesnt impl Error :/
+        ) {
+            return Err(Error::new(ErrorKind::Other, e));
+        }
 
         Ok(output_wrapper.counter)
     }
 }
 impl Deserializable for Nbt {
     fn from_reader<R: Read>(input: &mut R) -> Result<Self> {
-        Ok(Self(
-            quartz_nbt::io::read_nbt(input, quartz_nbt::io::Flavor::Uncompressed)
-                .unwrap()
-                .0, // todo should use '?' but error doesnt impl Error :/
-        ))
+        let r = match quartz_nbt::io::read_nbt(input, quartz_nbt::io::Flavor::Uncompressed) {
+            Ok(v) => v,
+            Err(e) => {
+                return Err(Error::new(ErrorKind::Other, e));
+            }
+        };
+
+        Ok(Self(r.0))
     }
 }
 
