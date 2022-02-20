@@ -22,7 +22,8 @@ use syn::{parse_macro_input, parse_quote, Attribute, Data, DeriveInput, Fields, 
 ///
 /// For example:
 ///
-/// ```rust
+/// ```
+/// # use protocol_derive::Serializable;
 /// #[derive(Serializable)]
 /// enum Foo {
 ///     FirstVariant,  // discriminant = 0
@@ -45,6 +46,7 @@ use syn::{parse_macro_input, parse_quote, Attribute, Data, DeriveInput, Fields, 
 /// Example:
 ///
 /// ```rust
+/// # use protocol_derive::Serializable;
 /// #[derive(Serializable)]
 /// enum Base {
 ///     First,
@@ -248,6 +250,7 @@ pub fn derive_serializable(input: TokenStream) -> TokenStream {
 /// For example:
 ///
 /// ```rust
+/// # use protocol_derive::Deserializable;
 /// #[derive(Deserializable)]
 /// enum Foo {
 ///     FirstVariant,  // discriminant = 0
@@ -270,6 +273,7 @@ pub fn derive_serializable(input: TokenStream) -> TokenStream {
 /// Example:
 ///
 /// ```rust
+/// # use protocol_derive::Deserializable;
 /// #[derive(Deserializable)]
 /// enum Base {
 ///     First,

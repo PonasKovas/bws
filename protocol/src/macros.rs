@@ -2,7 +2,7 @@
 ///
 /// Syntax:
 ///
-/// ```
+/// ```ignore
 /// command!(([X] "NAME", <literal|argument (TYPE: OPTIONS) [suggestions=SUGGESTIONS]> => [...]), ...);
 /// ```
 ///
@@ -15,7 +15,9 @@
 ///
 /// Example:
 ///
-/// ```rust
+/// ```
+/// # use protocol::packets::PlayClientBound;
+/// # use protocol::command;
 /// let packet: PlayClientBound = command!(
 ///     (X "simple_command", literal => []),
 ///     ("number", literal => [

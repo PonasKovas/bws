@@ -10,6 +10,7 @@ super::cfg_ser! {
 
 /// All packets that are sent from the server to the client
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "ffi_safe", repr(C))]
 pub enum ClientBound<'a> {
     Status(StatusClientBound<'a>),
     Login(LoginClientBound<'a>),
@@ -18,6 +19,7 @@ pub enum ClientBound<'a> {
 
 /// All packets that are sent from the client to the server
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "ffi_safe", repr(C))]
 pub enum ServerBound<'a> {
     Handshake(HandshakeServerBound<'a>),
     Status(StatusServerBound),
@@ -28,6 +30,7 @@ pub enum ServerBound<'a> {
 /// `Client -> Server` packets during the **Handshake** phase
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
+#[cfg_attr(feature = "ffi_safe", repr(C))]
 pub enum HandshakeServerBound<'a> {
     Handshake {
         protocol: VarInt,
@@ -40,6 +43,7 @@ pub enum HandshakeServerBound<'a> {
 /// `Server -> Client` packets during the **Status** phase
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
+#[cfg_attr(feature = "ffi_safe", repr(C))]
 pub enum StatusClientBound<'a> {
     Response(StatusResponse<'a>),
     Pong(i64),
@@ -48,6 +52,7 @@ pub enum StatusClientBound<'a> {
 /// `Client -> Server` packets during the **Status** phase
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
+#[cfg_attr(feature = "ffi_safe", repr(C))]
 pub enum StatusServerBound {
     Request,
     Ping(i64),
@@ -56,6 +61,7 @@ pub enum StatusServerBound {
 /// `Server -> Client` packets during the **Login** phase
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
+#[cfg_attr(feature = "ffi_safe", repr(C))]
 pub enum LoginClientBound<'a> {
     Disconnect(Chat<'a>),
     EncryptionRequest {
@@ -82,6 +88,7 @@ pub enum LoginClientBound<'a> {
 /// `Client -> Server` packets during the **Login** phase
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
+#[cfg_attr(feature = "ffi_safe", repr(C))]
 pub enum LoginServerBound<'a> {
     LoginStart {
         username: Cow<'a, str>,
@@ -101,6 +108,7 @@ pub enum LoginServerBound<'a> {
 /// `Server -> Client` packets during the **Play** phase
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
+#[cfg_attr(feature = "ffi_safe", repr(C))]
 pub enum PlayClientBound<'a> {
     SpawnEntity {
         entity_id: VarInt,
@@ -369,6 +377,7 @@ pub enum PlayClientBound<'a> {
 /// `Client -> Server` packets during the **Play** phase
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
+#[cfg_attr(feature = "ffi_safe", repr(C))]
 pub enum PlayServerBound<'a> {
     TeleportConfirm {
         teleport_id: VarInt,

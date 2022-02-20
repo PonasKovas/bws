@@ -11,7 +11,6 @@ bitflags = "1.2"
 safe_types = { path = "../../safe_types", default-features = false, optional = true }
 
 [features]
-default = ["ser"]
 # Enables functionality of serializing/deserializing the data types and packets
 ser = ["serde", "serde_json", "protocol-derive"]
 # Makes all the types #[repr(C)] and FFI-safe

@@ -18,5 +18,4 @@ safe_types = { path = "../../safe_types" }
 bws_plugin_interface = { path = "../bws_plugin_interface", default-features = false }
 semver = "1.0.5"
 petgraph = "0.6.0"
-
-protocol = { path = "../protocol/", features = ["ser"] }
+protocol = { path = "../protocol/", features = ["ser", "ffi_safe"] }

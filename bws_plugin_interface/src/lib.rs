@@ -25,7 +25,7 @@ pub const ABI: u64 = 14 | (safe_types::ABI_VERSION as u64) << 32;
 ///
 /// # Example
 ///
-/// ```rust
+/// ```ignore
 /// #[no_mangle]
 /// static BWS_PLUGIN_ROOT: BwsPlugin = BwsPlugin {
 ///     name: RStr::from_str("plugin_template"),

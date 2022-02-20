@@ -18,6 +18,7 @@ use std::marker::PhantomData;
 pub use super::nbt::NbtCompound as Nbt;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "ffi_safe", repr(C))]
 pub struct VarInt(pub i32);
 
 impl TryFrom<i32> for VarInt {
@@ -57,7 +58,8 @@ super::cfg_ser! {
 
 /// A newtype around an array except that when serializing/deserializing it has the fixed length as a prefix
 #[derive(Debug, Clone, PartialEq)]
-pub struct ArrWithLen<T, L, const N: usize>(pub [T; N], PhantomData<L>);
+#[cfg_attr(feature = "ffi_safe", repr(C))]
+pub struct ArrWithLen<T, L, const N: usize>(pub [T; N], PhantomData<*const L>);
 
 impl<T, L, const N: usize> ArrWithLen<T, L, N> {
     pub fn new(arr: [T; N]) -> Self {
