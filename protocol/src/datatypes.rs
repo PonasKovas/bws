@@ -1,21 +1,25 @@
 pub mod chat_parse;
-mod implementations;
+super::cfg_ser! {
+    // Implementations of Serializable and Deserializable
+    mod implementations;
 
-use super::{Deserializable, Serializable};
+    use super::{Deserializable, Serializable};
+
+    // needed for proc macros
+    use crate as protocol;
+}
+
 use bitflags::bitflags;
-use shrinkwraprs::Shrinkwrap;
 use std::borrow::Cow;
 use std::convert::TryFrom;
 use std::io::Cursor;
 use std::marker::PhantomData;
 
-use crate as protocol;
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct VarInt(pub i32);
 
 impl TryFrom<i32> for VarInt {
-    type Error = !;
+    type Error = ();
 
     fn try_from(value: i32) -> Result<Self, Self::Error> {
         Ok(Self(value))
@@ -23,34 +27,35 @@ impl TryFrom<i32> for VarInt {
 }
 
 impl TryFrom<VarInt> for i32 {
-    type Error = !;
+    type Error = ();
 
     fn try_from(value: VarInt) -> Result<Self, Self::Error> {
         Ok(value.0)
     }
 }
 
-impl VarInt {
-    pub fn size(&self) -> usize {
-        struct Size;
-        impl std::io::Write for Size {
-            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-                Ok(buf.len())
+super::cfg_ser! {
+    impl VarInt {
+        pub fn size(&self) -> usize {
+            struct Size;
+            impl std::io::Write for Size {
+                fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                    Ok(buf.len())
+                }
+
+                fn flush(&mut self) -> std::io::Result<()> {
+                    Ok(())
+                }
             }
 
-            fn flush(&mut self) -> std::io::Result<()> {
-                Ok(())
-            }
+            self.to_writer(&mut Size).unwrap()
         }
-
-        self.to_writer(&mut Size).unwrap()
     }
 }
 
 /// A newtype around an array except that when serializing/deserializing it has the fixed length as a prefix
-#[derive(Shrinkwrap, Debug, Clone, PartialEq)]
-#[shrinkwrap(mutable)]
-pub struct ArrWithLen<T, L, const N: usize>(#[shrinkwrap(main_field)] pub [T; N], PhantomData<L>);
+#[derive(Debug, Clone, PartialEq)]
+pub struct ArrWithLen<T, L, const N: usize>(pub [T; N], PhantomData<L>);
 
 impl<T, L, const N: usize> ArrWithLen<T, L, N> {
     pub fn new(arr: [T; N]) -> Self {
@@ -58,16 +63,15 @@ impl<T, L, const N: usize> ArrWithLen<T, L, N> {
     }
 }
 
-#[derive(Shrinkwrap, Debug, Clone, PartialEq)]
-#[shrinkwrap(mutable)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Nbt(pub quartz_nbt::NbtCompound);
 
 /// the same as normal Nbt, except that it allows for it to be just a single TAG_END byte, without any actual data.
-#[derive(Shrinkwrap, Debug, Clone, PartialEq)]
-#[shrinkwrap(mutable)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct OptionalNbt(pub Option<Nbt>);
 
-#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
 pub struct Angle(pub u8);
 
 impl Angle {
@@ -95,13 +99,15 @@ pub enum MaybeStatic<'a, T> {
     Owned(T),
 }
 
-impl<'a, T: Deserializable> MaybeStatic<'a, T> {
-    pub fn into_owned(self: MaybeStatic<'a, T>) -> T {
-        match self {
-            MaybeStatic::Static(bytes) => {
-                T::from_reader(&mut Cursor::<Vec<u8>>::new(bytes.into())).unwrap()
+super::cfg_ser! {
+    impl<'a, T: Deserializable> MaybeStatic<'a, T> {
+        pub fn into_owned(self: MaybeStatic<'a, T>) -> T {
+            match self {
+                MaybeStatic::Static(bytes) => {
+                    T::from_reader(&mut Cursor::<Vec<u8>>::new(bytes.into())).unwrap()
+                }
+                MaybeStatic::Owned(item) => item,
             }
-            MaybeStatic::Owned(item) => item,
         }
     }
 }
@@ -109,7 +115,8 @@ impl<'a, T: Deserializable> MaybeStatic<'a, T> {
 #[derive(Debug, Clone, PartialEq)]
 pub struct EntityMetadata<'a>(pub Vec<(u8, EntityMetadataEntry<'a>)>);
 
-#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
 pub enum EntityMetadataEntry<'a> {
     Byte(u8),
     VarInt(VarInt),
@@ -140,7 +147,8 @@ pub enum EntityMetadataEntry<'a> {
     Pose(Pose),
 }
 
-#[derive(Serializable, Deserializable, Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
 pub enum Pose {
     Standing,
     FallFlying,
@@ -151,8 +159,9 @@ pub enum Pose {
     Dying,
 }
 
-#[derive(Serializable, Deserializable, Debug, Clone, Copy, PartialEq)]
-#[discriminant_as(u8)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
+#[cfg_attr(feature = "ser", discriminant_as(u8))]
 pub enum GameStateChangeReason {
     NoRespawnBlockAvailable,
     EndRaining,
@@ -168,7 +177,8 @@ pub enum GameStateChangeReason {
     EnableRespawnScreen,
 }
 
-#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
 pub enum PlayerInfo<'a> {
     AddPlayer(Vec<(u128, PlayerInfoAddPlayer<'a>)>),
     UpdateGamemode(Vec<(u128, PlayerInfoUpdateGamemode)>),
@@ -177,7 +187,8 @@ pub enum PlayerInfo<'a> {
     RemovePlayer(Vec<u128>),
 }
 
-#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
 pub struct PlayerInfoAddPlayer<'a> {
     pub name: Cow<'a, str>,
     pub properties: Vec<PlayerInfoAddPlayerProperty<'a>>,
@@ -186,14 +197,16 @@ pub struct PlayerInfoAddPlayer<'a> {
     pub display_name: Option<Chat<'a>>,
 }
 
-#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
 pub struct PlayerInfoAddPlayerProperty<'a> {
     pub name: Cow<'a, str>,
     pub value: Cow<'a, str>,
     pub signature: Option<Cow<'a, str>>,
 }
 
-#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
 pub struct ClientSettings<'a> {
     pub locale: Cow<'a, str>,
     pub view_distance: i8,
@@ -203,23 +216,27 @@ pub struct ClientSettings<'a> {
     pub main_hand: Hand,
 }
 
-#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
 pub struct PlayerInfoUpdateGamemode {
     pub gamemode: Gamemode,
 }
 
-#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
 pub struct PlayerInfoUpdateLatency {
     /// In milliseconds
     pub ping: VarInt,
 }
 
-#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
 pub struct PlayerInfoUpdateDisplayName<'a> {
     pub display_name: Option<Chat<'a>>,
 }
 
-#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
 pub enum WorldBorderAction {
     SetSize {
         diameter: f64,
@@ -249,7 +266,8 @@ pub enum WorldBorderAction {
 
 // no need for manual Serialization and Deserialization implementation since the first field
 // `full_chunk` is a bool and the VarInt enum equivalent of 0 is false, 1 is true so this works
-#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
 pub enum Chunk {
     Partial {
         // bits 0-15, if 1 then the chunk section will be sent in this packet
@@ -269,7 +287,8 @@ pub enum Chunk {
     },
 }
 
-#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
 pub enum TitleAction<'a> {
     SetTitle(Chat<'a>),
     SetSubtitle(Chat<'a>),
@@ -284,7 +303,8 @@ pub enum TitleAction<'a> {
     Reset,
 }
 
-#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
 pub struct Tags<'a> {
     pub name: Cow<'a, str>,
     pub entries: Vec<VarInt>,
@@ -307,10 +327,12 @@ pub enum Palette {
     Direct,
 }
 
-#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
 pub struct Slot(pub Option<InnerSlot>);
 
-#[derive(Serializable, Deserializable, Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
 pub struct InnerSlot {
     pub item_id: VarInt,
     pub item_count: i8,
@@ -367,14 +389,16 @@ pub struct FloatParserOptions {
     pub max: Option<f32>,
 }
 
-#[derive(Serializable, Deserializable, Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
 pub enum StringParserType {
     SingleWord,
     QuotablePhrase,
     GreedyPhrase,
 }
 
-#[derive(Serializable, Deserializable, Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
 pub enum EntityAction {
     StartSneaking,
     StopSneaking,
@@ -387,8 +411,9 @@ pub enum EntityAction {
     StartFlyingWithElytra,
 }
 
-#[derive(Serializable, Deserializable, Debug, Clone, Copy, PartialEq)]
-#[discriminant_as(u8)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
+#[cfg_attr(feature = "ser", discriminant_as(u8))]
 pub enum EntityAnimation {
     SwingMainArm,
     TakeDamage,
@@ -398,7 +423,8 @@ pub enum EntityAnimation {
     MagicCriticalEffect,
 }
 
-#[derive(Serializable, Deserializable, Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
 pub enum PlayerDiggingStatus {
     StartedDigging,
     CancelledDigging,
@@ -409,7 +435,8 @@ pub enum PlayerDiggingStatus {
     SwapItemInHand,
 }
 
-#[derive(Serializable, Deserializable, Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
 pub enum Direction {
     Down,
     Up,
@@ -420,7 +447,7 @@ pub enum Direction {
 }
 
 bitflags! {
-    #[derive(Serializable, Deserializable)]
+    #[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
     pub struct PlayerAbilities: u8 {
         const INVULNERABLE = 0x01;
         const FLYING = 0x02;
@@ -429,7 +456,7 @@ bitflags! {
     }
 }
 bitflags! {
-    #[derive(Serializable, Deserializable)]
+    #[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
     pub struct PositionAndLookFlags: u8 {
         const RELATIVE_X = 0x01;
         const RELATIVE_Y = 0x02;
@@ -440,7 +467,7 @@ bitflags! {
 }
 
 bitflags! {
-    #[derive(Serializable, Deserializable)]
+    #[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
     pub struct SkinParts: u8 {
         const CAPE = 0x01;
         const JACKET = 0x02;
@@ -452,14 +479,16 @@ bitflags! {
     }
 }
 
-#[derive(Serializable, Deserializable, Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
 pub enum NextState {
-    #[discriminant(1)]
+    #[cfg_attr(feature = "ser", discriminant(1))]
     Status,
     Login,
 }
 
-#[derive(Serializable, Deserializable, Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
 pub enum Difficulty {
     Peaceful,
     Easy,
@@ -467,33 +496,38 @@ pub enum Difficulty {
     Hard,
 }
 
-#[derive(Serializable, Deserializable, Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
 pub enum ClientStatusAction {
     PerformRespawn,
     RequestStats,
 }
 
-#[derive(Serializable, Deserializable, Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
 pub enum ChatMode {
     Enabled,
     CommandsOnly,
     Hidden,
 }
 
-#[derive(Serializable, Deserializable, Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
 pub enum Hand {
     Left,
     Right,
 }
 
-#[derive(Serializable, Deserializable, Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
 pub enum ChatPosition {
     Chat,
     System,
     AboveHotbar,
 }
 
-#[derive(Serializable, Deserializable, Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
 pub enum Gamemode {
     Survival,
     Creative,
@@ -501,7 +535,8 @@ pub enum Gamemode {
     Spectator,
 }
 
-#[derive(Serializable, Deserializable, Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
 pub enum SoundCategory {
     Master,
     Music,
@@ -520,7 +555,8 @@ pub struct StatusResponse<'a> {
     pub json: StatusResponseJson<'a>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "ser", derive(serde::Serialize, serde::Deserialize))]
 pub struct StatusResponseJson<'a> {
     pub version: StatusVersion<'a>,
     pub players: StatusPlayers<'a>,
@@ -528,20 +564,23 @@ pub struct StatusResponseJson<'a> {
     pub favicon: Cow<'a, str>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "ser", derive(serde::Serialize, serde::Deserialize))]
 pub struct StatusVersion<'a> {
     pub name: Cow<'a, str>,
     pub protocol: i32,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "ser", derive(serde::Serialize, serde::Deserialize))]
 pub struct StatusPlayers<'a> {
     pub max: i32,
     pub online: i32,
     pub sample: Vec<StatusPlayerSampleEntry<'a>>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "ser", derive(serde::Serialize, serde::Deserialize))]
 pub struct StatusPlayerSampleEntry<'a> {
     pub name: Cow<'a, str>,
     pub id: Cow<'a, str>,
@@ -557,29 +596,30 @@ impl<'a> StatusPlayerSampleEntry<'a> {
 }
 
 // chat objects are represented in JSON so we use serde
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "ser", derive(serde::Serialize, serde::Deserialize))]
 pub struct Chat<'a> {
     pub text: Cow<'a, str>,
-    #[serde(default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ser", serde(default))]
+    #[cfg_attr(feature = "ser", serde(skip_serializing_if = "Option::is_none"))]
     pub bold: Option<bool>,
-    #[serde(default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ser", serde(default))]
+    #[cfg_attr(feature = "ser", serde(skip_serializing_if = "Option::is_none"))]
     pub italic: Option<bool>,
-    #[serde(default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ser", serde(default))]
+    #[cfg_attr(feature = "ser", serde(skip_serializing_if = "Option::is_none"))]
     pub underlined: Option<bool>,
-    #[serde(default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ser", serde(default))]
+    #[cfg_attr(feature = "ser", serde(skip_serializing_if = "Option::is_none"))]
     pub strikethrough: Option<bool>,
-    #[serde(default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ser", serde(default))]
+    #[cfg_attr(feature = "ser", serde(skip_serializing_if = "Option::is_none"))]
     pub obfuscated: Option<bool>,
-    #[serde(default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ser", serde(default))]
+    #[cfg_attr(feature = "ser", serde(skip_serializing_if = "Option::is_none"))]
     pub color: Option<Cow<'a, str>>,
-    #[serde(default)]
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(feature = "ser", serde(default))]
+    #[cfg_attr(feature = "ser", serde(skip_serializing_if = "Vec::is_empty"))]
     pub extra: Vec<Chat<'a>>,
 }
 

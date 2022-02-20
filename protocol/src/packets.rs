@@ -1,12 +1,15 @@
 use super::datatypes::*;
-use super::{Deserializable, Serializable};
 use std::borrow::Cow;
-use std::io::{self, Write};
 
-use crate as protocol;
+super::cfg_ser! {
+    use super::{Deserializable, Serializable};
+    use std::io::{self, Write};
+
+    use crate as protocol;
+}
 
 /// All packets that are sent from the server to the client
-#[derive(Debug, Clone, PartialEq, strum::ToString)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ClientBound<'a> {
     Status(StatusClientBound<'a>),
     Login(LoginClientBound<'a>),
@@ -14,7 +17,7 @@ pub enum ClientBound<'a> {
 }
 
 /// All packets that are sent from the client to the server
-#[derive(Debug, Clone, PartialEq, strum::ToString)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ServerBound<'a> {
     Handshake(HandshakeServerBound<'a>),
     Status(StatusServerBound),
@@ -23,7 +26,8 @@ pub enum ServerBound<'a> {
 }
 
 /// `Client -> Server` packets during the **Handshake** phase
-#[derive(Serializable, Deserializable, Debug, Clone, PartialEq, strum::ToString)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
 pub enum HandshakeServerBound<'a> {
     Handshake {
         protocol: VarInt,
@@ -34,21 +38,24 @@ pub enum HandshakeServerBound<'a> {
 }
 
 /// `Server -> Client` packets during the **Status** phase
-#[derive(Serializable, Deserializable, Debug, Clone, PartialEq, strum::ToString)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
 pub enum StatusClientBound<'a> {
     Response(StatusResponse<'a>),
     Pong(i64),
 }
 
 /// `Client -> Server` packets during the **Status** phase
-#[derive(Serializable, Deserializable, Debug, Clone, PartialEq, strum::ToString)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
 pub enum StatusServerBound {
     Request,
     Ping(i64),
 }
 
 /// `Server -> Client` packets during the **Login** phase
-#[derive(Serializable, Deserializable, Debug, Clone, PartialEq, strum::ToString)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
 pub enum LoginClientBound<'a> {
     Disconnect(Chat<'a>),
     EncryptionRequest {
@@ -73,7 +80,8 @@ pub enum LoginClientBound<'a> {
 }
 
 /// `Client -> Server` packets during the **Login** phase
-#[derive(Serializable, Deserializable, Debug, Clone, PartialEq, strum::ToString)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
 pub enum LoginServerBound<'a> {
     LoginStart {
         username: Cow<'a, str>,
@@ -91,7 +99,8 @@ pub enum LoginServerBound<'a> {
 }
 
 /// `Server -> Client` packets during the **Play** phase
-#[derive(Serializable, Deserializable, Debug, Clone, PartialEq, strum::ToString)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
 pub enum PlayClientBound<'a> {
     SpawnEntity {
         entity_id: VarInt,
@@ -358,7 +367,8 @@ pub enum PlayClientBound<'a> {
 }
 
 /// `Client -> Server` packets during the **Play** phase
-#[derive(Serializable, Deserializable, Debug, Clone, PartialEq, strum::ToString)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "ser", derive(Serializable, Deserializable))]
 pub enum PlayServerBound<'a> {
     TeleportConfirm {
         teleport_id: VarInt,
@@ -488,16 +498,6 @@ impl<'a> PlayClientBound<'a> {
     }
 }
 
-impl<'a> Serializable for ClientBound<'a> {
-    fn to_writer<W: Write>(&self, output: &mut W) -> io::Result<usize> {
-        match self {
-            Self::Status(packet) => packet.to_writer(output),
-            Self::Login(packet) => packet.to_writer(output),
-            Self::Play(packet) => packet.to_writer(output),
-        }
-    }
-}
-
 impl<'a> HandshakeServerBound<'a> {
     pub fn sb(self) -> ServerBound<'a> {
         ServerBound::Handshake(self)
@@ -519,13 +519,25 @@ impl<'a> PlayServerBound<'a> {
     }
 }
 
-impl<'a> Serializable for ServerBound<'a> {
-    fn to_writer<W: Write>(&self, output: &mut W) -> io::Result<usize> {
-        match self {
-            Self::Handshake(packet) => packet.to_writer(output),
-            Self::Status(packet) => packet.to_writer(output),
-            Self::Login(packet) => packet.to_writer(output),
-            Self::Play(packet) => packet.to_writer(output),
+super::cfg_ser! {
+    impl<'a> Serializable for ClientBound<'a> {
+        fn to_writer<W: Write>(&self, output: &mut W) -> io::Result<usize> {
+            match self {
+                Self::Status(packet) => packet.to_writer(output),
+                Self::Login(packet) => packet.to_writer(output),
+                Self::Play(packet) => packet.to_writer(output),
+            }
+        }
+    }
+
+    impl<'a> Serializable for ServerBound<'a> {
+        fn to_writer<W: Write>(&self, output: &mut W) -> io::Result<usize> {
+            match self {
+                Self::Handshake(packet) => packet.to_writer(output),
+                Self::Status(packet) => packet.to_writer(output),
+                Self::Login(packet) => packet.to_writer(output),
+                Self::Play(packet) => packet.to_writer(output),
+            }
         }
     }
 }
