@@ -15,6 +15,8 @@ use std::convert::TryFrom;
 use std::io::Cursor;
 use std::marker::PhantomData;
 
+pub use super::nbt::NbtCompound as Nbt;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct VarInt(pub i32);
 
@@ -62,9 +64,6 @@ impl<T, L, const N: usize> ArrWithLen<T, L, N> {
         Self(arr, PhantomData)
     }
 }
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Nbt(pub quartz_nbt::NbtCompound);
 
 /// the same as normal Nbt, except that it allows for it to be just a single TAG_END byte, without any actual data.
 #[derive(Debug, Clone, PartialEq)]

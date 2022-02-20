@@ -1,4 +1,4 @@
-use super::{NbtCompound, NbtTag};
+use super::{tag_id, NbtCompound, NbtTag};
 use crate::Serializable;
 use std::io::{Result, Write};
 
@@ -16,23 +16,6 @@ impl Serializable for NbtCompound {
         written += serialize_compound(output, &self)?;
 
         Ok(written)
-    }
-}
-
-fn tag_id(tag: &NbtTag) -> u8 {
-    match tag {
-        NbtTag::Byte(_) => 1,
-        NbtTag::Short(_) => 2,
-        NbtTag::Int(_) => 3,
-        NbtTag::Long(_) => 4,
-        NbtTag::Float(_) => 5,
-        NbtTag::Double(_) => 6,
-        NbtTag::ByteArray(_) => 7,
-        NbtTag::String(_) => 8,
-        NbtTag::List(_) => 9,
-        NbtTag::Compound(_) => 10,
-        NbtTag::IntArray(_) => 11,
-        NbtTag::LongArray(_) => 12,
     }
 }
 
@@ -110,6 +93,9 @@ fn serialize_tag<W: Write>(output: &mut W, tag: &NbtTag) -> Result<usize> {
             if list.len() == 0 {
                 // Tag_END works, since there are no elements
                 written += 0u8.to_writer(output)?;
+
+                // Number of elements as i32
+                written += 0i32.to_writer(output)?;
             } else {
                 // Otherwise the tag of the first element
                 written += serialize_tag_id(output, &list[0])?;

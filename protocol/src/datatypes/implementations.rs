@@ -3,7 +3,7 @@ use crate::{Deserializable, Serializable};
 use std::borrow::Cow;
 use std::cmp::max;
 use std::convert::TryInto;
-use std::io::{self, Cursor, Error, ErrorKind, Read, Result, Write};
+use std::io::{self, Cursor, ErrorKind, Read, Result, Write};
 
 impl Serializable for ChunkSections {
     fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
@@ -335,58 +335,6 @@ impl<'a> Deserializable for EntityMetadata<'a> {
     }
 }
 
-impl Serializable for Nbt {
-    fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
-        // there's a problem: the quart_nbt library doesn't return the number of bytes written when writing.
-        // so we'll have to make a wrapper around the given Write stream that will count the bytes as they are written
-        // and then use that value.
-        struct ByteCounter<W: Write> {
-            counter: usize,
-            stream: W,
-        }
-        impl<W: Write> Write for ByteCounter<W> {
-            fn write(&mut self, buf: &[u8]) -> Result<usize> {
-                let written = self.stream.write(buf)?;
-                self.counter += written;
-
-                Ok(written)
-            }
-
-            fn flush(&mut self) -> Result<()> {
-                self.stream.flush()
-            }
-        }
-        let mut output_wrapper = ByteCounter {
-            counter: 0,
-            stream: output,
-        };
-
-        // todo when quartz_nbt error type implements Into<std::io::Error> we can just use ? op
-        if let Err(e) = quartz_nbt::io::write_nbt(
-            &mut output_wrapper,
-            None,
-            &self.0,
-            quartz_nbt::io::Flavor::Uncompressed,
-        ) {
-            return Err(Error::new(ErrorKind::Other, e));
-        }
-
-        Ok(output_wrapper.counter)
-    }
-}
-impl Deserializable for Nbt {
-    fn from_reader<R: Read>(input: &mut R) -> Result<Self> {
-        let r = match quartz_nbt::io::read_nbt(input, quartz_nbt::io::Flavor::Uncompressed) {
-            Ok(v) => v,
-            Err(e) => {
-                return Err(Error::new(ErrorKind::Other, e));
-            }
-        };
-
-        Ok(Self(r.0))
-    }
-}
-
 impl Serializable for OptionalNbt {
     fn to_writer<W: Write>(&self, output: &mut W) -> Result<usize> {
         match &self.0 {
@@ -405,23 +353,10 @@ impl Deserializable for OptionalNbt {
         if first_byte == 0 {
             Ok(Self(None))
         } else {
-            // a wrapper hack so I could peek at the first byte and then reuse it
-            struct Wrapper<R>(Option<u8>, R);
-            impl<R: Read> Read for Wrapper<R> {
-                fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-                    if buf.is_empty() {
-                        return Ok(0);
-                    }
-                    if let Some(b) = self.0.take() {
-                        buf[0] = b;
-                        Ok(1)
-                    } else {
-                        self.1.read(buf)
-                    }
-                }
-            }
-
-            let mut reader = Wrapper(Some(first_byte), input);
+            let mut reader = crate::PeekedStream {
+                peeked: Some(first_byte),
+                stream: input,
+            };
             Ok(Self(Some(Nbt::from_reader(&mut reader)?)))
         }
     }

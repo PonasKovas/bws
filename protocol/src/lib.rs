@@ -43,7 +43,7 @@ cfg_ser! {
             Self: Sized;
     }
 
-    // this is used from the derive macros, not intended for any other use
+    // this is used from the derive macros and internally, not intended for outer use
     #[doc(hidden)]
     pub struct PeekedStream<D: Serializable, R: Read> {
         pub peeked: Option<D>,

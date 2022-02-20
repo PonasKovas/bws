@@ -131,3 +131,20 @@ impl NbtCompound {
         self.0.len()
     }
 }
+
+fn tag_id(tag: &NbtTag) -> u8 {
+    match tag {
+        NbtTag::Byte(_) => 1,
+        NbtTag::Short(_) => 2,
+        NbtTag::Int(_) => 3,
+        NbtTag::Long(_) => 4,
+        NbtTag::Float(_) => 5,
+        NbtTag::Double(_) => 6,
+        NbtTag::ByteArray(_) => 7,
+        NbtTag::String(_) => 8,
+        NbtTag::List(_) => 9,
+        NbtTag::Compound(_) => 10,
+        NbtTag::IntArray(_) => 11,
+        NbtTag::LongArray(_) => 12,
+    }
+}
