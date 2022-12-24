@@ -186,7 +186,7 @@ pub fn check_dependencies(libs: &[PluginData], lib: usize) -> Result<bool> {
     Ok(res)
 }
 
-pub fn start_plugins(plugins: &Vec<PluginData>) -> Result<()> {
+pub fn init_plugins(plugins: &Vec<PluginData>) -> Result<()> {
     // Use the graph theory to order the plugins so that they would load
     // only after all of their dependencies have loaded.
 
@@ -222,7 +222,6 @@ pub fn start_plugins(plugins: &Vec<PluginData>) -> Result<()> {
 
         for plugin in plugins {
             if plugin.plugin.name == *plugin_name {
-                info!("Starting {}.", plugin_name);
                 (plugin.plugin.on_load)(&crate::vtable::VTABLE);
                 break;
             }

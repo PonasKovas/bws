@@ -7,6 +7,7 @@ mod shutdown;
 mod vtable;
 
 use anyhow::{bail, Context, Result};
+use clap::Command;
 pub use linear_search::LinearSearch;
 use log::{debug, error, info, trace, warn};
 use once_cell::sync::{Lazy, OnceCell};
@@ -32,11 +33,18 @@ fn main() -> Result<()> {
         .init();
 
     // Attempt to load plugins
-    info!("Loading plugins...");
     let plugins = plugins::load_plugins().context("Error loading plugins")?;
 
-    // Start the plugins
-    plugins::start_plugins(&plugins).context("Couldn't start plugins")?;
+    // Initializze the plugins
+    plugins::init_plugins(&plugins).context("Couldn't initialize plugins")?;
+
+    // Now parse env vars and args
+    let matches = vtable::CLAP_COMMAND_BUILDER
+        .lock()
+        .expect("Couldn't lock the Clap command builder mutex after initializing plugins")
+        .as_mut()
+        .unwrap()
+        .get_matches_mut();
 
     Ok(())
 }

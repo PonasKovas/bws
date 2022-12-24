@@ -9,7 +9,7 @@ use std::{
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub struct SStr<'a> {
-    slice: SSlice<'a, u8>,
+    pub(crate) slice: SSlice<'a, u8>,
 }
 
 impl<'a> SStr<'a> {
