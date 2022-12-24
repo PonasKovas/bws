@@ -1,6 +1,7 @@
 use super::*;
 use std::{
     fmt::{Debug, Display},
+    hash::Hash,
     ops::{Deref, DerefMut},
 };
 
@@ -65,3 +66,11 @@ impl<'a> PartialEq for SStr<'a> {
         PartialEq::eq(self.as_str(), other.as_str())
     }
 }
+
+impl<'a> Hash for SStr<'a> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        Hash::hash(self.as_str(), state)
+    }
+}
+
+impl<'a> Eq for SStr<'a> {}

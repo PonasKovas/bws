@@ -6,7 +6,6 @@
 //   Waiting for https://github.com/rust-lang/rust/issues/74990
 //
 
-pub mod global_state;
 #[cfg(feature = "plugin")]
 pub mod macros;
 pub mod plugin_api;
@@ -34,7 +33,7 @@ pub const ABI: u64 = 15;
 ///     ...
 /// };
 ///
-/// fn on_load(gstate: &GState) {
+/// extern "C" fn on_load(vtable: &'static VTable) {
 ///     println!("Plugin template enabled");
 /// }
 /// ...

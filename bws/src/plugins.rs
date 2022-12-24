@@ -5,6 +5,7 @@ use bws_plugin_interface::BwsPlugin;
 use libloading::{Library, Symbol};
 use log::{error, info, warn};
 use semver::{Version, VersionReq};
+use std::collections::HashSet;
 use std::fmt::Debug;
 use std::thread;
 use std::time::Duration;
@@ -53,18 +54,54 @@ pub fn load_plugins() -> Result<Vec<PluginData>> {
         }
     }
 
+    // Make sure all plugins have unique names
+    let mut names = HashSet::new();
+    let mut names_with_collisions = Vec::new();
+    for lib in &libs {
+        if !names.insert(lib.plugin.name) {
+            names_with_collisions.push(lib.plugin.name);
+            success = false;
+        }
+    }
+
+    for name in &names_with_collisions {
+        error!(
+            "Plugin name collision: {:?} is provided by the following libraries:",
+            name
+        );
+        // list the libraries that provide plugins with the name thats causing trouble
+        for lib in &libs {
+            if lib.plugin.name == *name {
+                error!(" - {} ({})", lib.file_path.display(), lib.plugin.version);
+            }
+        }
+    }
+
+    // make sure each plugin has a valid version
+    for lib in &libs {
+        if let Err(e) = Version::parse(lib.plugin.version.as_str()) {
+            error!(
+                "Plugin {:?} ({}) version {:?} could not be parsed: {}",
+                lib.plugin.name,
+                lib.file_path.display(),
+                lib.plugin.version,
+                e
+            );
+            success = false;
+        }
+    }
+
+    // if any problems encountered up until this point, we can already return since checking for dependencies is useless
+    // if the plugins cant even say their name or version right
+    if !success {
+        bail!("Some plugins couldn't be loaded. You have to resolve the reported errors before you can launch BWS.");
+    }
+
     // Check if dependencies are satisfied
     for lib in 0..libs.len() {
-        if check_dependencies(&libs, lib).context("Error checking dependencies")? {
-            info!(
-                "loaded {} {} ({}).",
-                libs[lib].plugin.name,
-                libs[lib].plugin.version,
-                libs[lib].file_path.display()
-            );
-        } else {
+        if !check_dependencies(&libs, lib).context("Error checking dependencies")? {
             error!(
-                "Couldn't load {} {} ({}).",
+                "Dependencies of {} {} ({}) are not satisfied so it couldn't be loaded.",
                 libs[lib].plugin.name,
                 libs[lib].plugin.version,
                 libs[lib].file_path.display()
@@ -76,7 +113,7 @@ pub fn load_plugins() -> Result<Vec<PluginData>> {
     if success {
         Ok(libs)
     } else {
-        bail!("Some plugins couldn't be loaded.");
+        bail!("Some plugins couldn't be loaded. You have to resolve the reported errors before you can launch BWS.");
     }
 }
 
@@ -185,12 +222,11 @@ pub fn start_plugins(plugins: &Vec<PluginData>) -> Result<()> {
 
         for plugin in plugins {
             if plugin.plugin.name == *plugin_name {
+                info!("Starting {}.", plugin_name);
                 (plugin.plugin.on_load)(&crate::vtable::VTABLE);
                 break;
             }
         }
-
-        info!("{} started.", plugin_name);
     }
 
     Ok(())

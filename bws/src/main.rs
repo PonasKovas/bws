@@ -7,7 +7,6 @@ mod shutdown;
 mod vtable;
 
 use anyhow::{bail, Context, Result};
-use bws_plugin_interface::global_state::GlobalState;
 pub use linear_search::LinearSearch;
 use log::{debug, error, info, trace, warn};
 use once_cell::sync::{Lazy, OnceCell};
@@ -39,41 +38,5 @@ fn main() -> Result<()> {
     // Start the plugins
     plugins::start_plugins(&plugins).context("Couldn't start plugins")?;
 
-    // // Construct the global state
-    // let gstate = RArc::new(GlobalState {
-    //     plugins: RRwLock::new(PluginList(
-    //         plugins
-    //             .into_iter()
-    //             .map(|p| Tuple2(RString::from(p.name()), RArc::new(p)))
-    //             .collect(),
-    //     )),
-    //     vtable: vtable::VTABLE,
-    // });
-
-    // rt.block_on(async move {
-    //     tokio::select! {
-    //         _ = net(&gstate) => {}
-    //         _ = wait_for_shutdown() => {},
-    //         _ = tokio::signal::ctrl_c() => {},
-    //         // On Unixes, handle SIGTERM too
-    //         _ = async move {
-    //             #[cfg(unix)]
-    //             {
-    //                 let mut sig = tokio::signal::unix::signal(
-    //                     tokio::signal::unix::SignalKind::terminate()
-    //                 ).unwrap();
-    //                 sig.recv().await
-    //             }
-    //             #[cfg(not(unix))]
-    //             {
-    //                 futures::future::pending().await
-    //             }
-    //         } => {},
-    //     }
-
-    //     shutdown();
-
-    //     Ok(())
-    // })
     Ok(())
 }
