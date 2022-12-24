@@ -1,11 +1,9 @@
 [package]
 name = "bws_plugin_interface"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [dependencies]
-abi_stable = "0.10.4"
-safe_types = { path = "../../safe_types", default-features = false }
 
 [features]
 default = ["plugin"]

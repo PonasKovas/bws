@@ -1,19 +1,19 @@
 use std::ptr::null;
 
-/// Allows plugins to define their own extra functions
+/// Allows plugins to define their own API
 /// for other plugins to use
 #[repr(C)]
-pub struct Extra {
+pub struct PluginApi {
     /// Cast the pointer to the VTable the plugin gives in their interface library
     pub ptr: *const (),
 }
 
-impl Extra {
-    /// Constructs a default `Extra` without any vtable - a null ptr
+impl PluginApi {
+    /// Constructs a default `PluginApi` without any vtable - a null ptr
     pub const fn new() -> Self {
         Self { ptr: null() }
     }
-    /// Boxes the given vtable and constructs `Extra` from it
+    /// Boxes the given vtable and constructs `PluginApi` from it
     pub fn from<T>(inner: T) -> Self {
         Self {
             ptr: Box::into_raw(Box::new(inner)) as *mut (),
@@ -29,11 +29,11 @@ impl Extra {
     }
 }
 
-impl Default for Extra {
+impl Default for PluginApi {
     fn default() -> Self {
         Self::new()
     }
 }
 
-unsafe impl Sync for Extra {}
-unsafe impl Send for Extra {}
+unsafe impl Sync for PluginApi {}
+unsafe impl Send for PluginApi {}
