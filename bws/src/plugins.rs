@@ -1,5 +1,6 @@
 use crate::LinearSearch;
 use anyhow::{bail, Context, Result};
+use bws_plugin_interface::safe_types::*;
 use bws_plugin_interface::BwsPlugin;
 use libloading::{Library, Symbol};
 use log::{error, info, warn};
@@ -57,15 +58,15 @@ pub fn load_plugins() -> Result<Vec<PluginData>> {
         if check_dependencies(&libs, lib).context("Error checking dependencies")? {
             info!(
                 "loaded {} {} ({}).",
-                "todo", //libs[lib].name(),
-                "todo", //libs[lib].version(),
+                libs[lib].plugin.name,
+                libs[lib].plugin.version,
                 libs[lib].file_path.display()
             );
         } else {
             error!(
                 "Couldn't load {} {} ({}).",
-                "todo", //libs[lib].name(),
-                "todo", //libs[lib].version(),
+                libs[lib].plugin.name,
+                libs[lib].plugin.version,
                 libs[lib].file_path.display()
             );
             success = false;
@@ -111,96 +112,86 @@ pub unsafe fn load_lib(path: impl AsRef<Path>) -> Result<PluginData> {
 pub fn check_dependencies(libs: &[PluginData], lib: usize) -> Result<bool> {
     let mut res = true;
 
-    // let deps = libs[lib].dependencies().as_slice();
-    // for dep in deps {
-    //     let dep_name = dep.0.as_str();
-    //     let version_req =
-    //         VersionReq::parse(dep.1.as_str()).context("Couldn't parse version requirement")?;
+    let deps = libs[lib].plugin.dependencies.as_slice();
+    for dep in deps {
+        let dep_name = dep.0.as_str();
+        let version_req =
+            VersionReq::parse(dep.1.as_str()).context("Couldn't parse version requirement")?;
 
-    //     // first check if a plugin with the name exists
-    //     match libs
-    //         .iter()
-    //         .find(|plugin| plugin.name().as_str() == dep_name)
-    //     {
-    //         Some(m) => {
-    //             // Check if version matches
-    //             let version =
-    //                 Version::parse(m.version().as_str()).context("Couldn't parse version")?;
+        // first check if a plugin with the name exists
+        match libs
+            .iter()
+            .find(|plugin| plugin.plugin.name.as_str() == dep_name)
+        {
+            Some(m) => {
+                // Check if version matches
+                let version =
+                    Version::parse(m.plugin.version.as_str()).context("Couldn't parse version")?;
 
-    //             if !version_req.matches(&version) {
-    //                 error!(
-    //                     "{}: needs {dep_name} {version_req} which wasn't found. {dep_name} {version} found, but versions incompatible.",
-    //                     libs[lib].name()
-    //                 );
-    //                 res = false;
-    //             }
-    //         }
-    //         None => {
-    //             error!(
-    //                 "{}: needs {dep_name} {version_req} which wasn't found.",
-    //                 libs[lib].name(),
-    //             );
-    //             res = false;
-    //         }
-    //     }
-    // }
+                if !version_req.matches(&version) {
+                    error!(
+                        "{}: needs {dep_name} {version_req} which wasn't found. {dep_name} {version} found, but versions incompatible.",
+                        libs[lib].plugin.name
+                    );
+                    res = false;
+                }
+            }
+            None => {
+                error!(
+                    "{}: needs {dep_name} {version_req} which wasn't found.",
+                    libs[lib].plugin.name,
+                );
+                res = false;
+            }
+        }
+    }
 
     Ok(res)
 }
 
-// pub fn start_plugins(gstate: &GState) -> Result<()> {
-//     // Use the graph theory to order the plugins so that they would load
-//     // only after all of their dependencies have loaded.
+pub fn start_plugins(plugins: &Vec<PluginData>) -> Result<()> {
+    // Use the graph theory to order the plugins so that they would load
+    // only after all of their dependencies have loaded.
 
-//     let plugins_lock = gstate.plugins.read();
-//     let plugins = &plugins_lock.0;
+    let mut graph = petgraph::graph::DiGraph::<SStr<'static>, ()>::new();
+    let mut indices: Vec<(SStr<'static>, _)> = Vec::new();
+    for plugin in plugins {
+        indices.push((plugin.plugin.name, graph.add_node(plugin.plugin.name)));
+    }
 
-//     let mut graph = petgraph::graph::DiGraph::<RString, ()>::new();
-//     let mut indices: Vec<(RString, _)> = Vec::new();
-//     for plugin in plugins {
-//         indices.push((plugin.0.clone(), graph.add_node(plugin.0.clone())));
-//     }
+    // set the edges
+    // (in other words, connect dependencies)
+    for plugin in plugins {
+        let id = indices.search(&plugin.plugin.name);
+        for dependency in plugin.plugin.dependencies {
+            graph.update_edge(*indices.search(&dependency.0), *id, ());
+        }
+    }
 
-//     // set the edges
-//     // (in other words, connect dependencies)
-//     for plugin in plugins {
-//         let id = indices.search(&plugin.0.clone());
-//         for dependency in plugin.1.dependencies().as_slice() {
-//             graph.update_edge(*indices.search(&RString::from(dependency.0)), *id, ());
-//         }
-//     }
+    // perform a topological sort of the nodes 😎
+    let ordering = match petgraph::algo::toposort(&graph, None) {
+        Ok(o) => o,
+        Err(cycle) => {
+            bail!(
+                "Dependency cycle detected: {}",
+                indices.search_by_val(&cycle.node_id())
+            );
+        }
+    };
 
-//     // perform a topological sort of the nodes 😎
-//     let ordering = match petgraph::algo::toposort(&graph, None) {
-//         Ok(o) => o,
-//         Err(cycle) => {
-//             bail!(
-//                 "Dependency cycle detected: {}",
-//                 indices.search_by_val(&cycle.node_id())
-//             );
-//         }
-//     };
+    // now that we know the order, we can start the plugins one by one
+    for plugin_id in ordering {
+        let plugin_name = indices.search_by_val(&plugin_id);
 
-//     // drop the read-only plugins lock
-//     // so we could lock and unlock every iteration below:
-//     drop(plugins_lock);
+        for plugin in plugins {
+            if plugin.plugin.name == *plugin_name {
+                (plugin.plugin.on_load)(&crate::vtable::VTABLE);
+                break;
+            }
+        }
 
-//     // now that we know the order, we can start the plugins one by one
-//     for plugin_id in ordering {
-//         let plugin_name = indices.search_by_val(&plugin_id);
+        info!("{} started.", plugin_name);
+    }
 
-//         let plugins_lock = gstate.plugins.read();
-
-//         let plugin = RArc::clone(plugins_lock.get(plugin_name.as_rstr()).unwrap());
-
-//         drop(plugins_lock); // in case enable() needs plugins
-
-//         if plugin.enable(&gstate).is_err() {
-//             bail!("{} was already started", plugin_name);
-//         }
-
-//         info!("{} started.", plugin_name);
-//     }
-
-//     Ok(())
-// }
+    Ok(())
+}

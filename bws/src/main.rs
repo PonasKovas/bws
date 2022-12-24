@@ -34,7 +34,10 @@ fn main() -> Result<()> {
 
     // Attempt to load plugins
     info!("Loading plugins...");
-    // let plugins = plugins::load_plugins().context("Error loading plugins")?;
+    let plugins = plugins::load_plugins().context("Error loading plugins")?;
+
+    // Start the plugins
+    plugins::start_plugins(&plugins).context("Couldn't start plugins")?;
 
     // // Construct the global state
     // let gstate = RArc::new(GlobalState {
@@ -46,8 +49,6 @@ fn main() -> Result<()> {
     //     )),
     //     vtable: vtable::VTABLE,
     // });
-
-    // plugins::start_plugins(&gstate).context("Couldn't start plugins")?;
 
     // rt.block_on(async move {
     //     tokio::select! {

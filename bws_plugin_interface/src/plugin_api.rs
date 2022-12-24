@@ -5,7 +5,7 @@ use std::ptr::null;
 #[repr(C)]
 pub struct PluginApi {
     /// Cast the pointer to the VTable the plugin gives in their interface library
-    pub ptr: *const (),
+    ptr: *const (),
 }
 
 impl PluginApi {

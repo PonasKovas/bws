@@ -10,9 +10,12 @@ pub mod global_state;
 #[cfg(feature = "plugin")]
 pub mod macros;
 pub mod plugin_api;
+pub mod safe_types;
 pub mod vtable;
 
-use plugin_api::PluginApi;
+pub use plugin_api::PluginApi;
+use safe_types::*;
+use vtable::VTable;
 
 // Incremented on each incompatible ABI change
 pub const ABI: u64 = 15;
@@ -39,11 +42,11 @@ pub const ABI: u64 = 15;
 ///
 #[repr(C)]
 pub struct BwsPlugin {
-    // pub name: RStr<'static>,
-    // pub version: RStr<'static>,
-    // pub dependencies: RSlice<'static, Tuple2<RStr<'static>, RStr<'static>>>,
+    pub name: SStr<'static>,
+    pub version: SStr<'static>,
+    pub dependencies: SSlice<'static, STuple2<SStr<'static>, SStr<'static>>>,
 
-    // pub on_load: fn(gstate: &GState),
+    pub on_load: extern "C" fn(&'static VTable),
 
-    // pub extra: Extra,
+    pub api: PluginApi,
 }
