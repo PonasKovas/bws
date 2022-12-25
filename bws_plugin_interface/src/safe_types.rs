@@ -1,4 +1,5 @@
 pub mod mut_slice;
+pub mod option;
 pub mod slice;
 pub mod str;
 pub mod string;
@@ -7,6 +8,7 @@ pub mod vec;
 
 pub use crate::safe_types::str::SStr;
 pub use mut_slice::SMutSlice;
+pub use option::SOption;
 pub use slice::SSlice;
 pub use string::SString;
 pub use tuples::STuple2;

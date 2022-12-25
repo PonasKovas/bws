@@ -16,6 +16,16 @@ pub trait LinearSearch<'a> {
     fn search_by_val<Q: PartialEq + ?Sized>(&self, key: &Q) -> &Self::Key
     where
         Self::Value: Borrow<Q>;
+
+    /// non-panicking version
+    fn try_search<Q: PartialEq + ?Sized>(&self, key: &Q) -> Option<&Self::Value>
+    where
+        Self::Key: Borrow<Q>;
+
+    /// non-panicking version
+    fn try_search_by_val<Q: PartialEq + ?Sized>(&self, key: &Q) -> Option<&Self::Key>
+    where
+        Self::Value: Borrow<Q>;
 }
 
 impl<'a, K, T> LinearSearch<'a> for [(K, T)] {
@@ -34,5 +44,19 @@ impl<'a, K, T> LinearSearch<'a> for [(K, T)] {
         T: Borrow<Q>,
     {
         &self.iter().find(|e| e.1.borrow() == key).unwrap().0
+    }
+
+    fn try_search<Q: PartialEq + ?Sized>(&self, key: &Q) -> Option<&Self::Value>
+    where
+        K: Borrow<Q>,
+    {
+        self.iter().find(|e| e.0.borrow() == key).map(|x| &x.1)
+    }
+
+    fn try_search_by_val<Q: PartialEq + ?Sized>(&self, key: &Q) -> Option<&Self::Key>
+    where
+        T: Borrow<Q>,
+    {
+        self.iter().find(|e| e.1.borrow() == key).map(|x| &x.0)
     }
 }

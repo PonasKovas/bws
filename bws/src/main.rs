@@ -35,16 +35,17 @@ fn main() -> Result<()> {
     // Attempt to load plugins
     let plugins = plugins::load_plugins().context("Error loading plugins")?;
 
-    // Initializze the plugins
+    // Initialize the plugins
     plugins::init_plugins(&plugins).context("Couldn't initialize plugins")?;
 
     // Now parse env vars and args
-    let matches = vtable::CLAP_COMMAND_BUILDER
+    let matches = vtable::cmd::CLAP_COMMAND_BUILDER
         .lock()
         .expect("Couldn't lock the Clap command builder mutex after initializing plugins")
         .as_mut()
         .unwrap()
         .get_matches_mut();
+    vtable::cmd::CLAP_MATCHES.set(matches).unwrap();
 
     Ok(())
 }

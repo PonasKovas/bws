@@ -26,11 +26,11 @@ pub const ABI: u64 = 15;
 /// ```ignore
 /// #[no_mangle]
 /// static BWS_PLUGIN_ROOT: BwsPlugin = BwsPlugin {
-///     name: RStr::from_str("plugin_template"),
-///     version: RStr::from_str(env!("CARGO_PKG_VERSION")),
-///     dependencies: RSlice::from_slice(&[]),
+///     name: SStr::from_str(env!("CARGO_PKG_NAME")),
+///     version: SStr::from_str(env!("CARGO_PKG_VERSION")),
+///     dependencies: SSlice::from_slice(&[]),
 ///     on_load,
-///     ...
+///     api: PluginApi::new(),
 /// };
 ///
 /// extern "C" fn on_load(vtable: &'static VTable) {
