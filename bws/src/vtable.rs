@@ -1,14 +1,17 @@
 use bws_plugin_interface::{
     safe_types::*,
     vtable::{LogLevel, VTable},
+    PluginApi,
 };
 pub use cmd::*;
 pub use event::*;
 use once_cell::sync::{Lazy, OnceCell};
+pub use plugin_api::*;
 use std::sync::Mutex;
 
 pub mod cmd;
 pub mod event;
+pub mod plugin_api;
 
 pub static VTABLE: VTable = VTable {
     log,
@@ -19,6 +22,7 @@ pub static VTABLE: VTable = VTable {
     get_event_id,
     add_event_callback,
     fire_event,
+    get_plugin_vtable,
 };
 
 /// Logs a message

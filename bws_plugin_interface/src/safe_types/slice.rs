@@ -1,4 +1,5 @@
 use std::{
+    fmt::Debug,
     marker::PhantomData,
     ops::{Deref, Index},
 };
@@ -29,6 +30,12 @@ impl<'a, T> SSlice<'a, T> {
         'a: 'b,
     {
         unsafe { std::slice::from_raw_parts(self.ptr, self.length) }
+    }
+}
+
+impl<'a, T: Debug> Debug for SSlice<'a, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(self.as_slice(), f)
     }
 }
 

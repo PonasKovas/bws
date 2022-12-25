@@ -40,6 +40,7 @@ pub const ABI: u64 = 15;
 /// ```
 ///
 #[repr(C)]
+#[derive(Debug)]
 pub struct BwsPlugin {
     pub name: SStr<'static>,
     pub version: SStr<'static>,

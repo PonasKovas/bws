@@ -1,4 +1,4 @@
-use crate::safe_types::*;
+use crate::{safe_types::*, PluginApi};
 
 #[repr(C)]
 pub struct VTable {
@@ -9,7 +9,8 @@ pub struct VTable {
     pub get_cmd_flag: extern "C" fn(SStr) -> bool,
     pub get_event_id: extern "C" fn(SStr) -> usize,
     pub add_event_callback: extern "C" fn(usize, SStr, EventFn, SSlice<SStr>),
-    pub fire_event: extern "C" fn(usize, *const i8) -> bool,
+    pub fire_event: extern "C" fn(usize, *const ()) -> bool,
+    pub get_plugin_vtable: extern "C" fn(SStr) -> PluginApi,
 }
 
 #[repr(C)]
@@ -25,4 +26,4 @@ pub enum LogLevel {
 /// `true` means to continue the event, `false` - to end it
 /// and not call any further event fns that are in queue for this
 /// specific instance of event
-pub type EventFn = extern "C" fn(&'static VTable, *const i8) -> bool;
+pub type EventFn = extern "C" fn(&'static VTable, *const ()) -> bool;

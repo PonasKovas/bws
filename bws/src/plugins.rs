@@ -17,10 +17,11 @@ use std::{
 
 const PLUGIN_DIR: &str = "plugins/";
 
+#[derive(Debug)]
 pub struct PluginData {
-    file_path: PathBuf,
-    plugin: &'static BwsPlugin,
-    raw_library: &'static Library,
+    pub file_path: PathBuf,
+    pub plugin: &'static BwsPlugin,
+    pub raw_library: &'static Library,
 }
 
 pub fn load_plugins() -> Result<Vec<PluginData>> {
@@ -186,7 +187,9 @@ pub fn check_dependencies(libs: &[PluginData], lib: usize) -> Result<bool> {
     Ok(res)
 }
 
-pub fn init_plugins(plugins: &Vec<PluginData>) -> Result<()> {
+pub fn init_plugins() -> Result<()> {
+    let plugins = super::vtable::PLUGINS.get().unwrap();
+
     // Use the graph theory to order the plugins so that they would load
     // only after all of their dependencies have loaded.
 

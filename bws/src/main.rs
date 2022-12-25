@@ -12,6 +12,7 @@ pub use linear_search::LinearSearch;
 use log::{debug, error, info, trace, warn};
 use once_cell::sync::{Lazy, OnceCell};
 pub use shutdown::{shutdown, shutdown_started, wait_for_shutdown};
+use std::ptr::null;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::Receiver;
 use std::sync::Mutex;
@@ -34,9 +35,10 @@ fn main() -> Result<()> {
 
     // Attempt to load plugins
     let plugins = plugins::load_plugins().context("Error loading plugins")?;
+    vtable::plugin_api::PLUGINS.set(plugins).unwrap();
 
     // Initialize the plugins
-    plugins::init_plugins(&plugins).context("Couldn't initialize plugins")?;
+    plugins::init_plugins().context("Couldn't initialize plugins")?;
 
     // Now parse env vars and args
     let matches = vtable::cmd::CLAP_COMMAND_BUILDER
@@ -46,6 +48,13 @@ fn main() -> Result<()> {
         .unwrap()
         .get_matches_mut();
     vtable::cmd::CLAP_MATCHES.set(matches).unwrap();
+
+    // Fire the "start" event
+    let start_event_id = vtable::get_event_id("start".into());
+    if !vtable::fire_event(start_event_id, null()) {
+        error!("Couldn't start BWS");
+        return Ok(());
+    }
 
     Ok(())
 }

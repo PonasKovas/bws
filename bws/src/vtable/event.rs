@@ -117,7 +117,7 @@ pub extern "C" fn add_event_callback(
 ///  - `data` - a pointer to arbitrary data that event handlers will have access to
 ///
 /// Returns `false` if the event handling was ended by a callback, `true` otherwise.
-pub extern "C" fn fire_event(event_id: usize, data: *const i8) -> bool {
+pub extern "C" fn fire_event(event_id: usize, data: *const ()) -> bool {
     for callback in &EVENTS.read().unwrap()[event_id].1 {
         if !(callback.callback)(&super::VTABLE, data) {
             return false;
