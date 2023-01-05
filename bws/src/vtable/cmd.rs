@@ -15,16 +15,6 @@ pub static CLAP_COMMAND_BUILDER: Lazy<Mutex<Option<clap::builder::Command>>> = L
 
 pub static CLAP_MATCHES: OnceCell<clap::parser::ArgMatches> = OnceCell::new();
 
-/// Registers a command line argument for the application
-///
-///  - `id` - unique name for the argument, can be used later to retrieve the set value
-///  - `short` - a `char` in the form of `u32` (example `'p' as u32`) defining the short way to set the argument
-///  - `long` - the long way to set the argument
-///  - `value_name` - the name/type of value that is expected (convention is to use all uppercase here)
-///  - `help` - the help string
-///  - `required` - whether the argument is mandatory
-///
-/// The function will panic if `short` is not a valid `char`
 pub extern "C" fn cmd_arg(
     id: SStr,
     short: u32,
@@ -48,14 +38,6 @@ pub extern "C" fn cmd_arg(
     command.replace(new);
 }
 
-/// Registers a command line flag for the application
-///
-///  - `id` - unique name for the flag, can be used later to check if it was set
-///  - `short` - a `char` in the form of `u32` (example `'p' as u32`) defining the short way to set the flag
-///  - `long` - the long way to set the flag
-///  - `help` - the help string
-///
-/// The function will panic if `short` is not a valid `char`
 pub extern "C" fn cmd_flag(id: SStr, short: u32, long: SStr, help: SStr) {
     let mut command = CLAP_COMMAND_BUILDER
         .lock()
@@ -71,9 +53,6 @@ pub extern "C" fn cmd_flag(id: SStr, short: u32, long: SStr, help: SStr) {
     command.replace(new);
 }
 
-/// Retrieves a command line argument, if it was set
-///
-///  - `id` - the unique name of the argument. (Must match with the one given when registering the argument with `cmd_arg`)
 pub extern "C" fn get_cmd_arg(id: SStr) -> SOption<SString> {
     match CLAP_MATCHES
         .get()
@@ -85,9 +64,6 @@ pub extern "C" fn get_cmd_arg(id: SStr) -> SOption<SString> {
     }
 }
 
-/// Checks if a command line flag was set
-///
-///  - `id` - the unique name of the flag. (Must match with the one given when registering the flag with `cmd_flag`)
 pub extern "C" fn get_cmd_flag(id: SStr) -> bool {
     match CLAP_MATCHES
         .get()

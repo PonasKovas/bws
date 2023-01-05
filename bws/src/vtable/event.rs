@@ -3,7 +3,6 @@ use bws_plugin_interface::{
     safe_types::*,
     vtable::{EventFn, LogLevel, VTable},
 };
-use log::error;
 use once_cell::sync::{Lazy, OnceCell};
 use std::{
     collections::BTreeMap,
@@ -13,16 +12,41 @@ use std::{
 pub struct Callback {
     plugin_name: String,
     callback: EventFn,
-    before_reqs: Vec<String>,
+    priority: f64,
 }
 
-/// event id -> Vector of callbacks
+/// (event name, Vector of callbacks)
 pub type EventsMap = Vec<(String, Vec<Callback>)>;
 
 /// The map of all events
-pub static EVENTS: Lazy<RwLock<EventsMap>> = Lazy::new(|| RwLock::new(Vec::new()));
+pub static EVENTS: Lazy<RwLock<EventsMap>> = Lazy::new(|| {
+    RwLock::new(vec![(
+        "start".to_string(),
+        vec![Callback {
+            plugin_name: "".to_string(),
+            callback: {
+                use std::sync::atomic::{AtomicBool, Ordering};
 
-/// Returns the numerical ID of the event, which will to stay the same until next launch
+                static STARTED: AtomicBool = AtomicBool::new(false);
+                extern "C" fn start_once(vtable: &VTable, _: *const ()) -> bool {
+                    // make sure the "start" event isnt fired more than once
+                    if STARTED.load(Ordering::SeqCst) {
+                        bws_plugin_interface::error!(
+                            vtable,
+                            "\"start\" event was already fired. Ignoring."
+                        );
+                        return false;
+                    }
+                    STARTED.store(true, Ordering::SeqCst);
+                    true
+                }
+                start_once
+            },
+            priority: f64::NEG_INFINITY,
+        }],
+    )])
+});
+
 pub extern "C" fn get_event_id(event_id: SStr) -> usize {
     let pos = EVENTS
         .read()
@@ -32,7 +56,7 @@ pub extern "C" fn get_event_id(event_id: SStr) -> usize {
     match pos {
         Some(p) => p,
         None => {
-            // Add the event name and return the position of that
+            // Add the event name and return the position of it
             let mut events_lock = EVENTS.write().unwrap();
 
             events_lock.push((event_id.into_str().to_owned(), Vec::new()));
@@ -42,83 +66,117 @@ pub extern "C" fn get_event_id(event_id: SStr) -> usize {
     }
 }
 
-/// Registers a callback for an event
-///
-///  - `event_id` - the numerical ID of the event (can be obtained with `get_event_id`)
-///  - `plugin_name` - the name of the plugin which is registering the callback
-///  - `callback` - the callback function pointer
-///  - `before_reqs` - an optional list of plugins that must handle the event after this plugin
 pub extern "C" fn add_event_callback(
     event_id: usize,
     plugin_name: SStr,
     callback: EventFn,
-    before_reqs: SSlice<SStr>,
+    priority: f64,
 ) {
+    let mut events_lock = EVENTS.write().unwrap();
+
+    // Callbacks with "" as plugin_name are reserved for BWS itself, not plugins
+    // for example the "start" event has a hardcoded callback that prevents it from
+    // being fired more than once, and it uses "" as the plugin_name.
+    // This is important so that the special callback would get executed before all others
+    if plugin_name.is_empty() {
+        bws_plugin_interface::error!(
+            super::VTABLE,
+            "Attempted to register an event ({:?}, id: {}) callback without plugin name.",
+            if event_id >= events_lock.len() {
+                "{{invalid event}}"
+            } else {
+                &events_lock[event_id].0
+            },
+            event_id
+        );
+        return;
+    }
+
+    // Make sure event ID is valid
+    if event_id >= events_lock.len() {
+        bws_plugin_interface::error!(
+            super::VTABLE,
+            "Plugin {} tried to add an event callback for event {}, but no event with such ID exists.", plugin_name, event_id
+        );
+        return;
+    }
+
+    // Make sure the same callback is not already registered
+    for c in &events_lock[event_id].1 {
+        if c.callback == callback {
+            bws_plugin_interface::error!(
+                super::VTABLE,
+                "Plugin {plugin_name} tried to add an event callback for event \"{}\" (id: {event_id}), but an identical callback already exists: (plugin_name: {:?}, callback: {:?}, priority: {}).",
+                events_lock[event_id].0,
+                c.plugin_name,
+                c.callback,
+                c.priority
+            );
+            return;
+        }
+    }
+
+    events_lock[event_id].1.push(Callback {
+        plugin_name: plugin_name.into_str().to_owned(),
+        callback,
+        priority,
+    });
+
+    // sort the callbacks according to their priorities
+    events_lock[event_id].1.sort_by(|a, b| {
+        match a.priority.total_cmp(&b.priority) {
+            std::cmp::Ordering::Equal => {
+                // Make sure the ordering is deterministic every time
+                a.plugin_name.cmp(&b.plugin_name)
+            }
+            ord => ord,
+        }
+    });
+}
+
+pub extern "C" fn remove_event_callback(event_id: usize, callback: EventFn) {
     let mut events_lock = EVENTS.write().unwrap();
 
     // Make sure event ID is valid
     if event_id >= events_lock.len() {
-        error!("Plugin {} tried to add an event callback for event {}, but no event with such ID exists.", plugin_name, event_id);
-        // todo: this error probably needs to be fatal and result in a shutdown
-        return;
-    }
-
-    // Find the right position to insert the new callback that meets the requirements
-    let mut minimum_idx = 0;
-    let mut maximum_idx = events_lock[event_id].1.len();
-    // check requirements given by the plugin thats registering right now
-    for req in before_reqs {
-        for (i, callback) in events_lock[event_id].1.iter().enumerate().rev() {
-            if callback.plugin_name == req.as_str() {
-                maximum_idx = i;
-            }
-        }
-    }
-    // check requirements given by all other plugins in this event
-    for (i, callback) in events_lock[event_id].1.iter().enumerate() {
-        for req in &callback.before_reqs {
-            if req == plugin_name.as_str() {
-                minimum_idx = i + 1;
-            }
-        }
-    }
-
-    if minimum_idx > maximum_idx {
-        // There is no possible way to satisfy all requirements
-        error!(
-            "{} failed to add callback for event {} ({}): it wants to come before plugin {}, but plugin {} wants to come before {}",
-            plugin_name,
-            events_lock[event_id].0,
-            event_id,
-            (events_lock[event_id].1)[maximum_idx].plugin_name,
-            (events_lock[event_id].1)[minimum_idx-1].plugin_name,
-            plugin_name,
+        bws_plugin_interface::error!(
+            super::VTABLE,
+            "Attempted to remove callback ({callback:?}) from event {event_id}, but no event with such ID exists."
         );
-        // todo: this error probably needs to be fatal and result in a shutdown
         return;
     }
 
-    events_lock[event_id].1.insert(
-        minimum_idx,
-        Callback {
-            plugin_name: plugin_name.into_str().to_owned(),
-            callback,
-            before_reqs: before_reqs
-                .iter()
-                .map(|x| x.into_str().to_owned())
-                .collect(),
-        },
-    );
+    let index = match events_lock[event_id]
+        .1
+        .iter()
+        .position(|c| c.callback == callback)
+    {
+        Some(n) => n,
+        None => {
+            bws_plugin_interface::error!(
+                super::VTABLE,
+                "Attempted to remove callback ({callback:?}) from event {} (id: {event_id}), but the callback was not found.",
+                events_lock[event_id].0
+            );
+            return;
+        }
+    };
+    events_lock[event_id].1.remove(index);
 }
 
-/// Fires an event and executes the callbacks associated
-///
-///  - `event_id` - the numerical ID of the event (can be obtained with `get_event_id`)
-///  - `data` - a pointer to arbitrary data that event handlers will have access to
-///
-/// Returns `false` if the event handling was ended by a callback, `true` otherwise.
 pub extern "C" fn fire_event(event_id: usize, data: *const ()) -> bool {
-    for callback in &EVENTS.read().unwrap()[event_id].1 {
+    let events_lock = EVENTS.read().unwrap();
+
+    if event_id >= events_lock.len() {
+        bws_plugin_interface::error!(
+            super::VTABLE,
+            "Attempted to fire event {}, but no event with such ID exists.",
+            event_id
+        );
+        return false;
+    }
+
+    for callback in &events_lock[event_id].1 {
         if !(callback.callback)(&super::VTABLE, data) {
             return false;
         }

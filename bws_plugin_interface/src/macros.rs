@@ -1,6 +1,6 @@
 #[macro_export]
 macro_rules! error {
-    ($vtable:ident, $($arg:tt)+) => {
+    ($vtable:path, $($arg:tt)+) => {
         ($vtable.log)(
             $crate::safe_types::SStr::from(::std::module_path!()),
             $crate::vtable::LogLevel::Error,
@@ -11,7 +11,7 @@ macro_rules! error {
 
 #[macro_export]
 macro_rules! warn {
-    ($vtable:ident, $($arg:tt)+) => {
+    ($vtable:path, $($arg:tt)+) => {
         ($vtable.log)(
             $crate::safe_types::SStr::from(::std::module_path!()),
             $crate::vtable::LogLevel::Warn,
@@ -22,7 +22,7 @@ macro_rules! warn {
 
 #[macro_export]
 macro_rules! info {
-    ($vtable:ident, $($arg:tt)+) => {
+    ($vtable:path, $($arg:tt)+) => {
         ($vtable.log)(
             $crate::safe_types::SStr::from(::std::module_path!()),
             $crate::vtable::LogLevel::Info,
@@ -33,7 +33,7 @@ macro_rules! info {
 
 #[macro_export]
 macro_rules! debug {
-    ($vtable:ident, $($arg:tt)+) => {
+    ($vtable:path, $($arg:tt)+) => {
         ($vtable.log)(
             $crate::safe_types::SStr::from(::std::module_path!()),
             $crate::vtable::LogLevel::Debug,
@@ -44,7 +44,7 @@ macro_rules! debug {
 
 #[macro_export]
 macro_rules! trace {
-    ($vtable:ident, $($arg:tt)+) => {
+    ($vtable:path, $($arg:tt)+) => {
         ($vtable.log)(
             $crate::safe_types::SStr::from(::std::module_path!()),
             $crate::vtable::LogLevel::Trace,

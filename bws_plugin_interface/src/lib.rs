@@ -14,10 +14,10 @@ pub mod vtable;
 
 pub use plugin_api::PluginApi;
 use safe_types::*;
-use vtable::VTable;
+use vtable::{InitVTable, VTable};
 
 // Incremented on each incompatible ABI change
-pub const ABI: u64 = 15;
+pub const ABI: u64 = 17;
 
 /// The main struct that all plugins should expose with the `BWS_PLUGIN_ROOT` name
 ///
@@ -33,8 +33,8 @@ pub const ABI: u64 = 15;
 ///     api: PluginApi::new(),
 /// };
 ///
-/// extern "C" fn on_load(vtable: &'static VTable) {
-///     println!("Plugin template enabled");
+/// extern "C" fn on_load(vtable: &'static InitVTable) {
+///     println!("Plugin initialization");
 /// }
 /// ...
 /// ```
@@ -46,7 +46,7 @@ pub struct BwsPlugin {
     pub version: SStr<'static>,
     pub dependencies: SSlice<'static, STuple2<SStr<'static>, SStr<'static>>>,
 
-    pub on_load: extern "C" fn(&'static VTable),
+    pub on_load: extern "C" fn(&'static InitVTable),
 
     pub api: PluginApi,
 }

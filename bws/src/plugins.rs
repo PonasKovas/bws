@@ -111,6 +111,9 @@ pub fn load_plugins() -> Result<Vec<PluginData>> {
         }
     }
 
+    // make sure the order of plugins is deterministic
+    libs.sort_by(|a, b| a.file_path.cmp(&b.file_path));
+
     if success {
         Ok(libs)
     } else {
@@ -187,6 +190,7 @@ pub fn check_dependencies(libs: &[PluginData], lib: usize) -> Result<bool> {
     Ok(res)
 }
 
+/// Calls on_load of all the plugins
 pub fn init_plugins() -> Result<()> {
     let plugins = super::vtable::PLUGINS.get().unwrap();
 
@@ -225,7 +229,7 @@ pub fn init_plugins() -> Result<()> {
 
         for plugin in plugins {
             if plugin.plugin.name == *plugin_name {
-                (plugin.plugin.on_load)(&crate::vtable::VTABLE);
+                (plugin.plugin.on_load)(&crate::vtable::INIT_VTABLE);
                 break;
             }
         }

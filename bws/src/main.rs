@@ -3,7 +3,6 @@
 
 mod linear_search;
 mod plugins;
-mod shutdown;
 mod vtable;
 
 use anyhow::{bail, Context};
@@ -11,15 +10,17 @@ use clap::Command;
 pub use linear_search::LinearSearch;
 use log::{debug, error, info, trace, warn};
 use once_cell::sync::{Lazy, OnceCell};
-pub use shutdown::{shutdown, shutdown_started, wait_for_shutdown};
 use std::io::BufRead;
 use std::io::Write;
 use std::ptr::null;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::Receiver;
+use std::sync::Condvar;
 use std::sync::Mutex;
 use std::{sync::atomic::AtomicU32, time::Duration};
 use tokio::sync::{broadcast, mpsc};
+
+static END_PROGRAM: (Mutex<bool>, Condvar) = (Mutex::new(false), Condvar::new());
 
 fn main() -> Result<(), ()> {
     // Parse the env vars and args that need to be parsed before loading plugins
@@ -67,7 +68,11 @@ fn main() -> Result<(), ()> {
         return Err(());
     }
 
-    std::thread::park();
+    // block the thread until notification on END_PROGRAM is received
+    let mut end_program = END_PROGRAM.0.lock().unwrap();
+    while !*end_program {
+        end_program = END_PROGRAM.1.wait(end_program).unwrap();
+    }
 
     Ok(())
 }
