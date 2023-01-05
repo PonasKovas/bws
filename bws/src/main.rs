@@ -6,12 +6,14 @@ mod plugins;
 mod shutdown;
 mod vtable;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Context};
 use clap::Command;
 pub use linear_search::LinearSearch;
 use log::{debug, error, info, trace, warn};
 use once_cell::sync::{Lazy, OnceCell};
 pub use shutdown::{shutdown, shutdown_started, wait_for_shutdown};
+use std::io::BufRead;
+use std::io::Write;
 use std::ptr::null;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::Receiver;
@@ -19,7 +21,7 @@ use std::sync::Mutex;
 use std::{sync::atomic::AtomicU32, time::Duration};
 use tokio::sync::{broadcast, mpsc};
 
-fn main() -> Result<()> {
+fn main() -> Result<(), ()> {
     // Parse the env vars and args that need to be parsed before loading plugins
     let log_use_timestamps = std::env::var_os("BWS_DISABLE_TIMESTAMPS").is_none();
 
@@ -34,11 +36,20 @@ fn main() -> Result<()> {
         .init();
 
     // Attempt to load plugins
-    let plugins = plugins::load_plugins().context("Error loading plugins")?;
+    let plugins = match plugins::load_plugins() {
+        Ok(p) => p,
+        Err(e) => {
+            error!("Error loading plugins: {e}");
+            return Err(());
+        }
+    };
     vtable::plugin_api::PLUGINS.set(plugins).unwrap();
 
     // Initialize the plugins
-    plugins::init_plugins().context("Couldn't initialize plugins")?;
+    if let Err(e) = plugins::init_plugins() {
+        error!("Couldn't initialize plugins: {e}");
+        return Err(());
+    }
 
     // Now parse env vars and args
     let matches = vtable::cmd::CLAP_COMMAND_BUILDER
@@ -53,8 +64,10 @@ fn main() -> Result<()> {
     let start_event_id = vtable::get_event_id("start".into());
     if !vtable::fire_event(start_event_id, null()) {
         error!("Couldn't start BWS");
-        return Ok(());
+        return Err(());
     }
+
+    std::thread::park();
 
     Ok(())
 }

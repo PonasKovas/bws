@@ -16,3 +16,5 @@ bws_plugin_interface = { path = "../bws_plugin_interface", default-features = fa
 semver = "1.0.16"
 petgraph = "0.6.2"
 clap = { version = "4.0.32", features = ["env", "unicode", "string"] }
+crossterm = "0.25.0"
+chrono = "0.4.23"
