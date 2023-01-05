@@ -16,7 +16,7 @@ pub use plugin_api::PluginApi;
 use safe_types::*;
 use vtable::{InitVTable, VTable};
 
-// Incremented on each incompatible ABI change
+/// Incremented on each incompatible ABI change
 pub const ABI: u64 = 17;
 
 /// The main struct that all plugins should expose with the `BWS_PLUGIN_ROOT` name

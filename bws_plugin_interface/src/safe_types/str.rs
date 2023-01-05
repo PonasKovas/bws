@@ -55,6 +55,12 @@ impl<'a> From<&'a str> for SStr<'a> {
     }
 }
 
+impl<'a> From<&'a String> for SStr<'a> {
+    fn from(s: &'a String) -> Self {
+        Self::from_str(s.as_str())
+    }
+}
+
 impl<'a> From<SStr<'a>> for &'a str {
     fn from(s: SStr<'a>) -> Self {
         s.into_str()

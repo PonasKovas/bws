@@ -101,7 +101,9 @@ pub enum LogLevel {
 }
 
 /// Takes arbitrary data behind a pointer and must return a boolean
-/// `true` means to continue the event, `false` - to end it
-/// and not call any further event fns that are in queue for this
-/// specific instance of event
+///
+/// `true` means to continue the event,
+///
+/// `false` means to end it and not call any further event fns that are
+/// in queue for this specific instance of event
 pub type EventFn = extern "C" fn(&'static VTable, *const ()) -> bool;
