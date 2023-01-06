@@ -23,13 +23,12 @@ pub extern "C" fn cmd_arg(
     help: SStr,
     required: bool,
 ) {
-    let mut command = CLAP_COMMAND_BUILDER
-        .lock()
-        .expect("Couldn't lock Clap command builder");
+    let mut command = CLAP_COMMAND_BUILDER.lock().unwrap();
+
     // Option fuckery because command builder needs ownership when doing anything with it
     let new = command.take().unwrap().arg(
         clap::builder::Arg::new(id.as_str().to_owned())
-            .short(char::from_u32(short).unwrap())
+            .short(char::from_u32(short).expect("`short` is not a valid utf8 char"))
             .long(long.as_str().to_owned())
             .value_name(value_name.as_str().to_owned())
             .help(help.as_str().to_owned())
@@ -39,13 +38,12 @@ pub extern "C" fn cmd_arg(
 }
 
 pub extern "C" fn cmd_flag(id: SStr, short: u32, long: SStr, help: SStr) {
-    let mut command = CLAP_COMMAND_BUILDER
-        .lock()
-        .expect("Couldn't lock Clap command builder");
+    let mut command = CLAP_COMMAND_BUILDER.lock().unwrap();
+
     // Option fuckery because command builder needs ownership when doing anything with it
     let new = command.take().unwrap().arg(
         clap::builder::Arg::new(id.as_str().to_owned())
-            .short(char::from_u32(short).unwrap())
+            .short(char::from_u32(short).expect("`short` is not a valid utf8 char"))
             .long(long.as_str().to_owned())
             .help(help.as_str().to_owned())
             .action(clap::builder::ArgAction::SetTrue),
@@ -54,14 +52,14 @@ pub extern "C" fn cmd_flag(id: SStr, short: u32, long: SStr, help: SStr) {
 }
 
 pub extern "C" fn get_cmd_arg(id: SStr) -> SOption<SString> {
-    match CLAP_MATCHES
+    CLAP_MATCHES
         .get()
         .expect("clap matches not parsed yet!")
         .try_get_one::<String>(id.into())
-    {
-        Ok(m) => m.map(|x| x.clone().into()).into(),
-        Err(_) => SOption::None,
-    }
+        .ok()
+        .flatten()
+        .map(|s| s.clone().into())
+        .into()
 }
 
 pub extern "C" fn get_cmd_flag(id: SStr) -> bool {
@@ -70,7 +68,7 @@ pub extern "C" fn get_cmd_flag(id: SStr) -> bool {
         .expect("clap matches not parsed yet!")
         .try_get_one::<bool>(id.into())
     {
-        Ok(m) => *m.unwrap_or(&false),
-        Err(_) => false,
+        Ok(Some(&true)) => true,
+        _ => false,
     }
 }

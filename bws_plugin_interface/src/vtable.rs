@@ -14,6 +14,10 @@ macro_rules! add_shared_functions {
             ///
             /// - `event_name` - the string name of the event
             pub get_event_id: extern "C" fn(SStr) -> usize,
+            /// Returns the string name of the given event ID, if its valid
+            ///
+            /// - `event_id` - the numerical ID of the event
+            pub get_event_name: extern "C" fn(usize) -> SOption<SString>,
             /// Registers a callback for an event
             ///
             ///  - `event_id` - the numerical ID of the event (can be obtained with `get_event_id`)
@@ -100,10 +104,12 @@ pub enum LogLevel {
     Trace,
 }
 
-/// Takes arbitrary data behind a pointer and must return a boolean
+/// Takes the numerical ID of the fired event and arbitrary data behind a pointer
+///
+/// Returns a boolean
 ///
 /// `true` means to continue the event,
 ///
 /// `false` means to end it and not call any further event fns that are
 /// in queue for this specific instance of event
-pub type EventFn = extern "C" fn(&'static VTable, *const ()) -> bool;
+pub type EventFn = extern "C" fn(&'static VTable, usize, *const ()) -> bool;

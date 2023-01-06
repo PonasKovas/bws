@@ -25,7 +25,7 @@ impl PluginApi {
     /// It's up to the user to ensure that it's the correct vtable
     ///
     /// Returns `None` if the pointer was null
-    pub unsafe fn into_vtable<T>(&self) -> Option<&T> {
+    pub unsafe fn into_vtable<T>(self) -> Option<&'static T> {
         (self.vtable as *const T).as_ref()
     }
 }

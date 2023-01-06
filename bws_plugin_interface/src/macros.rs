@@ -58,6 +58,106 @@ macro_rules! plugin {
     };
 }
 
+/// A macro that helps with callback definition
+///
+/// # Usage
+///
+/// ```ignore
+/// callback!{ <callback_name>(vtable, [event_id], [data: &<data_type>]) {
+///     // function body
+/// }}
+/// ```
+///
+/// Where:
+/// - `callback_name` is an identifier for the callback. A function is created with this name
+/// - `vtable` is the variable name for the [`VTable`](crate::vtable::VTable) (Required)
+/// - `event_id` is the variable name for the event id (`usize`) (Optional)
+/// - `data` is the variable name for data (Optional)
+/// - `data_type` is the type of data that is expected. The data pointer is converted to a reference of that type
+/// automatically, so make sure you provide the correct type. (Required if `data` present)
+///
+/// The function body has to return [`bool`]: `false` meaning to stop event and execute no further callbacks for this instance.
+#[macro_export]
+macro_rules! callback {
+    ($callback_name:ident ($vtable:ident, $event_id:ident, $data:ident : & $data_type:ty $(,)? ) $block:tt ) => {
+        extern "C" fn $callback_name(
+            $vtable: &'static $crate::vtable::VTable,
+            $event_id: usize,
+            $data: *const (),
+        ) -> bool {
+            let reference: &$data_type = unsafe { &*($data as *const $data_type) };
+
+            fn inner(
+                $vtable: &'static $crate::vtable::VTable,
+                $event_id: usize,
+                $data: &$data_type,
+            ) -> bool {
+                $block
+            }
+
+            inner($vtable, $event_id, reference)
+        }
+    };
+    ($callback_name:ident ($vtable:ident, $data:ident : & $data_type:ty $(,)? ) $block:tt ) => {
+        extern "C" fn $callback_name(
+            $vtable: &'static $crate::vtable::VTable,
+            event_id: usize,
+            $data: *const (),
+        ) -> bool {
+            let reference: &$data_type = unsafe { &*($data as *const $data_type) };
+
+            fn inner(
+                $vtable: &'static $crate::vtable::VTable,
+                _: usize,
+                $data: &$data_type,
+            ) -> bool {
+                $block
+            }
+
+            inner($vtable, event_id, reference)
+        }
+    };
+    ($callback_name:ident ($vtable:ident, $event_id:ident $(,)? ) $block:tt ) => {
+        extern "C" fn $callback_name(
+            $vtable: &'static $crate::vtable::VTable,
+            $event_id: usize,
+            _: *const (),
+        ) -> bool {
+            $block
+        }
+    };
+    ($callback_name:ident ($vtable:ident $(,)? ) $block:tt ) => {
+        extern "C" fn $callback_name(
+            $vtable: &'static $crate::vtable::VTable,
+            _: usize,
+            _: *const (),
+        ) -> bool {
+            $block
+        }
+    };
+}
+
+/// **Highly unsafe!** Retrieves the API of a different plugin
+///
+/// # Usage
+///
+/// ```ignore
+/// let api: &'static <API> = get_plugin_api!(<vtable>, <plugin_name>, <API>);
+/// ```
+///
+/// Where:
+/// - `API` is the type of the API. Usually should be exposed by the specific plugin interface library.
+/// It is very important to use the correct type here, there are no checks and nothing (besides a segfault)
+/// will stop you from making mistakes here, so be extra careful.
+/// - `vtable` is [`&VTable`](crate::vtable::VTable)
+/// - `plugin_name` is a string with the needed plugin name.
+#[macro_export]
+macro_rules! get_plugin_api {
+    ($vtable:path, $plugin:expr, $api_type:ty) => {
+        unsafe { ($vtable.get_plugin_vtable)($plugin.into()).into_vtable::<$api_type>() }.unwrap()
+    };
+}
+
 /// Registers a callback for an event
 ///
 /// # Usage
@@ -86,23 +186,6 @@ macro_rules! add_event_callback {
     };
 }
 
-/// Retrieves the numerical ID of the given event
-///
-/// # Usage
-///
-/// ```ignore
-/// let id: usize = get_event_id!(<vtable>, <event_name>);
-/// ```
-///
-/// - `vtable` is either [`&VTable`](crate::vtable::VTable) or [`&InitVTable`](crate::vtable::InitVTable)
-/// - `event_name` is the name of the event (string)
-#[macro_export]
-macro_rules! get_event_id {
-    ($vtable:path, $event_name:expr $(,)? ) => {
-        ($vtable.get_event_id)($event_name.into())
-    };
-}
-
 /// Fires an event
 ///
 /// # Usage
@@ -127,6 +210,11 @@ macro_rules! fire_event {
                     }
                 }
                 impl __ToEventId for &str {
+                    fn to_event_id(self, vtable: & $crate::vtable::VTable) -> usize {
+                        (vtable.get_event_id)(self.into())
+                    }
+                }
+                impl __ToEventId for &String {
                     fn to_event_id(self, vtable: & $crate::vtable::VTable) -> usize {
                         (vtable.get_event_id)(self.into())
                     }

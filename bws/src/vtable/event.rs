@@ -28,7 +28,7 @@ pub static EVENTS: Lazy<RwLock<EventsMap>> = Lazy::new(|| {
                 use std::sync::atomic::{AtomicBool, Ordering};
 
                 static STARTED: AtomicBool = AtomicBool::new(false);
-                extern "C" fn start_once(vtable: &VTable, _: *const ()) -> bool {
+                extern "C" fn start_once(vtable: &VTable, _: usize, _: *const ()) -> bool {
                     // make sure the "start" event isnt fired more than once
                     if STARTED.load(Ordering::SeqCst) {
                         bws_plugin_interface::error!(
@@ -64,6 +64,15 @@ pub extern "C" fn get_event_id(event_id: SStr) -> usize {
             events_lock.len() - 1
         }
     }
+}
+
+pub extern "C" fn get_event_name(event_id: usize) -> SOption<SString> {
+    EVENTS
+        .read()
+        .unwrap()
+        .get(event_id)
+        .map(|e| e.0.clone().into())
+        .into()
 }
 
 pub extern "C" fn add_event_callback(
@@ -102,9 +111,12 @@ pub extern "C" fn add_event_callback(
     }
 
     // Make sure the same callback is not already registered
-    for c in &events_lock[event_id].1 {
-        if c.callback == callback {
-            bws_plugin_interface::error!(
+    if let Some(c) = events_lock[event_id]
+        .1
+        .iter()
+        .find(|c| c.callback == callback)
+    {
+        bws_plugin_interface::error!(
                 super::VTABLE,
                 "Plugin {plugin_name} tried to add an event callback for event \"{}\" (id: {event_id}), but an identical callback already exists: (plugin_name: {:?}, callback: {:?}, priority: {}).",
                 events_lock[event_id].0,
@@ -112,8 +124,7 @@ pub extern "C" fn add_event_callback(
                 c.callback,
                 c.priority
             );
-            return;
-        }
+        return;
     }
 
     events_lock[event_id].1.push(Callback {
@@ -177,7 +188,7 @@ pub extern "C" fn fire_event(event_id: usize, data: *const ()) -> bool {
     }
 
     for callback in &events_lock[event_id].1 {
-        if !(callback.callback)(&super::VTABLE, data) {
+        if !(callback.callback)(&super::VTABLE, event_id, data) {
             return false;
         }
     }
