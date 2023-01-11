@@ -1,7 +1,4 @@
-use bws_plugin_interface::{
-    safe_types::*,
-    vtable::{LogLevel, VTable},
-};
+use bws_plugin_interface::safe_types::*;
 use once_cell::sync::{Lazy, OnceCell};
 use std::sync::Mutex;
 

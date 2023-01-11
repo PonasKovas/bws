@@ -1,11 +1,4 @@
-use crate::plugins::PluginData;
-use bws_plugin_interface::{
-    plugin_api::PluginApiPtr,
-    safe_types::*,
-    vtable::{LogLevel, VTable},
-};
-use once_cell::sync::{Lazy, OnceCell};
-use std::sync::Mutex;
+use bws_plugin_interface::{plugin_api::PluginApiPtr, safe_types::*};
 
 pub extern "C" fn get_plugin_vtable(
     _plugin_id: usize,

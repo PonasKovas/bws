@@ -1,24 +1,12 @@
 #![deny(unsafe_op_in_unsafe_fn)]
-#![allow(unused_imports)]
 
 mod linear_search;
 mod plugins;
 mod vtable;
 
-use anyhow::{bail, Context, Result};
-use clap::Command;
+use anyhow::{Context, Result};
 pub use linear_search::LinearSearch;
-use log::{debug, error, info, trace, warn};
-use once_cell::sync::{Lazy, OnceCell};
-use std::io::BufRead;
-use std::io::Write;
-use std::ptr::null;
-use std::sync::atomic::Ordering;
-use std::sync::mpsc::Receiver;
-use std::sync::Condvar;
-use std::sync::Mutex;
-use std::{sync::atomic::AtomicU32, time::Duration};
-use tokio::sync::{broadcast, mpsc};
+use std::sync::{Condvar, Mutex};
 
 static END_PROGRAM: (Mutex<bool>, Condvar) = (Mutex::new(false), Condvar::new());
 

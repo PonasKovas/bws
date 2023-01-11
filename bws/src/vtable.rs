@@ -1,12 +1,9 @@
 use bws_plugin_interface::{
-    plugin_api::PluginApiPtr,
     safe_types::*,
     vtable::{InitVTable, LogLevel, VTable},
 };
 pub use cmd::*;
-use once_cell::sync::{Lazy, OnceCell};
 pub use plugin_api::*;
-use std::sync::Mutex;
 
 pub mod cmd;
 pub mod plugin_api;

@@ -1,19 +1,15 @@
 use crate::LinearSearch;
 use anyhow::{bail, Context, Result};
-use bws_plugin_interface::safe_types::*;
-use bws_plugin_interface::BwsPlugin;
+use bws_plugin_interface::{safe_types::*, BwsPlugin};
 use libloading::{Library, Symbol};
-use log::{error, info, warn};
+use log::error;
 use once_cell::sync::OnceCell;
 use semver::{Version, VersionReq};
-use std::collections::HashSet;
-use std::fmt::Debug;
-use std::thread;
-use std::time::Duration;
 use std::{
+    collections::HashSet,
+    fmt::Debug,
     fs,
     path::{Path, PathBuf},
-    sync::Arc,
 };
 
 const PLUGIN_DIR: &str = "plugins/";

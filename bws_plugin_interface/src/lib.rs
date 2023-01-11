@@ -1,4 +1,4 @@
-#![allow(unused_imports)]
+#![deny(unsafe_op_in_unsafe_fn)]
 
 #[cfg(feature = "plugin")]
 mod macros;

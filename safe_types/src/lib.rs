@@ -1,4 +1,6 @@
-/// iIncremented on each incompatible ABI change
+#![deny(unsafe_op_in_unsafe_fn)]
+
+/// Incremented on each incompatible ABI change
 pub const ABI: u32 = 0;
 
 mod maybe_panicked;
