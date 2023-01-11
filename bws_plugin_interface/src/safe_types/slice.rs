@@ -94,7 +94,7 @@ impl<'a, T> IntoIterator for SSlice<'a, T> {
     type IntoIter = std::slice::Iter<'a, T>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.into_slice().into_iter()
+        self.into_slice().iter()
     }
 }
 

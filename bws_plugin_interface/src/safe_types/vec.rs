@@ -29,11 +29,17 @@ impl<T> SVec<T> {
 
         r
     }
-    pub fn as_slice<'a>(&'a self) -> &'a [T] {
+    pub fn as_slice(&self) -> &[T] {
         unsafe { std::slice::from_raw_parts(self.ptr, self.length) }
     }
-    pub fn as_slice_mut<'a>(&'a mut self) -> &'a mut [T] {
+    pub fn as_slice_mut(&mut self) -> &mut [T] {
         unsafe { std::slice::from_raw_parts_mut(self.ptr, self.length) }
+    }
+}
+
+impl<T> Drop for SVec<T> {
+    fn drop(&mut self) {
+        let _: Vec<T> = unsafe { Vec::from_raw_parts(self.ptr, self.length, self.capacity) };
     }
 }
 
@@ -94,14 +100,14 @@ impl<'a, T> IntoIterator for &'a SVec<T> {
 
     fn into_iter(self) -> Self::IntoIter {
         // deref to slice
-        (**self).into_iter()
+        (**self).iter()
     }
 }
 
 impl<T> Deref for SVec<T> {
     type Target = [T];
 
-    fn deref<'a>(&'a self) -> &'a Self::Target {
+    fn deref(&self) -> &Self::Target {
         self.as_slice()
     }
 }

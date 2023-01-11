@@ -4,6 +4,7 @@ version = "0.2.0"
 edition = "2021"
 
 [dependencies]
+bws_plugin_api = { path = "/home/mykolas/Documents/Rust/bws/bws_plugin_api/", default-features = false }
 
 [features]
 default = ["plugin"]

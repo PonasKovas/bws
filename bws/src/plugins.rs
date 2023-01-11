@@ -4,6 +4,7 @@ use bws_plugin_interface::safe_types::*;
 use bws_plugin_interface::BwsPlugin;
 use libloading::{Library, Symbol};
 use log::{error, info, warn};
+use once_cell::sync::OnceCell;
 use semver::{Version, VersionReq};
 use std::collections::HashSet;
 use std::fmt::Debug;
@@ -23,6 +24,8 @@ pub struct PluginData {
     pub plugin: &'static BwsPlugin,
     pub raw_library: &'static Library,
 }
+
+pub static PLUGINS: OnceCell<Vec<PluginData>> = OnceCell::new();
 
 pub fn load_plugins() -> Result<Vec<PluginData>> {
     let mut libs = Vec::new();
@@ -190,9 +193,46 @@ pub fn check_dependencies(libs: &[PluginData], lib: usize) -> Result<bool> {
     Ok(res)
 }
 
-/// Calls on_load of all the plugins
+/// Calls init_fn of all the plugins
 pub fn init_plugins() -> Result<()> {
-    let plugins = super::vtable::PLUGINS.get().unwrap();
+    let plugins = PLUGINS.get().unwrap();
+
+    let ordering = calc_ordering()?;
+
+    // now that we know the order, we can init the plugins one by one
+    for id in ordering {
+        if let Err(_) = (plugins[id].plugin.init_fn)(id, &crate::vtable::INIT_VTABLE)
+            .unwrap()
+            .into_result()
+        {
+            bail!("Error initializing plugin {:?}", plugins[id].plugin.name);
+        }
+    }
+
+    Ok(())
+}
+
+/// Calls start_fn of all the plugins
+pub fn start_plugins() -> Result<()> {
+    let plugins = PLUGINS.get().unwrap();
+
+    let ordering = calc_ordering()?;
+
+    // now that we know the order, we can start the plugins one by one
+    for id in ordering {
+        if let Err(_) = (plugins[id].plugin.start_fn)(&crate::vtable::VTABLE)
+            .unwrap()
+            .into_result()
+        {
+            bail!("Error starting plugin {:?}", plugins[id].plugin.name);
+        }
+    }
+
+    Ok(())
+}
+
+fn calc_ordering() -> Result<Vec<usize>> {
+    let plugins = PLUGINS.get().unwrap();
 
     // Use the graph theory to order the plugins so that they would load
     // only after all of their dependencies have loaded.
@@ -223,17 +263,18 @@ pub fn init_plugins() -> Result<()> {
         }
     };
 
-    // now that we know the order, we can start the plugins one by one
+    let mut result = Vec::new();
+
     for plugin_id in ordering {
         let plugin_name = indices.search_by_val(&plugin_id);
 
-        for plugin in plugins {
-            if plugin.plugin.name == *plugin_name {
-                (plugin.plugin.on_load)(&crate::vtable::INIT_VTABLE);
+        for id in 0..plugins.len() {
+            if plugins[id].plugin.name == *plugin_name {
+                result.push(id);
                 break;
             }
         }
     }
 
-    Ok(())
+    Ok(result)
 }

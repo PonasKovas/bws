@@ -44,7 +44,7 @@ fn main() -> Result<(), ()> {
             return Err(());
         }
     };
-    vtable::plugin_api::PLUGINS.set(plugins).unwrap();
+    plugins::PLUGINS.set(plugins).unwrap();
 
     // Initialize the plugins
     if let Err(e) = plugins::init_plugins() {
@@ -61,10 +61,9 @@ fn main() -> Result<(), ()> {
         .get_matches_mut();
     vtable::cmd::CLAP_MATCHES.set(matches).unwrap();
 
-    // Fire the "start" event
-    let start_event_id = vtable::get_event_id("start".into());
-    if !vtable::fire_event(start_event_id, null()) {
-        error!("Couldn't start BWS");
+    // Start the plugins
+    if let Err(e) = plugins::start_plugins() {
+        error!("Couldn't start plugins: {e}");
         return Err(());
     }
 

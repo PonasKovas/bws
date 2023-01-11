@@ -1,23 +1,18 @@
 #![allow(unused_imports)]
 
-// TODO
-//
-// - Avoid UB when panicking across FFI.
-//   Waiting for https://github.com/rust-lang/rust/issues/74990
-//
-
-#[cfg(feature = "plugin")]
 pub mod macros;
 pub mod plugin_api;
 pub mod safe_types;
 pub mod vtable;
 
-pub use plugin_api::PluginApi;
+#[cfg(feature = "plugin")]
+pub use bws_plugin_api::PluginApi;
+
 use safe_types::*;
 use vtable::{InitVTable, VTable};
 
 /// Incremented on each incompatible ABI change
-pub const ABI: u64 = 18;
+pub const ABI: u64 = 19;
 
 /// The main struct that all plugins should expose with the `BWS_PLUGIN_ROOT` name
 ///
@@ -46,7 +41,70 @@ pub struct BwsPlugin {
     pub version: SStr<'static>,
     pub dependencies: SSlice<'static, STuple2<SStr<'static>, SStr<'static>>>,
 
-    pub on_load: extern "C" fn(&'static InitVTable),
+    pub init_fn: extern "C" fn(usize, &'static InitVTable) -> MaybePanicked<SResult>,
+    pub start_fn: extern "C" fn(&'static VTable) -> MaybePanicked<SResult>,
 
-    pub api: PluginApi,
+    pub api: SOption<plugin_api::PluginApiPtr>,
+}
+
+#[cfg(feature = "plugin")]
+#[doc(hidden)]
+pub mod global {
+    use std::{
+        cell::UnsafeCell,
+        mem::MaybeUninit,
+        sync::atomic::{AtomicI8, Ordering},
+    };
+
+    pub struct SetOnce<T> {
+        // -1 = not set
+        //  0 = setting
+        // +1 =     set
+        state: AtomicI8,
+        data: UnsafeCell<MaybeUninit<T>>,
+    }
+    unsafe impl<T: Sync> Sync for SetOnce<T> {}
+
+    impl<T: Sync> SetOnce<T> {
+        pub const fn new() -> Self {
+            Self {
+                state: AtomicI8::new(-1),
+                data: UnsafeCell::new(MaybeUninit::uninit()),
+            }
+        }
+        /// returns `false` if failed
+        pub fn set(&self, data: T) -> bool {
+            if self.state.swap(0, Ordering::Relaxed) == -1 {
+                unsafe { self.data.get().write(MaybeUninit::new(data)) };
+                self.state.store(1, Ordering::Release);
+                true
+            } else {
+                false
+            }
+        }
+        /// returns `None` if not set yet
+        pub fn get(&self) -> Option<&T> {
+            if self.state.load(Ordering::Acquire) == 1 {
+                Some(unsafe {
+                    self.data
+                        .get()
+                        .as_ref()
+                        .unwrap_unchecked()
+                        .assume_init_ref()
+                })
+            } else {
+                None
+            }
+        }
+    }
+
+    pub static PLUGIN_ID: SetOnce<usize> = SetOnce::new();
+    pub static VTABLE: SetOnce<&'static crate::VTable> = SetOnce::new();
+
+    pub fn get_plugin_id() -> usize {
+        *PLUGIN_ID.get().expect("plugin id global not set")
+    }
+    pub fn get_vtable() -> &'static crate::VTable {
+        VTABLE.get().expect("vtable global not set")
+    }
 }

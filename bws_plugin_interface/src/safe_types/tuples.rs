@@ -6,7 +6,7 @@ pub struct STuple2<A, B>(pub A, pub B);
 
 impl<A: PartialEq, B: PartialEq> PartialEq for STuple2<A, B> {
     fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0 && self.1 == self.1
+        self.0 == other.0 && self.1 == other.1
     }
 }
 impl<A: Clone, B: Clone> Clone for STuple2<A, B> {

@@ -1,26 +1,20 @@
 use bws_plugin_interface::{
+    plugin_api::PluginApiPtr,
     safe_types::*,
     vtable::{InitVTable, LogLevel, VTable},
-    PluginApi,
 };
 pub use cmd::*;
-pub use event::*;
 use once_cell::sync::{Lazy, OnceCell};
 pub use plugin_api::*;
 use std::sync::Mutex;
 
 pub mod cmd;
-pub mod event;
 pub mod plugin_api;
 
 pub static INIT_VTABLE: InitVTable = InitVTable {
     log,
     cmd_arg,
     cmd_flag,
-    get_event_id,
-    get_event_name,
-    add_event_callback,
-    remove_event_callback,
     stop_main_thread,
 };
 
@@ -28,33 +22,32 @@ pub static VTABLE: VTable = VTable {
     log,
     get_cmd_arg,
     get_cmd_flag,
-    get_event_id,
-    get_event_name,
-    add_event_callback,
-    remove_event_callback,
-    fire_event,
     get_plugin_vtable,
     stop_main_thread,
 };
 
-extern "C" fn log(target: SStr, level: LogLevel, message: SStr) {
-    let level = match level {
-        LogLevel::Error => log::Level::Error,
-        LogLevel::Warn => log::Level::Warn,
-        LogLevel::Info => log::Level::Info,
-        LogLevel::Debug => log::Level::Debug,
-        LogLevel::Trace => log::Level::Trace,
-    };
-    log::log!(target: target.as_str(), level, "{}", message.as_str());
+extern "C" fn log(plugin_id: usize, target: SStr, level: LogLevel, message: SStr) -> MaybePanicked {
+    MaybePanicked::new(move || {
+        let level = match level {
+            LogLevel::Error => log::Level::Error,
+            LogLevel::Warn => log::Level::Warn,
+            LogLevel::Info => log::Level::Info,
+            LogLevel::Debug => log::Level::Debug,
+            LogLevel::Trace => log::Level::Trace,
+        };
+        log::log!(target: &(format!("[{}] ", crate::plugins::PLUGINS.get().unwrap()[plugin_id].plugin.name) + target.as_str()), level, "{}", message.as_str());
 
-    // If an error message is printed and log level is set to trace
-    // print backtrace too
-    if level == log::Level::Error {
-        log::log!(target: target.as_str(), log::Level::Trace, "Backtrace:\n{}", std::backtrace::Backtrace::force_capture());
-    }
+        // If an error message is printed and log level is set to trace
+        // print backtrace too
+        if level == log::Level::Error {
+            eprintln!("Backtrace:\n{}", std::backtrace::Backtrace::force_capture());
+        }
+    })
 }
 
-extern "C" fn stop_main_thread() {
-    *crate::END_PROGRAM.0.lock().unwrap() = true;
-    crate::END_PROGRAM.1.notify_all();
+extern "C" fn stop_main_thread(_plugin_id: usize) -> MaybePanicked {
+    MaybePanicked::new(move || {
+        *crate::END_PROGRAM.0.lock().unwrap() = true;
+        crate::END_PROGRAM.1.notify_all();
+    })
 }

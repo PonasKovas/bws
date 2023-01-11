@@ -20,10 +20,10 @@ impl SString {
     pub fn into_string(self) -> String {
         unsafe { String::from_utf8_unchecked(self.inner.into_vec()) }
     }
-    pub fn as_str<'a>(&'a self) -> &'a str {
+    pub fn as_str(&self) -> &str {
         unsafe { std::str::from_utf8_unchecked(self.inner.as_slice()) }
     }
-    pub fn as_str_mut<'a>(&'a mut self) -> &'a mut str {
+    pub fn as_str_mut(&mut self) -> &mut str {
         unsafe { std::str::from_utf8_unchecked_mut(self.inner.as_slice_mut()) }
     }
 }
@@ -61,7 +61,7 @@ impl PartialEq for SString {
 impl Deref for SString {
     type Target = str;
 
-    fn deref<'a>(&'a self) -> &'a Self::Target {
+    fn deref(&self) -> &Self::Target {
         self.as_str()
     }
 }

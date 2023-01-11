@@ -18,6 +18,7 @@ impl<'a> SStr<'a> {
             slice: SSlice::from_slice(s.as_bytes()),
         }
     }
+    //čia kažkas ne taip
     pub const fn as_str<'b>(&'b self) -> &'b str
     where
         'a: 'b,
@@ -32,7 +33,7 @@ impl<'a> SStr<'a> {
 impl<'a> Deref for SStr<'a> {
     type Target = str;
 
-    fn deref<'b>(&'b self) -> &'b Self::Target {
+    fn deref(&self) -> &Self::Target {
         self.as_str()
     }
 }
