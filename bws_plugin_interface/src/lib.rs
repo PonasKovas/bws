@@ -103,3 +103,11 @@ pub mod global {
         VTABLE.set(vtable).expect("vtable already set");
     }
 }
+
+pub mod prelude {
+    pub use crate::get_vtable;
+    pub use crate::safe_types::*;
+    pub use crate::vtable::{InitVTable, VTable};
+    #[cfg(feature = "plugin")]
+    pub use crate::{debug, error, info, trace, warn}; // macros
+}
