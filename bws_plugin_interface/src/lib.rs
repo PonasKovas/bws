@@ -2,17 +2,17 @@
 
 pub mod macros;
 pub mod plugin_api;
-pub mod safe_types;
 pub mod vtable;
 
 #[cfg(feature = "plugin")]
 pub use bws_plugin_api::PluginApi;
 
+pub use safe_types;
 use safe_types::*;
 use vtable::{InitVTable, VTable};
 
 /// Incremented on each incompatible ABI change
-pub const ABI: u64 = 19;
+pub const ABI: u64 = 19 | (safe_types::ABI as u64) << 32;
 
 /// The main struct that all plugins should expose with the `BWS_PLUGIN_ROOT` name
 ///
@@ -74,11 +74,15 @@ pub mod global {
         }
         /// returns `false` if failed
         pub fn set(&self, data: T) -> bool {
-            if self.state.swap(0, Ordering::Relaxed) == -1 {
+            let old = self.state.swap(0, Ordering::Relaxed);
+            if old == -1 {
                 unsafe { self.data.get().write(MaybeUninit::new(data)) };
                 self.state.store(1, Ordering::Release);
                 true
+            } else if old == 0 {
+                false
             } else {
+                self.state.store(old, Ordering::Release);
                 false
             }
         }
