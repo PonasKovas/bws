@@ -47,8 +47,10 @@ add_shared_functions! {
         ///  - `help` - the help string
         ///  - `required` - whether the argument is mandatory
         ///
-        /// The function will panic if `short` is not a valid `char`
-        pub cmd_arg: extern "C" fn(plugin_id: usize, id: SStr, short: u32, long: SStr, value_name: SStr, help: SStr, required: bool) -> MaybePanicked,
+        /// The function will panic if:
+        /// - `short` is not a valid `char`
+        /// - `id` duplicates
+        pub cmd_arg: extern "C" fn(plugin_id: usize, id: SStr, short: SOption<u32>, long: SStr, value_name: SStr, help: SStr, required: bool) -> MaybePanicked,
         /// Registers a command line flag for the application
         ///
         ///  - `id` - unique name for the flag, can be used later to check if it was set
@@ -56,8 +58,10 @@ add_shared_functions! {
         ///  - `long` - the long way to set the flag
         ///  - `help` - the help string
         ///
-        /// The function will panic if `short` is not a valid `char`
-        pub cmd_flag: extern "C" fn(plugin_id: usize, id: SStr, short: u32, long: SStr, help: SStr) -> MaybePanicked,
+        /// The function will panic if:
+        /// - `short` is not a valid `char`
+        /// - `id` duplicates
+        pub cmd_flag: extern "C" fn(plugin_id: usize, id: SStr, short: SOption<u32>, long: SStr, help: SStr) -> MaybePanicked,
     }
 }
 
@@ -134,7 +138,7 @@ impl InitVTable {
     pub fn cmd_arg(
         &self,
         id: &str,
-        short: char,
+        short: Option<char>,
         long: &str,
         value_name: &str,
         help: &str,
@@ -143,7 +147,7 @@ impl InitVTable {
         (self.cmd_arg)(
             crate::global::get_plugin_id(),
             id.into(),
-            short as u32,
+            short.map(|x| x as u32).into(),
             long.into(),
             value_name.into(),
             help.into(),
@@ -154,11 +158,11 @@ impl InitVTable {
     /// Registers a new command line flag for the application
     ///
     /// `id` is an unique name for the flag which can be used later to check if the flag was set.
-    pub fn cmd_flag(&self, id: &str, short: char, long: &str, help: &str) {
+    pub fn cmd_flag(&self, id: &str, short: Option<char>, long: &str, help: &str) {
         (self.cmd_flag)(
             crate::global::get_plugin_id(),
             id.into(),
-            short as u32,
+            short.map(|x| x as u32).into(),
             long.into(),
             help.into(),
         )

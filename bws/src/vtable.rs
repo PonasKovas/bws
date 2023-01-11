@@ -48,7 +48,7 @@ extern "C" fn log(plugin_id: usize, target: SStr, level: LogLevel, message: SStr
         // If an error message is printed and log level is set to trace
         // print backtrace too
         if level == log::Level::Error {
-            log::error!("Backtrace:\n{}", std::backtrace::Backtrace::force_capture());
+            eprintln!("Backtrace:\n{}", std::backtrace::Backtrace::force_capture());
         }
     })
 }

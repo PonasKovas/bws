@@ -15,7 +15,7 @@ pub static CLAP_MATCHES: OnceCell<clap::parser::ArgMatches> = OnceCell::new();
 pub extern "C" fn cmd_arg(
     plugin_id: usize,
     id: SStr,
-    short: u32,
+    short: SOption<u32>,
     long: SStr,
     value_name: SStr,
     help: SStr,
@@ -25,10 +25,16 @@ pub extern "C" fn cmd_arg(
         let mut command = CLAP_COMMAND_BUILDER.lock().unwrap();
 
         // Option fuckery because command builder needs ownership when doing anything with it
-        let new = command.take().unwrap().arg(
-            clap::builder::Arg::new(id.into_str().to_owned())
-                .short(char::from_u32(short).expect("`short` is not a valid utf8 char"))
-                .long(long.into_str().to_owned())
+        let new = command.take().unwrap().arg({
+            let arg = clap::builder::Arg::new(id.into_str().to_owned());
+
+            let arg = if let Some(short) = short.into_option() {
+                arg.short(char::from_u32(short).expect("`short` is not a valid utf8 char"))
+            } else {
+                arg
+            };
+
+            arg.long(long.into_str().to_owned())
                 .value_name(value_name.into_str().to_owned())
                 .help(format!(
                     "{help} [{}]",
@@ -36,8 +42,8 @@ pub extern "C" fn cmd_arg(
                         .plugin
                         .name
                 ))
-                .required(required),
-        );
+                .required(required)
+        });
         command.replace(new);
     })
 }
@@ -45,7 +51,7 @@ pub extern "C" fn cmd_arg(
 pub extern "C" fn cmd_flag(
     plugin_id: usize,
     id: SStr,
-    short: u32,
+    short: SOption<u32>,
     long: SStr,
     help: SStr,
 ) -> MaybePanicked {
@@ -53,18 +59,24 @@ pub extern "C" fn cmd_flag(
         let mut command = CLAP_COMMAND_BUILDER.lock().unwrap();
 
         // Option fuckery because command builder needs ownership when doing anything with it
-        let new = command.take().unwrap().arg(
-            clap::builder::Arg::new(id.into_str().to_owned())
-                .short(char::from_u32(short).expect("`short` is not a valid utf8 char"))
-                .long(long.into_str().to_owned())
+        let new = command.take().unwrap().arg({
+            let arg = clap::builder::Arg::new(id.into_str().to_owned());
+
+            let arg = if let Some(short) = short.into_option() {
+                arg.short(char::from_u32(short).expect("`short` is not a valid utf8 char"))
+            } else {
+                arg
+            };
+
+            arg.long(long.into_str().to_owned())
                 .help(format!(
                     "{help} [{}]",
                     crate::plugins::PLUGINS.get().unwrap()[plugin_id]
                         .plugin
                         .name
                 ))
-                .action(clap::builder::ArgAction::SetTrue),
-        );
+                .action(clap::builder::ArgAction::SetTrue)
+        });
         command.replace(new);
     })
 }
