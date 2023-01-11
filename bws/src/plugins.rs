@@ -83,7 +83,7 @@ pub fn load_plugins() -> Result<Vec<PluginData>> {
 
     // make sure each plugin has a valid version
     for lib in &libs {
-        if let Err(e) = Version::parse(lib.plugin.version.as_str()) {
+        if let Err(e) = Version::parse(lib.plugin.version.into_str()) {
             error!(
                 "Plugin {:?} ({}) version {:?} could not be parsed: {}",
                 lib.plugin.name,
@@ -156,21 +156,21 @@ pub unsafe fn load_lib(path: impl AsRef<Path>) -> Result<PluginData> {
 pub fn check_dependencies(libs: &[PluginData], lib: usize) -> Result<bool> {
     let mut res = true;
 
-    let deps = libs[lib].plugin.dependencies.as_slice();
+    let deps = libs[lib].plugin.dependencies.into_slice();
     for dep in deps {
-        let dep_name = dep.0.as_str();
+        let dep_name = dep.0.into_str();
         let version_req =
-            VersionReq::parse(dep.1.as_str()).context("Couldn't parse version requirement")?;
+            VersionReq::parse(dep.1.into_str()).context("Couldn't parse version requirement")?;
 
         // first check if a plugin with the name exists
         match libs
             .iter()
-            .find(|plugin| plugin.plugin.name.as_str() == dep_name)
+            .find(|plugin| plugin.plugin.name.into_str() == dep_name)
         {
             Some(m) => {
                 // Check if version matches
-                let version =
-                    Version::parse(m.plugin.version.as_str()).context("Couldn't parse version")?;
+                let version = Version::parse(m.plugin.version.into_str())
+                    .context("Couldn't parse version")?;
 
                 if !version_req.matches(&version) {
                     error!(
@@ -201,9 +201,10 @@ pub fn init_plugins() -> Result<()> {
 
     // now that we know the order, we can init the plugins one by one
     for id in ordering {
-        if let Err(_) = (plugins[id].plugin.init_fn)(id, &crate::vtable::INIT_VTABLE)
+        if (plugins[id].plugin.init_fn)(id, &crate::vtable::INIT_VTABLE)
             .unwrap()
             .into_result()
+            .is_err()
         {
             bail!("Error initializing plugin {:?}", plugins[id].plugin.name);
         }
@@ -220,9 +221,10 @@ pub fn start_plugins() -> Result<()> {
 
     // now that we know the order, we can start the plugins one by one
     for id in ordering {
-        if let Err(_) = (plugins[id].plugin.start_fn)(&crate::vtable::VTABLE)
+        if (plugins[id].plugin.start_fn)(&crate::vtable::VTABLE)
             .unwrap()
             .into_result()
+            .is_err()
         {
             bail!("Error starting plugin {:?}", plugins[id].plugin.name);
         }
@@ -268,8 +270,8 @@ fn calc_ordering() -> Result<Vec<usize>> {
     for plugin_id in ordering {
         let plugin_name = indices.search_by_val(&plugin_id);
 
-        for id in 0..plugins.len() {
-            if plugins[id].plugin.name == *plugin_name {
+        for (id, plugin) in plugins.iter().enumerate() {
+            if plugin.plugin.name == *plugin_name {
                 result.push(id);
                 break;
             }

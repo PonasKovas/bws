@@ -1,5 +1,3 @@
-use std::ops::{Deref, DerefMut};
-
 /// FFI-safe `Option` type
 #[derive(Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Debug, Hash)]
 #[repr(C)]

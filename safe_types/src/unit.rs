@@ -32,7 +32,5 @@ impl From<()> for SUnit {
 }
 
 impl From<SUnit> for () {
-    fn from(_: SUnit) -> Self {
-        ()
-    }
+    fn from(_: SUnit) -> Self {}
 }

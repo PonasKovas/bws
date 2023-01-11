@@ -1,6 +1,5 @@
 use super::{SOption, SStr, SString, SUnit};
 use std::{
-    any::{Any, TypeId},
     backtrace::{Backtrace, BacktraceStatus},
     panic::UnwindSafe,
 };
@@ -48,7 +47,7 @@ impl<T> MaybePanicked<T> {
                 {
                     let bt = Backtrace::force_capture();
                     if bt.status() == BacktraceStatus::Captured {
-                        eprintln!("{}", bt);
+                        eprintln!("{bt}");
                     }
                 }
 

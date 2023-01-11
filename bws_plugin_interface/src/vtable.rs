@@ -80,6 +80,8 @@ pub enum LogLevel {
 }
 
 impl VTable {
+    /// # Safety
+    ///
     /// panics if plugin does not expose an API or incorrect API type used
     pub unsafe fn get_plugin_vtable<API: PluginApi>(&self, plugin_name: &str) -> &'static API {
         (self.get_plugin_vtable)(crate::global::get_plugin_id(), plugin_name.into())

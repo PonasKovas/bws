@@ -29,11 +29,11 @@ pub extern "C" fn cmd_arg(
 
         // Option fuckery because command builder needs ownership when doing anything with it
         let new = command.take().unwrap().arg(
-            clap::builder::Arg::new(id.as_str().to_owned())
+            clap::builder::Arg::new(id.into_str().to_owned())
                 .short(char::from_u32(short).expect("`short` is not a valid utf8 char"))
-                .long(long.as_str().to_owned())
-                .value_name(value_name.as_str().to_owned())
-                .help(help.as_str().to_owned())
+                .long(long.into_str().to_owned())
+                .value_name(value_name.into_str().to_owned())
+                .help(help.into_str().to_owned())
                 .required(required),
         );
         command.replace(new);
@@ -41,7 +41,7 @@ pub extern "C" fn cmd_arg(
 }
 
 pub extern "C" fn cmd_flag(
-    plugin_id: usize,
+    _plugin_id: usize,
     id: SStr,
     short: u32,
     long: SStr,
@@ -52,17 +52,17 @@ pub extern "C" fn cmd_flag(
 
         // Option fuckery because command builder needs ownership when doing anything with it
         let new = command.take().unwrap().arg(
-            clap::builder::Arg::new(id.as_str().to_owned())
+            clap::builder::Arg::new(id.into_str().to_owned())
                 .short(char::from_u32(short).expect("`short` is not a valid utf8 char"))
-                .long(long.as_str().to_owned())
-                .help(help.as_str().to_owned())
+                .long(long.into_str().to_owned())
+                .help(help.into_str().to_owned())
                 .action(clap::builder::ArgAction::SetTrue),
         );
         command.replace(new);
     })
 }
 
-pub extern "C" fn get_cmd_arg(plugin_id: usize, id: SStr) -> MaybePanicked<SOption<SString>> {
+pub extern "C" fn get_cmd_arg(_plugin_id: usize, id: SStr) -> MaybePanicked<SOption<SString>> {
     MaybePanicked::new(move || {
         SOption::from_option(
             CLAP_MATCHES
@@ -76,15 +76,14 @@ pub extern "C" fn get_cmd_arg(plugin_id: usize, id: SStr) -> MaybePanicked<SOpti
     })
 }
 
-pub extern "C" fn get_cmd_flag(plugin_id: usize, id: SStr) -> MaybePanicked<bool> {
+pub extern "C" fn get_cmd_flag(_plugin_id: usize, id: SStr) -> MaybePanicked<bool> {
     MaybePanicked::new(move || {
-        match CLAP_MATCHES
-            .get()
-            .expect("clap matches not parsed yet!")
-            .try_get_one::<bool>(id.into())
-        {
-            Ok(Some(&true)) => true,
-            _ => false,
-        }
+        matches!(
+            CLAP_MATCHES
+                .get()
+                .expect("clap matches not parsed yet!")
+                .try_get_one::<bool>(id.into()),
+            Ok(Some(&true))
+        )
     })
 }

@@ -37,7 +37,7 @@ impl PluginApiPtr {
         // check if T is compatible with the original
         assert_eq!(
             <T as PluginApi>::PKG_NAME,
-            self.pkg_name.as_str(),
+            self.pkg_name.into_str(),
             "plugin api pkg names dont match"
         );
 
@@ -61,12 +61,12 @@ impl PluginApiPtr {
         let (my_major, my_minor, _my_patch) =
             split(<T as PluginApi>::PKG_VERSION).expect("incorrect PKG_VERSION format");
         let (og_major, og_minor, _og_patch) =
-            split(self.pkg_version.as_str()).expect("incorrect PKG_VERSION format");
+            split(self.pkg_version.into_str()).expect("incorrect PKG_VERSION format");
 
         if og_major == 0 {
             assert_eq!(
                 <T as PluginApi>::PKG_VERSION,
-                self.pkg_version.as_str(),
+                self.pkg_version.into_str(),
                 "plugin api pkg versions are not compatible"
             );
         } else {

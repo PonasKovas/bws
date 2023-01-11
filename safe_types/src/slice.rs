@@ -11,11 +11,11 @@ use std::{
 pub struct SSlice<'a, T> {
     ptr: *const T,
     length: usize,
-    _phantom_d: PhantomData<&'a T>,
+    _phantom_d: PhantomData<&'a [T]>,
 }
 
 impl<'a, T> SSlice<'a, T> {
-    pub const fn from_slice(slice: &[T]) -> Self {
+    pub const fn from_slice(slice: &'a [T]) -> Self {
         Self {
             ptr: slice.as_ptr(),
             length: slice.len(),
@@ -25,17 +25,11 @@ impl<'a, T> SSlice<'a, T> {
     pub const fn into_slice(self) -> &'a [T] {
         unsafe { std::slice::from_raw_parts(self.ptr, self.length) }
     }
-    pub const fn as_slice<'b>(&'b self) -> &'b [T]
-    where
-        'a: 'b,
-    {
-        unsafe { std::slice::from_raw_parts(self.ptr, self.length) }
-    }
 }
 
 impl<'a, T: Debug> Debug for SSlice<'a, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(self.as_slice(), f)
+        Debug::fmt(self.into_slice(), f)
     }
 }
 
@@ -43,7 +37,7 @@ impl<'a, T> Deref for SSlice<'a, T> {
     type Target = [T];
 
     fn deref(&self) -> &Self::Target {
-        self.as_slice()
+        self.into_slice()
     }
 }
 
@@ -84,7 +78,7 @@ where
 
     #[inline]
     fn index(&self, index: I) -> &I::Output {
-        self.as_slice().index(index)
+        self.into_slice().index(index)
     }
 }
 

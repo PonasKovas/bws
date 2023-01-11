@@ -35,12 +35,23 @@ extern "C" fn log(plugin_id: usize, target: SStr, level: LogLevel, message: SStr
             LogLevel::Debug => log::Level::Debug,
             LogLevel::Trace => log::Level::Trace,
         };
-        log::log!(target: &(format!("[{}] ", crate::plugins::PLUGINS.get().unwrap()[plugin_id].plugin.name) + target.as_str()), level, "{}", message.as_str());
+        log::log!(
+            target:
+                &(format!(
+                    "[{}] {target}",
+                    crate::plugins::PLUGINS.get().unwrap()[plugin_id]
+                        .plugin
+                        .name
+                )),
+            level,
+            "{}",
+            message
+        );
 
         // If an error message is printed and log level is set to trace
         // print backtrace too
         if level == log::Level::Error {
-            eprintln!("Backtrace:\n{}", std::backtrace::Backtrace::force_capture());
+            log::error!("Backtrace:\n{}", std::backtrace::Backtrace::force_capture());
         }
     })
 }

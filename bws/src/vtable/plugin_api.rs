@@ -7,7 +7,10 @@ use bws_plugin_interface::{
 use once_cell::sync::{Lazy, OnceCell};
 use std::sync::Mutex;
 
-pub extern "C" fn get_plugin_vtable(plugin_id: usize, plugin: SStr) -> MaybePanicked<PluginApiPtr> {
+pub extern "C" fn get_plugin_vtable(
+    _plugin_id: usize,
+    plugin: SStr,
+) -> MaybePanicked<PluginApiPtr> {
     MaybePanicked::new(move || {
         crate::plugins::PLUGINS
             .get()
