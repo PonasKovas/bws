@@ -4,6 +4,22 @@ use std::{
     panic::UnwindSafe,
 };
 
+/// Allows to panic across FFI without UB
+///
+/// # Usage
+///
+/// ```
+/// # use safe_types::MaybePanicked;
+/// extern "C" fn foreign_function() -> MaybePanicked {
+///     MaybePanicked::new(move || {
+///         // do work
+///     })
+/// }
+///
+/// fn main() {
+///     foreign_function().unwrap();
+/// }
+/// ```
 #[repr(C)]
 pub enum MaybePanicked<T = SUnit> {
     Ok(T),

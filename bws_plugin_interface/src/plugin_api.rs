@@ -1,4 +1,4 @@
-use crate::safe_types::str::SStr;
+use crate::safe_types::SStr;
 use bws_plugin_api::PluginApi;
 use std::ptr::NonNull;
 

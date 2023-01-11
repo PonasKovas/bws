@@ -1,16 +1,16 @@
-// incremented on each incompatible ABI change
+/// iIncremented on each incompatible ABI change
 pub const ABI: u32 = 0;
 
-pub mod maybe_panicked;
-pub mod mut_slice;
-pub mod option;
-pub mod result;
-pub mod slice;
-pub mod str;
-pub mod string;
-pub mod tuples;
-pub mod unit;
-pub mod vec;
+mod maybe_panicked;
+mod mut_slice;
+mod option;
+mod result;
+mod slice;
+mod str;
+mod string;
+mod tuples;
+mod unit;
+mod vec;
 
 pub use crate::str::SStr;
 pub use maybe_panicked::MaybePanicked;

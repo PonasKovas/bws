@@ -5,6 +5,18 @@ use syn::{parse_macro_input, DeriveInput};
 ///
 /// Uses the package name and version for safety checks, so make sure to use semantic versioning correctly
 /// in your `Cargo.toml`. Not doing so will most likely result in UB at some point somewhere.
+///
+/// # Usage
+///
+/// ```
+/// # use bws_plugin_api_derive::PluginApi;
+/// # use safe_types::MaybePanicked;
+/// #[repr(C)]
+/// #[derive(PluginApi)]
+/// pub struct MyPluginApi {
+///     pub some_function: extern "C" fn(arg: usize) -> MaybePanicked<bool>,
+/// }
+/// ```
 #[proc_macro_derive(PluginApi)]
 pub fn derive_heap_size(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);

@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-/// `#[repr(C)]` version of `()`
+/// FFI-safe equivalent of `()`
 #[repr(C)]
 #[derive(Hash, PartialOrd, Ord, PartialEq, Eq)]
 pub struct SUnit {

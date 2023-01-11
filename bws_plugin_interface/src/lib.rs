@@ -1,6 +1,7 @@
 #![allow(unused_imports)]
 
-pub mod macros;
+#[cfg(feature = "plugin")]
+mod macros;
 pub mod plugin_api;
 pub mod vtable;
 
@@ -18,20 +19,45 @@ pub const ABI: u64 = 20 | (safe_types::ABI as u64) << 32;
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```
+/// # use bws_plugin_interface::{vtable::{VTable, InitVTable}, info, BwsPlugin};
+/// # use safe_types::{MaybePanicked, SResult, SUnit, SOption, SStr, SSlice};
 /// #[no_mangle]
 /// static BWS_PLUGIN_ROOT: BwsPlugin = BwsPlugin {
 ///     name: SStr::from_str(env!("CARGO_PKG_NAME")),
 ///     version: SStr::from_str(env!("CARGO_PKG_VERSION")),
 ///     dependencies: SSlice::from_slice(&[]),
-///     on_load,
-///     api: PluginApi::new(),
+///     init_fn,
+///     vtable_fn,
+///     start_fn,
+///     api: SOption::None,
 /// };
 ///
-/// extern "C" fn on_load(vtable: &'static InitVTable) {
-///     println!("Plugin initialization");
+/// extern "C" fn init_fn(my_id: usize, vtable: &'static InitVTable) -> MaybePanicked<SResult> {
+///     MaybePanicked::new(move || {
+///         bws_plugin_interface::global::set_plugin_id(my_id);
+///
+///         info!(vtable, "Plugin initialization");
+///
+///         SResult::Ok(SUnit::new())
+///     })
 /// }
-/// ...
+///
+/// extern "C" fn vtable_fn(vtable: &'static VTable) -> MaybePanicked {
+///     MaybePanicked::new(move || {
+///         bws_plugin_interface::global::set_vtable(vtable);
+///
+///         SUnit::new()
+///     })
+/// }
+///
+/// extern "C" fn start_fn() -> MaybePanicked<SResult> {
+///     MaybePanicked::new(move || {
+///         info!("Plugin start");
+///
+///         SResult::Ok(SUnit::new())
+///     })
+/// }
 /// ```
 ///
 #[repr(C)]
@@ -62,6 +88,11 @@ pub mod global {
     pub fn get_plugin_id() -> usize {
         *PLUGIN_ID.get().expect("plugin id global not set")
     }
+    /// Returns a reference to the [`VTable`][crate::VTable] that's saved in a static
+    ///
+    /// # Panics
+    ///
+    /// Panics if static not initialized yet.
     pub fn get_vtable() -> &'static crate::VTable {
         VTABLE.get().expect("vtable global not set")
     }

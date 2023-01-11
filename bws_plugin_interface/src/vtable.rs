@@ -14,11 +14,13 @@ macro_rules! add_shared_functions {
             ///  - `level` - the type of message
             ///  - `message` - the text
             pub log: extern "C" fn(plugin_id: usize, target: SStr, level: LogLevel, message: SStr) -> MaybePanicked,
+            /// Ends the main thread, killing the whole process
             pub stop_main_thread: extern "C" fn(plugin_id: usize) -> MaybePanicked,
 
             $( $(#[$fattrs])* $fpub $field : $type,)*
         }
         impl $name {
+            /// Logs a message
             pub fn log(&self, target: &str, level: LogLevel, message: &str) {
                 (self.log)($crate::global::get_plugin_id(), target.into(), level, message.into()).unwrap();
             }
@@ -31,7 +33,9 @@ macro_rules! add_shared_functions {
 }
 
 add_shared_functions! {
-    /// This vtable is given access to in `on_load`
+    /// This vtable is given access to in `init_fn`
+    ///
+    /// Allows to register command line arguments/flags
     #[repr(C)]
     pub struct InitVTable {
         /// Registers a command line argument for the application
@@ -58,6 +62,9 @@ add_shared_functions! {
 }
 
 add_shared_functions! {
+    /// The main VTable for interacting with the host (BWS)
+    ///
+    /// Plugins are given static references to this in `vtable_fn`
     #[repr(C)]
     pub struct VTable {
         /// Retrieves a command line argument, if it was set
@@ -75,6 +82,7 @@ add_shared_functions! {
     }
 }
 
+/// `#[repr(C)]` equivalent of `log::LogLevel`
 #[repr(C)]
 pub enum LogLevel {
     Error,
@@ -85,26 +93,43 @@ pub enum LogLevel {
 }
 
 impl VTable {
+    /// Attempts to retrieve a vtable exposed by another plugin.
+    ///
     /// # Safety
     ///
-    /// panics if plugin does not expose an API or incorrect API type used
+    /// Will result in UB if used with an incorrect `API` type, which should not happen
+    /// as long as the `PluginApi` trait is implemented correctly and the plugin that exposes
+    /// the API uses semantic versioning correctly in the library defining the API.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the requested plugin does not expose an API or incorrect API type used
     pub unsafe fn get_plugin_vtable<API: PluginApi>(&self, plugin_name: &str) -> &'static API {
         (self.get_plugin_vtable)(crate::global::get_plugin_id(), plugin_name.into())
             .unwrap()
             .get()
     }
+    /// Retrieves a command line argument, if it was set.
+    ///
+    /// `id` is the `id` used in `InitVTable::cmd_arg`
     pub fn get_cmd_arg(&self, id: &str) -> Option<String> {
         (self.get_cmd_arg)(crate::global::get_plugin_id(), id.into())
             .unwrap()
             .into_option()
             .map(|s| s.into())
     }
+    /// Checks if a command line flag was set
+    ///
+    /// `id` is the `id` used in `InitVTable::cmd_flag`
     pub fn get_cmd_flag(&self, id: &str) -> bool {
         (self.get_cmd_flag)(crate::global::get_plugin_id(), id.into()).unwrap()
     }
 }
 
 impl InitVTable {
+    /// Registers a new command line argument for the application
+    ///
+    /// `id` is an unique name for the argument which can be used later to check the value.
     pub fn cmd_arg(
         &self,
         id: &str,
@@ -125,6 +150,9 @@ impl InitVTable {
         )
         .unwrap();
     }
+    /// Registers a new command line flag for the application
+    ///
+    /// `id` is an unique name for the flag which can be used later to check if the flag was set.
     pub fn cmd_flag(&self, id: &str, short: char, long: &str, help: &str) {
         (self.cmd_flag)(
             crate::global::get_plugin_id(),

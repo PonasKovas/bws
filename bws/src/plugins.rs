@@ -40,8 +40,13 @@ pub fn load_plugins() -> Result<Vec<PluginData>> {
             continue;
         }
         match path.file_name().unwrap().to_str() {
-            // also skip files with invalid unicode in their names
-            None => continue,
+            None => {
+                error!(
+                    "file name contains invalid unicode: {:?}",
+                    path.file_name().unwrap()
+                );
+                success = false;
+            }
             Some(path) => {
                 // skip hidden files
                 if path.starts_with('.') {
@@ -76,7 +81,7 @@ pub fn load_plugins() -> Result<Vec<PluginData>> {
         // list the libraries that provide plugins with the name thats causing trouble
         for lib in &libs {
             if lib.plugin.name == *name {
-                error!(" - {} ({})", lib.file_path.display(), lib.plugin.version);
+                println!(" - {} ({})", lib.file_path.display(), lib.plugin.version);
             }
         }
     }

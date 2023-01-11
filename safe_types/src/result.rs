@@ -1,5 +1,6 @@
 use super::SUnit;
 
+/// FFI-safe equivalent of `Result<T, E>`
 #[repr(C)]
 pub enum SResult<T = SUnit, E = SUnit> {
     Ok(T),

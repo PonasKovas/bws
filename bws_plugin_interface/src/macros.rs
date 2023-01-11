@@ -2,12 +2,13 @@
 ///
 /// # Usage
 ///
-/// ```ignore
+/// ```
+/// # use bws_plugin_api::PluginApi;
+/// # use bws_plugin_interface::{vtable::InitVTable, get_vtable, info, warn};
+/// # use safe_types::MaybePanicked;
 /// bws_plugin_interface::plugin! {
 ///     depend "other_plugin_dependency" = "0.1",
 ///     depend "you_can_have_as_many_dependencies_as_you_want" = "<2.0",
-///     ...
-///     depend "or_you_can_have_none" = "=1.0.0",
 ///     
 ///     api MY_API, // optional, can be ommited if your plugin doesn't expose an API
 ///
@@ -17,13 +18,37 @@
 ///
 /// // Again, optional. Only if you need to expose an API for other plugins
 /// // If you do use this, make sure MyApi is #[repr(C)]
-/// static MY_API: MyApi = MyApi { ... };
+/// static MY_API: MyApi = MyApi { method };
 ///
-/// // This function will be called once to let the plugin initialize
-/// // You can add command line flags, arguments here and register event callbacks
-/// // For everything else you should use the "start" event (register a callback for it in this function)
-/// fn init(vtable: &'static InitVTable) {
-///     ...
+/// #[repr(C)]
+/// #[derive(PluginApi)]
+/// struct MyApi {
+///     method: extern "C" fn() -> MaybePanicked,
+/// }
+///
+/// extern "C" fn method() -> MaybePanicked {
+///     MaybePanicked::new(move || {
+///         info!("MyApi::method called");
+///     })
+/// }
+///
+/// // This function will be called once on BWS initialization
+/// // and allows you to configure CMD args and flags
+/// fn init(vtable: &'static InitVTable) -> Result<(), ()>{
+///     vtable.cmd_flag("debug", 'd', "debug", "Prints more information during runtime to help debug");
+///     
+///     Ok(())
+/// }
+///
+/// // This function is called after CMD args have been parsed,
+/// // You can start doing anything you want here
+/// fn start() -> Result<(), ()> {
+///     info!("My plugin started");
+///     if get_vtable().get_cmd_flag("debug") {
+///         warn!("--debug flag set!");
+///     }
+///     
+///     Ok(())
 /// }
 /// ```
 #[macro_export]
@@ -116,8 +141,12 @@ macro_rules! __bws_log {
 ///
 /// # Usage
 ///
-/// ```ignore
+/// ```
+/// # use bws_plugin_interface::error;
+/// # fn example<T: std::fmt::Debug>(vtable: &'static bws_plugin_interface::vtable::VTable, e: T) {
 /// error!(vtable, "error: {:?}", e);
+/// error!("error: {:?}", e);
+/// # }
 /// ```
 #[macro_export]
 macro_rules! error {
@@ -133,8 +162,12 @@ macro_rules! error {
 ///
 /// # Usage
 ///
-/// ```ignore
-/// warn!(vtable, "caution: {:?}", e);
+/// ```
+/// # use bws_plugin_interface::warn;
+/// # fn example<T: std::fmt::Debug>(vtable: &'static bws_plugin_interface::vtable::VTable, e: T) {
+/// warn!(vtable, "warning: {:?}", e);
+/// warn!("warning: {:?}", e);
+/// # }
 /// ```
 #[macro_export]
 macro_rules! warn {
@@ -150,8 +183,12 @@ macro_rules! warn {
 ///
 /// # Usage
 ///
-/// ```ignore
+/// ```
+/// # use bws_plugin_interface::info;
+/// # fn example<T: std::fmt::Debug>(vtable: &'static bws_plugin_interface::vtable::VTable, e: T) {
 /// info!(vtable, "info: {:?}", e);
+/// info!("info: {:?}", e);
+/// # }
 /// ```
 #[macro_export]
 macro_rules! info {
@@ -167,8 +204,12 @@ macro_rules! info {
 ///
 /// # Usage
 ///
-/// ```ignore
+/// ```
+/// # use bws_plugin_interface::debug;
+/// # fn example<T: std::fmt::Debug>(vtable: &'static bws_plugin_interface::vtable::VTable, e: T) {
 /// debug!(vtable, "debug info: {:?}", e);
+/// debug!("debug info: {:?}", e);
+/// # }
 /// ```
 #[macro_export]
 macro_rules! debug {
@@ -184,8 +225,12 @@ macro_rules! debug {
 ///
 /// # Usage
 ///
-/// ```ignore
-/// trace!(vtable, "trace: {:?}", e);
+/// ```
+/// # use bws_plugin_interface::trace;
+/// # fn example<T: std::fmt::Debug>(vtable: &'static bws_plugin_interface::vtable::VTable, e: T) {
+/// trace!(vtable, "trace info: {:?}", e);
+/// trace!("trace info: {:?}", e);
+/// # }
 /// ```
 #[macro_export]
 macro_rules! trace {
