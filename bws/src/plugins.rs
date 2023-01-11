@@ -217,11 +217,16 @@ pub fn init_plugins() -> Result<()> {
 pub fn start_plugins() -> Result<()> {
     let plugins = PLUGINS.get().unwrap();
 
+    // let plugins save vtable reference in memory
+    for plugin in plugins {
+        (plugin.plugin.vtable_fn)(&crate::vtable::VTABLE).unwrap();
+    }
+
     let ordering = calc_ordering()?;
 
     // now that we know the order, we can start the plugins one by one
     for id in ordering {
-        if (plugins[id].plugin.start_fn)(&crate::vtable::VTABLE)
+        if (plugins[id].plugin.start_fn)()
             .unwrap()
             .into_result()
             .is_err()

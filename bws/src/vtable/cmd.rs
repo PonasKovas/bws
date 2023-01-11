@@ -16,7 +16,7 @@ pub static CLAP_COMMAND_BUILDER: Lazy<Mutex<Option<clap::builder::Command>>> = L
 pub static CLAP_MATCHES: OnceCell<clap::parser::ArgMatches> = OnceCell::new();
 
 pub extern "C" fn cmd_arg(
-    _plugin_id: usize,
+    plugin_id: usize,
     id: SStr,
     short: u32,
     long: SStr,
@@ -33,7 +33,12 @@ pub extern "C" fn cmd_arg(
                 .short(char::from_u32(short).expect("`short` is not a valid utf8 char"))
                 .long(long.into_str().to_owned())
                 .value_name(value_name.into_str().to_owned())
-                .help(help.into_str().to_owned())
+                .help(format!(
+                    "{help} [{}]",
+                    crate::plugins::PLUGINS.get().unwrap()[plugin_id]
+                        .plugin
+                        .name
+                ))
                 .required(required),
         );
         command.replace(new);
@@ -41,7 +46,7 @@ pub extern "C" fn cmd_arg(
 }
 
 pub extern "C" fn cmd_flag(
-    _plugin_id: usize,
+    plugin_id: usize,
     id: SStr,
     short: u32,
     long: SStr,
@@ -55,7 +60,12 @@ pub extern "C" fn cmd_flag(
             clap::builder::Arg::new(id.into_str().to_owned())
                 .short(char::from_u32(short).expect("`short` is not a valid utf8 char"))
                 .long(long.into_str().to_owned())
-                .help(help.into_str().to_owned())
+                .help(format!(
+                    "{help} [{}]",
+                    crate::plugins::PLUGINS.get().unwrap()[plugin_id]
+                        .plugin
+                        .name
+                ))
                 .action(clap::builder::ArgAction::SetTrue),
         );
         command.replace(new);

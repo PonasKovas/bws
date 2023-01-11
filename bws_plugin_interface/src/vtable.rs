@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use bws_plugin_api::PluginApi;
 
 use crate::{plugin_api::PluginApiPtr, safe_types::*};
@@ -17,6 +19,9 @@ macro_rules! add_shared_functions {
             $( $(#[$fattrs])* $fpub $field : $type,)*
         }
         impl $name {
+            pub fn log(&self, target: &str, level: LogLevel, message: &str) {
+                (self.log)($crate::global::get_plugin_id(), target.into(), level, message.into()).unwrap();
+            }
             /// Ends the main program thread, essentially stopping the process abruptly.
             pub fn stop_main_thread(&self) {
                 (self.stop_main_thread)($crate::global::get_plugin_id()).unwrap();
@@ -87,5 +92,59 @@ impl VTable {
         (self.get_plugin_vtable)(crate::global::get_plugin_id(), plugin_name.into())
             .unwrap()
             .get()
+    }
+    pub fn get_cmd_arg(&self, id: &str) -> Option<String> {
+        (self.get_cmd_arg)(crate::global::get_plugin_id(), id.into())
+            .unwrap()
+            .into_option()
+            .map(|s| s.into())
+    }
+    pub fn get_cmd_flag(&self, id: &str) -> bool {
+        (self.get_cmd_flag)(crate::global::get_plugin_id(), id.into()).unwrap()
+    }
+}
+
+impl InitVTable {
+    pub fn cmd_arg(
+        &self,
+        id: &str,
+        short: char,
+        long: &str,
+        value_name: &str,
+        help: &str,
+        required: bool,
+    ) {
+        (self.cmd_arg)(
+            crate::global::get_plugin_id(),
+            id.into(),
+            short as u32,
+            long.into(),
+            value_name.into(),
+            help.into(),
+            required,
+        )
+        .unwrap();
+    }
+    pub fn cmd_flag(&self, id: &str, short: char, long: &str, help: &str) {
+        (self.cmd_flag)(
+            crate::global::get_plugin_id(),
+            id.into(),
+            short as u32,
+            long.into(),
+            help.into(),
+        )
+        .unwrap();
+    }
+}
+
+impl Debug for VTable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "VTable")
+    }
+}
+
+impl Debug for InitVTable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "InitVTable")
     }
 }

@@ -43,9 +43,7 @@ macro_rules! plugin {
                 extern "C" fn ___init(plugin_id: usize, vtable: &'static $crate::vtable::InitVTable) -> $crate::safe_types::MaybePanicked<$crate::safe_types::SResult> {
 
                     $crate::safe_types::MaybePanicked::new(move || {
-                        if !$crate::global::PLUGIN_ID.set(plugin_id) {
-                            panic!("can't set plugin id global more than once");
-                        }
+                        $crate::global::set_plugin_id(plugin_id);
 
                         let r: ::std::result::Result<(), ()> = $init_fn (vtable);
 
@@ -59,14 +57,18 @@ macro_rules! plugin {
                 }
                 ___init
             },
-            start_fn: {
-                extern "C" fn ___start(vtable: &'static $crate::vtable::VTable) -> $crate::safe_types::MaybePanicked<$crate::safe_types::SResult> {
+            vtable_fn: {
+                extern "C" fn ___vtable(vtable: &'static $crate::vtable::VTable) -> $crate::safe_types::MaybePanicked {
                     $crate::safe_types::MaybePanicked::new(move || {
-                        if !$crate::global::VTABLE.set(vtable) {
-                            panic!("can't set vtable global more than once");
-                        }
-
-                        let r: ::std::result::Result<(), ()> = $start_fn (vtable);
+                        $crate::global::set_vtable(vtable);
+                    })
+                }
+                ___vtable
+            },
+            start_fn: {
+                extern "C" fn ___start() -> $crate::safe_types::MaybePanicked<$crate::safe_types::SResult> {
+                    $crate::safe_types::MaybePanicked::new(move || {
+                        let r: ::std::result::Result<(), ()> = $start_fn ();
 
                         if r.is_ok() {
                             $crate::safe_types::SResult::Ok($crate::safe_types::SUnit::new())
