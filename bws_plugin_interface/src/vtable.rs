@@ -1,8 +1,6 @@
-use std::fmt::Debug;
-
-use bws_plugin_api::PluginApi;
-
 use crate::{plugin_api::PluginApiPtr, safe_types::*};
+use bws_plugin_api::PluginApi;
+use std::fmt::Debug;
 
 macro_rules! add_shared_functions {
     ($(#[$attrs:meta])* $pub:vis struct $name:ident { $( $(#[$fattrs:meta])* $fpub:vis $field:ident : $type:ty,)* }) => {

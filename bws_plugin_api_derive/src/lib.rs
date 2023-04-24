@@ -18,7 +18,7 @@ use syn::{parse_macro_input, DeriveInput};
 /// }
 /// ```
 #[proc_macro_derive(PluginApi)]
-pub fn derive_heap_size(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+pub fn derive_plugin_api(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
     let name = input.ident;
@@ -29,7 +29,7 @@ pub fn derive_heap_size(input: proc_macro::TokenStream) -> proc_macro::TokenStre
     let pkg_version = std::env::var("CARGO_PKG_VERSION").unwrap();
 
     let expanded = quote! {
-        impl #impl_generics ::bws_plugin_api::PluginApi for #name #ty_generics #where_clause {
+        impl #impl_generics ::bws_plugin_interface::PluginApi for #name #ty_generics #where_clause {
             const PKG_NAME: &'static str = #pkg_name;
             const PKG_VERSION: &'static str = #pkg_version;
         }

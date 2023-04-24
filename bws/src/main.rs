@@ -12,16 +12,17 @@ static END_PROGRAM: (Mutex<bool>, Condvar) = (Mutex::new(false), Condvar::new())
 
 fn main() -> Result<()> {
     // Parse the env vars and args that need to be parsed before loading plugins
-    // false if BWS_DISABLE_TIMESTAMPS set to anything other than 0 and false
-    let log_use_timestamps =
-        !std::env::var_os("BWS_DISABLE_TIMESTAMPS").map_or(false, |s| s != "0" && s != "false");
+
+    // true if BWS_DISABLE_TIMESTAMPS set to anything other than 0 and false
+    let log_disable_timestamps =
+        std::env::var_os("BWS_DISABLE_TIMESTAMPS").map_or(false, |s| s != "0" && s != "false");
 
     env_logger::builder()
         .filter_level(log::LevelFilter::Info)
-        .format_timestamp(if log_use_timestamps {
-            Some(Default::default())
-        } else {
+        .format_timestamp(if log_disable_timestamps {
             None
+        } else {
+            Some(Default::default())
         })
         .parse_default_env()
         .init();
