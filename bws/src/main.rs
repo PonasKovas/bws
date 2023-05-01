@@ -6,16 +6,19 @@ mod vtable;
 
 use anyhow::{Context, Result};
 pub use linear_search::LinearSearch;
-use std::sync::{Condvar, Mutex};
+use once_cell::sync::OnceCell;
+use std::sync::{
+    mpsc::{self, SyncSender},
+    Condvar, Mutex,
+};
 
-static END_PROGRAM: (Mutex<bool>, Condvar) = (Mutex::new(false), Condvar::new());
+static END_PROGRAM: OnceCell<SyncSender<()>> = OnceCell::new();
+// static END_PROGRAM: (Mutex<bool>, Condvar) = (Mutex::new(false), Condvar::new());
 
 fn main() -> Result<()> {
-    // Parse the env vars and args that need to be parsed before loading plugins
-
-    // true if BWS_DISABLE_TIMESTAMPS set to anything other than 0 and false
+    // true if BWS_DISABLE_TIMESTAMPS set to anything other than 0
     let log_disable_timestamps =
-        std::env::var_os("BWS_DISABLE_TIMESTAMPS").map_or(false, |s| s != "0" && s != "false");
+        std::env::var_os("BWS_DISABLE_TIMESTAMPS").map_or(false, |s| s != "0");
 
     env_logger::builder()
         .filter_level(log::LevelFilter::Info)
@@ -46,11 +49,11 @@ fn main() -> Result<()> {
     // Start the plugins
     plugins::start_plugins().context("Couldn't start plugins")?;
 
+    let (sender, receiver) = mpsc::sync_channel(0);
+    END_PROGRAM.set(sender);
+
     // block the thread until notification on END_PROGRAM is received
-    let mut end_program = END_PROGRAM.0.lock().unwrap();
-    while !*end_program {
-        end_program = END_PROGRAM.1.wait(end_program).unwrap();
-    }
+    let _ = receiver.recv();
 
     Ok(())
 }
