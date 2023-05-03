@@ -1,7 +1,7 @@
 mod cmd;
 mod linear_search;
 mod plugins;
-// mod vtable;
+mod vtable;
 
 use anyhow::{Context, Result};
 pub use linear_search::LinearSearch;
@@ -29,7 +29,7 @@ fn main() -> Result<()> {
         .init();
 
     // Start the plugins
-    // plugins::start_plugins().context("Couldn't start plugins")?;
+    plugins::start_plugins().context("Couldn't start plugins")?;
 
     // block the thread until notification on END_PROGRAM is received
     END_PROGRAM.wait();

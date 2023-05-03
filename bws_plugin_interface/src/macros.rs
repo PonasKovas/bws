@@ -101,8 +101,11 @@ macro_rules! plugin {
                 )?
             ]),
             start: {
-                extern "C" fn __start(plugin_id: usize, vtable: *const ()) -> MaybePanicked<SUnit>{
+                extern "C" fn __start(plugin_id: usize, vtable: &'static $crate::VTable) -> MaybePanicked<SUnit>{
                     MaybePanicked::new(move || {
+                        $crate::global::set_plugin_id(plugin_id);
+                        $crate::global::set_vtable(vtable);
+
                         let _: () = $start_fn();
 
                         SUnit::new()

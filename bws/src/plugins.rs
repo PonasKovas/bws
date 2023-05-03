@@ -219,75 +219,71 @@ pub fn check_dependencies(plugins: &[PluginData], id: usize) -> Result<bool> {
     Ok(res)
 }
 
-// /// Calls start_fn of all the plugins
-// pub fn start_plugins() -> Result<()> {
-//     let plugins = PLUGINS.get().unwrap();
+/// Starts all plugins in an order that they only start
+/// after all of their dependencies have started
+pub fn start_plugins() -> Result<()> {
+    let plugins = PLUGINS.get().unwrap();
 
-//     // let plugins save vtable reference in memory
-//     for plugin in plugins {
-//         (plugin.plugin.vtable_fn)(&crate::vtable::VTABLE).unwrap();
-//     }
+    let ordering = calc_ordering(plugins)?;
 
-//     let ordering = calc_ordering()?;
+    for id in ordering {
+        (plugins[id].plugin.start)(id, &crate::vtable::VTABLE).unwrap();
+    }
 
-//     // now that we know the order, we can start the plugins one by one
-//     for id in ordering {
-//         if (plugins[id].plugin.start_fn)()
-//             .unwrap()
-//             .into_result()
-//             .is_err()
-//         {
-//             bail!("Error starting plugin {:?}", plugins[id].plugin.name);
-//         }
-//     }
+    Ok(())
+}
 
-//     Ok(())
-// }
+fn calc_ordering(plugins: &Vec<PluginData>) -> Result<Vec<usize>> {
+    // Use the graph theory to order the plugins so that they would load
+    // only after all of their dependencies have loaded.
 
-// fn calc_ordering() -> Result<Vec<usize>> {
-//     let plugins = PLUGINS.get().unwrap();
+    let mut graph = petgraph::graph::DiGraph::<SStr<'static>, ()>::new();
+    let indices: Vec<_> = plugins
+        .iter()
+        .map(|p| graph.add_node(p.plugin.name))
+        .collect();
 
-//     // Use the graph theory to order the plugins so that they would load
-//     // only after all of their dependencies have loaded.
+    // set the edges
+    // (in other words, connect dependencies)
+    for (plugin_id, id) in indices.iter().enumerate() {
+        for dependency in plugins[plugin_id].plugin.depends_on {
+            // Now iterate through all plugins again and check which one provides the dependency
+            for (dep_id, dep_plugin) in plugins.iter().enumerate() {
+                if dep_plugin
+                    .plugin
+                    .provides
+                    .iter()
+                    .find(|api| api.name == dependency.0)
+                    .is_some()
+                {
+                    graph.update_edge(indices[dep_id], *id, ());
+                    break;
+                }
+            }
+        }
+    }
 
-//     let mut graph = petgraph::graph::DiGraph::<SStr<'static>, ()>::new();
-//     let mut indices: Vec<(SStr<'static>, _)> = Vec::new();
-//     for plugin in plugins {
-//         indices.push((plugin.plugin.name, graph.add_node(plugin.plugin.name)));
-//     }
+    // perform a topological sort of the nodes 😎
+    let ordering = match petgraph::algo::toposort(&graph, None) {
+        Ok(o) => o,
+        Err(cycle) => {
+            bail!(
+                "Dependency cycle detected: {}",
+                plugins[indices
+                    .iter()
+                    .position(|id| *id == cycle.node_id())
+                    .unwrap()]
+                .plugin
+                .name
+            );
+        }
+    };
 
-//     // set the edges
-//     // (in other words, connect dependencies)
-//     for plugin in plugins {
-//         let id = indices.search(&plugin.plugin.name);
-//         for dependency in plugin.plugin.dependencies {
-//             graph.update_edge(*indices.search(&dependency.0), *id, ());
-//         }
-//     }
+    let mut result = Vec::new();
 
-//     // perform a topological sort of the nodes 😎
-//     let ordering = match petgraph::algo::toposort(&graph, None) {
-//         Ok(o) => o,
-//         Err(cycle) => {
-//             bail!(
-//                 "Dependency cycle detected: {}",
-//                 indices.search_by_val(&cycle.node_id())
-//             );
-//         }
-//     };
+    for node_id in ordering {
+        result.push(indices.iter().position(|id| *id == node_id).unwrap())
+    }
 
-//     let mut result = Vec::new();
-
-//     for plugin_id in ordering {
-//         let plugin_name = indices.search_by_val(&plugin_id);
-
-//         for (id, plugin) in plugins.iter().enumerate() {
-//             if plugin.plugin.name == *plugin_name {
-//                 result.push(id);
-//                 break;
-//             }
-//         }
-//     }
-
-//     Ok(result)
-// }
+    Ok(result)
+}

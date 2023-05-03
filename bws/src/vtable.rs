@@ -1,25 +1,9 @@
-use bws_plugin_interface::{
-    safe_types::*,
-    vtable::{InitVTable, LogLevel, VTable},
-};
-pub use cmd::*;
-pub use plugin_api::*;
-
-pub mod cmd;
-pub mod plugin_api;
-
-pub static INIT_VTABLE: InitVTable = InitVTable {
-    log,
-    cmd_arg,
-    cmd_flag,
-    stop_main_thread,
-};
+use bws_plugin_interface::{ironties::types::*, LogLevel, VTable};
 
 pub static VTABLE: VTable = VTable {
     log,
     get_cmd_arg,
     get_cmd_flag,
-    get_plugin_vtable,
     stop_main_thread,
 };
 
@@ -34,12 +18,12 @@ extern "C" fn log(plugin_id: usize, target: SStr, level: LogLevel, message: SStr
         };
         log::log!(
             target:
-                &(format!(
+                &format!(
                     "[{}] {target}",
                     crate::plugins::PLUGINS.get().unwrap()[plugin_id]
                         .plugin
                         .name
-                )),
+                ),
             level,
             "{}",
             message
@@ -47,15 +31,53 @@ extern "C" fn log(plugin_id: usize, target: SStr, level: LogLevel, message: SStr
 
         // If an error message is printed and log level is set to trace
         // print backtrace too
-        if level == log::Level::Error {
-            eprintln!("Backtrace:\n{}", std::backtrace::Backtrace::force_capture());
+        if level == log::Level::Error && log::log_enabled!(log::Level::Trace) {
+            log::trace!("Backtrace:\n{}", std::backtrace::Backtrace::force_capture());
         }
+
+        SUnit::new()
     })
 }
 
-extern "C" fn stop_main_thread(_plugin_id: usize) -> MaybePanicked {
+extern "C" fn stop_main_thread(plugin_id: usize) -> MaybePanicked {
     MaybePanicked::new(move || {
-        *crate::END_PROGRAM.0.lock().unwrap() = true;
-        crate::END_PROGRAM.1.notify_all();
+        log::debug!(
+            "Shutdown issued by {}",
+            crate::plugins::PLUGINS.get().unwrap()[plugin_id]
+                .plugin
+                .name
+        );
+        let _ = crate::END_PROGRAM.set(());
+
+        SUnit::new()
+    })
+}
+
+extern "C" fn get_cmd_arg(plugin_id: usize, id: SStr) -> MaybePanicked<SOption<SStr<'static>>> {
+    MaybePanicked::new(move || {
+        log::debug!(
+            "Plugin {} queried cmd arg {}",
+            crate::plugins::PLUGINS.get().unwrap()[plugin_id]
+                .plugin
+                .name,
+            id
+        );
+
+        crate::cmd::get_arg(id.into_normal())
+            .map(|s| s.into())
+            .into()
+    })
+}
+extern "C" fn get_cmd_flag(plugin_id: usize, id: SStr) -> MaybePanicked<bool> {
+    MaybePanicked::new(move || {
+        log::debug!(
+            "Plugin {} queried cmd flag {}",
+            crate::plugins::PLUGINS.get().unwrap()[plugin_id]
+                .plugin
+                .name,
+            id
+        );
+
+        crate::cmd::get_flag(id.into_normal())
     })
 }

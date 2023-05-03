@@ -1,11 +1,18 @@
 pub const ABI: SStr<'static> = SStr::new(env!("CARGO_PKG_VERSION"));
 
-use std::fmt::Debug;
-
 use ironties::{
     types::{MaybePanicked, SOption, SSlice, SStr, STuple2, SUnit},
     TypeLayout,
 };
+use std::fmt::Debug;
+
+mod macros;
+mod vtable;
+
+pub use ironties;
+pub use vtable::{LogLevel, VTable};
+
+pub use global::get_vtable as vtable;
 
 #[repr(C)]
 pub struct BwsPlugin {
@@ -13,7 +20,7 @@ pub struct BwsPlugin {
     pub depends_on: SSlice<'static, STuple2<SStr<'static>, SStr<'static>>>,
     pub provides: SSlice<'static, Api>,
     pub cmd: SSlice<'static, Cmd>,
-    pub start: extern "C" fn(plugin_id: usize, vtable: *const ()) -> MaybePanicked<SUnit>,
+    pub start: extern "C" fn(plugin_id: usize, vtable: &'static VTable) -> MaybePanicked<SUnit>,
 }
 
 #[repr(C)]
@@ -42,14 +49,6 @@ pub enum CmdKind {
     },
     Flag,
 }
-
-mod macros;
-mod vtable;
-
-pub use ironties;
-pub use vtable::{LogLevel, VTable};
-
-pub use global::get_vtable as vtable;
 
 #[doc(hidden)]
 pub mod global {
