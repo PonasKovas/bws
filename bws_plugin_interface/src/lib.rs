@@ -1,51 +1,79 @@
-use safer_ffi::derive_ReprC;
-use safer_ffi::slice::slice_ref;
-use safer_ffi::string::str_ref;
-use safer_ffi::tuple::Tuple2;
+pub const ABI: SStr<'static> = SStr::new(env!("CARGO_PKG_VERSION"));
 
-#[derive_ReprC]
+use std::fmt::Debug;
+
+use ironties::{
+    types::{MaybePanicked, SOption, SSlice, SStr, STuple2, SUnit},
+    TypeLayout,
+};
+
 #[repr(C)]
 pub struct BwsPlugin {
-    pub name: str_ref<'static>,
-    pub version: str_ref<'static>,
-    pub dependencies: slice_ref<'static, Tuple2<str_ref<'static>, str_ref<'static>>>,
-    pub api: Option<plugin_api::PluginApiPtr>,
+    pub name: SStr<'static>,
+    pub depends_on: SSlice<'static, STuple2<SStr<'static>, SStr<'static>>>,
+    pub provides: SSlice<'static, Api>,
+    pub cmd: SSlice<'static, Cmd>,
+    pub start: extern "C" fn(plugin_id: usize, vtable: *const ()) -> MaybePanicked<SUnit>,
+}
+
+#[repr(C)]
+pub struct Api {
+    pub name: SStr<'static>,
+    pub version: SStr<'static>,
+    pub vtable: *const (),
+    pub vtable_layout: extern "C" fn() -> MaybePanicked<TypeLayout>,
+}
+
+#[repr(C)]
+pub struct Cmd {
+    /// Unique ID for the flag/argument
+    pub id: SStr<'static>,
+    pub short: SOption<char>,
+    pub long: SStr<'static>,
+    pub help: SStr<'static>,
+    pub kind: CmdKind,
+}
+
+#[repr(C)]
+pub enum CmdKind {
+    Argument {
+        value_name: SStr<'static>,
+        required: bool,
+    },
+    Flag,
 }
 
 mod macros;
-pub mod plugin_api;
-pub mod vtable;
+mod vtable;
 
-pub use bws_plugin_api::PluginApi;
+pub use ironties;
+pub use vtable::{LogLevel, VTable};
 
-use vtable::{InitVTable, VTable};
+pub use global::get_vtable as vtable;
 
-pub const ABI: &'static str = env!("CARGO_PKG_VERSION");
+#[doc(hidden)]
+pub mod global {
+    use once_cell::sync::OnceCell;
 
-// pub use global::get_vtable;
+    static PLUGIN_ID: OnceCell<usize> = OnceCell::new();
+    static VTABLE: OnceCell<&'static crate::VTable> = OnceCell::new();
 
-// #[doc(hidden)]
-// pub mod global {
-//     use once_cell::sync::OnceCell;
+    pub fn get_plugin_id() -> usize {
+        *PLUGIN_ID.get().expect("plugin id global not set")
+    }
+    pub fn get_vtable() -> &'static crate::VTable {
+        VTABLE.get().expect("vtable global not set")
+    }
+    pub fn set_plugin_id(id: usize) {
+        PLUGIN_ID.set(id).expect("plugin id already set");
+    }
+    pub fn set_vtable(vtable: &'static crate::VTable) {
+        VTABLE.set(vtable).expect("vtable already set");
+    }
+}
 
-//     static PLUGIN_ID: OnceCell<usize> = OnceCell::new();
-//     static VTABLE: OnceCell<&'static crate::VTable> = OnceCell::new();
-
-//     pub fn get_plugin_id() -> usize {
-//         *PLUGIN_ID.get().expect("plugin id global not set")
-//     }
-//     /// Returns a reference to the [`VTable`][crate::VTable] that's saved in a static
-//     ///
-//     /// # Panics
-//     ///
-//     /// Panics if static not initialized yet.
-//     pub fn get_vtable() -> &'static crate::VTable {
-//         VTABLE.get().expect("vtable global not set")
-//     }
-//     pub fn set_plugin_id(id: usize) {
-//         PLUGIN_ID.set(id).expect("plugin id already set");
-//     }
-//     pub fn set_vtable(vtable: &'static crate::VTable) {
-//         VTABLE.set(vtable).expect("vtable already set");
-//     }
-// }
+impl Debug for BwsPlugin {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "BwsPlugin {:?}", self.name)
+    }
+}

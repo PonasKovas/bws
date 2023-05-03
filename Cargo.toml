@@ -1,2 +1,2 @@
 [workspace]
-members = ["bws", "bws_plugin_interface", "bws_plugin_api_derive"]
+members = ["bws", "bws_plugin_interface"]

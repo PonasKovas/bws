@@ -5,4 +5,4 @@ edition = "2021"
 
 [dependencies]
 once_cell = { version = "1.17.0" }
-safer-ffi = { version = "0.0.10", features = ["proc_macros"] }
+ironties = { path = "../../ironties/ironties" }

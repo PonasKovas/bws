@@ -3,139 +3,121 @@
 /// # Usage
 ///
 /// ```
-/// # use bws_plugin_api::PluginApi;
-/// # use bws_plugin_interface::{vtable::InitVTable, get_vtable, info, warn};
-/// # use safe_types::MaybePanicked;
 /// bws_plugin_interface::plugin! {
 ///     depend "other_plugin_dependency" = "0.1",
 ///     depend "you_can_have_as_many_dependencies_as_you_want" = "<2.0",
-///     
-///     api MY_API, // optional, can be ommited if your plugin doesn't expose an API
 ///
-///     init_fn init,
-///     start_fn start,
+///     provide "api_name" = "0.2.2" with MY_API,
+///     provide "my_api" with MY_API,   // uses crate version
+///
+///     CMD[
+///         ARG{
+///             id: "my_arg",
+///             short: 'm', // optional
+///             long: "my_arg",
+///             help: "My argument takes an integer.",
+///             value_name: "INTEGER",
+///             required: true,
+///         },
+///         FLAG{
+///             id: "my_flag",
+///             short: 'n', // optional
+///             long: "my_flag",
+///             help: "Enables functionality",
+///         },
+///     ],
+///
+///     start(start),
 /// }
 ///
-/// // Again, optional. Only if you need to expose an API for other plugins
-/// // If you do use this, make sure MyApi is #[repr(C)]
-/// static MY_API: MyApi = MyApi { method };
+/// static MY_API: u32 = 0;
 ///
-/// #[repr(C)]
-/// #[derive(PluginApi)]
-/// struct MyApi {
-///     method: extern "C" fn() -> MaybePanicked,
-/// }
-///
-/// extern "C" fn method() -> MaybePanicked {
-///     MaybePanicked::new(move || {
-///         info!("MyApi::method called");
-///     })
-/// }
-///
-/// // This function will be called once on BWS initialization
-/// // and allows you to configure CMD args and flags
-/// fn init(vtable: &'static InitVTable) -> Result<(), ()>{
-///     vtable.cmd_flag("debug", 'd', "debug", "Prints more information during runtime to help debug");
-///     
-///     Ok(())
-/// }
-///
-/// // This function is called after CMD args have been parsed,
-/// // You can start doing anything you want here
-/// fn start() -> Result<(), ()> {
-///     info!("My plugin started");
-///     if get_vtable().get_cmd_flag("debug") {
-///         warn!("--debug flag set!");
-///     }
-///     
-///     Ok(())
+/// fn start() {
+///     //info!("My plugin started");
+///     //if get_vtable().get_cmd_flag("debug") {
+///     //    warn!("--debug flag set!");
+///     //}
 /// }
 /// ```
 #[macro_export]
 macro_rules! plugin {
-    ($(depend $depname:literal = $depversion:literal ,)* $(api $api:path ,)? init_fn $init_fn:path , start_fn $start_fn:path $(,)? ) => {
-        #[no_mangle]
-        static BWS_ABI: u64 = $crate::ABI;
+    (
+        $(depend $depname:literal = $depversion:literal ,)*
+        $(provide $providename:literal $( = $provideversion:literal )? with $provider:path ,)*
+        $(CMD[
+            $(ARG{ id: $arg_id:literal, $(short: $arg_short:literal,)? long: $arg_long:literal, help: $arg_help:literal, value_name: $arg_value_name:literal, required: $arg_required:literal $(,)?},)*
+            $(FLAG{ id: $flag_id:literal, $(short: $flag_short:literal,)? long: $flag_long:literal, help: $flag_help:literal $(,)?},)*
+        ],)?
+        start($start_fn:path) $(,)?
+    ) => {const _: () = {
+        use $crate::ironties::types::{MaybePanicked, SUnit, SSlice, SStr, SOption, STuple2};
+        use $crate::ironties::{TypeLayout, TypeInfo};
 
         #[no_mangle]
-        static BWS_PLUGIN_ROOT: $crate::BwsPlugin = $crate::BwsPlugin {
-            name: $crate::safe_types::SStr::from_str(env!("CARGO_PKG_NAME")),
-            version: $crate::safe_types::SStr::from_str(env!("CARGO_PKG_VERSION")),
-            dependencies: $crate::safe_types::SSlice::from_slice(&[
-                $( $crate::safe_types::STuple2( $crate::safe_types::SStr::from_str( $depname ), $crate::safe_types::SStr::from_str( $depversion ) ), )*
+        static BWS_ABI: SStr<'static> = $crate::ABI;
+
+        #[no_mangle]
+        static BWS_PLUGIN: $crate::BwsPlugin = $crate::BwsPlugin {
+            name: SStr::new(env!("CARGO_PKG_NAME")),
+            depends_on: SSlice::new(&[
+                $( STuple2( SStr::new( $depname ), SStr::new( $depversion ) ), )*
             ]),
-            init_fn: {
-                extern "C" fn ___init(plugin_id: usize, vtable: &'static $crate::vtable::InitVTable) -> $crate::safe_types::MaybePanicked<$crate::safe_types::SResult> {
-
-                    $crate::safe_types::MaybePanicked::new(move || {
-                        $crate::global::set_plugin_id(plugin_id);
-
-                        let r: ::std::result::Result<(), ()> = $init_fn (vtable);
-
-                        if r.is_ok() {
-                            $crate::safe_types::SResult::Ok($crate::safe_types::SUnit::new())
-                        } else {
-                            $crate::safe_types::SResult::Err($crate::safe_types::SUnit::new())
+            provides: SSlice::new(&[
+                $( $crate::Api{
+                    name: SStr::new($providename),
+                    version: SStr::new({ env!("CARGO_PKG_VERSION") $(; $provideversion)? }),
+                    vtable: &$provider as *const _ as *const (),
+                    vtable_layout: {
+                        const fn get_layout<T: TypeInfo>(_: &T) -> extern "C" fn() -> MaybePanicked<TypeLayout> {
+                            extern "C" fn __layout<T: TypeInfo>() -> MaybePanicked<TypeLayout> {
+                                MaybePanicked::new(|| T::layout())
+                            }
+                            __layout::<T>
                         }
 
-                    })
-                }
-                ___init
-            },
-            vtable_fn: {
-                extern "C" fn ___vtable(vtable: &'static $crate::vtable::VTable) -> $crate::safe_types::MaybePanicked {
-                    $crate::safe_types::MaybePanicked::new(move || {
-                        $crate::global::set_vtable(vtable);
-                    })
-                }
-                ___vtable
-            },
-            start_fn: {
-                extern "C" fn ___start() -> $crate::safe_types::MaybePanicked<$crate::safe_types::SResult> {
-                    $crate::safe_types::MaybePanicked::new(move || {
-                        let r: ::std::result::Result<(), ()> = $start_fn ();
-
-                        if r.is_ok() {
-                            $crate::safe_types::SResult::Ok($crate::safe_types::SUnit::new())
-                        } else {
-                            $crate::safe_types::SResult::Err($crate::safe_types::SUnit::new())
-                        }
-                    })
-                }
-                ___start
-            },
-            api: {
-                // Default, if API not given
-                let api: $crate::safe_types::SOption<$crate::plugin_api::PluginApiPtr> = $crate::safe_types::SOption::None;
-
+                        get_layout(&$provider)
+                    },
+                }, )*
+            ]),
+            cmd: SSlice::new(&[
                 $(
-                    let api = $crate::safe_types::SOption::Some(
-                        $crate::plugin_api::PluginApiPtr::new(& $api)
-                    );
+                    $( $crate::Cmd{
+                        id: SStr::new($arg_id),
+                        short: { SOption::<char>::None $(; SOption::Some($arg_short) )? },
+                        long: SStr::new($arg_long),
+                        help: SStr::new($arg_help),
+                        kind: $crate::CmdKind::Argument{
+                            value_name: SStr::new($arg_value_name),
+                            required: $arg_required,
+                        },
+                    }, )*
+                    $( $crate::Cmd{
+                        id: SStr::new($flag_id),
+                        short: { SOption::<char>::None $(; SOption::Some($flag_short) )? },
+                        long: SStr::new($flag_long),
+                        help: SStr::new($flag_help),
+                        kind: $crate::CmdKind::Flag,
+                    }, )*
                 )?
+            ]),
+            start: {
+                extern "C" fn __start(plugin_id: usize, vtable: *const ()) -> MaybePanicked<SUnit>{
+                    MaybePanicked::new(move || {
+                        let _: () = $start_fn();
 
-                api
+                        SUnit::new()
+                    })
+                }
+
+                __start
             },
         };
-    };
+    };};
 }
 
 //////////////////////
 // Log macros below //
 //////////////////////
-
-#[doc(hidden)]
-#[macro_export]
-macro_rules! __bws_log {
-    ($vtable:expr, $level:ident, $($arg:tt)+) => {
-        ($vtable.log)(
-            $crate::global::get_plugin_id(),
-            $crate::safe_types::SStr::from(::std::module_path!()),
-            $crate::vtable::LogLevel::$level,
-            $crate::safe_types::SStr::from(::std::format!($($arg)+).as_str()),
-        ).unwrap();
-    };
-}
 
 /// Logs an error
 ///
@@ -143,18 +125,14 @@ macro_rules! __bws_log {
 ///
 /// ```
 /// # use bws_plugin_interface::error;
-/// # fn example<T: std::fmt::Debug>(vtable: &'static bws_plugin_interface::vtable::VTable, e: T) {
-/// error!(vtable, "error: {:?}", e);
+/// # fn example<T: std::fmt::Debug>(e: T) {
 /// error!("error: {:?}", e);
 /// # }
 /// ```
 #[macro_export]
 macro_rules! error {
-    ($vtable:path, $message:literal $($arg:tt)*) => {
-        $crate::__bws_log!($vtable, Error, $message $($arg)*);
-    };
-    ($message:literal $($arg:tt)*) => {
-        $crate::__bws_log!($crate::global::get_vtable(), Error, $message $($arg)*);
+    ($($arg:tt)*) => {
+        $crate::vtable().log(::std::module_path!(), $crate::LogLevel::Error, &::std::format!($($arg)+));
     };
 }
 
@@ -164,18 +142,14 @@ macro_rules! error {
 ///
 /// ```
 /// # use bws_plugin_interface::warn;
-/// # fn example<T: std::fmt::Debug>(vtable: &'static bws_plugin_interface::vtable::VTable, e: T) {
-/// warn!(vtable, "warning: {:?}", e);
+/// # fn example<T: std::fmt::Debug>(e: T) {
 /// warn!("warning: {:?}", e);
 /// # }
 /// ```
 #[macro_export]
 macro_rules! warn {
-    ($vtable:path, $message:literal $($arg:tt)*) => {
-        $crate::__bws_log!($vtable, Warn, $message $($arg)*);
-    };
-    ($message:literal $($arg:tt)*) => {
-        $crate::__bws_log!($crate::global::get_vtable(), Warn, $message $($arg)*);
+    ($($arg:tt)*) => {
+        $crate::vtable().log(::std::module_path!(), $crate::LogLevel::Warn, &::std::format!($($arg)+));
     };
 }
 
@@ -185,18 +159,14 @@ macro_rules! warn {
 ///
 /// ```
 /// # use bws_plugin_interface::info;
-/// # fn example<T: std::fmt::Debug>(vtable: &'static bws_plugin_interface::vtable::VTable, e: T) {
-/// info!(vtable, "info: {:?}", e);
+/// # fn example<T: std::fmt::Debug>(e: T) {
 /// info!("info: {:?}", e);
 /// # }
 /// ```
 #[macro_export]
 macro_rules! info {
-    ($vtable:path, $message:literal $($arg:tt)*) => {
-        $crate::__bws_log!($vtable, Info, $message $($arg)*);
-    };
-    ($message:literal $($arg:tt)*) => {
-        $crate::__bws_log!($crate::global::get_vtable(), Info, $message $($arg)*);
+    ($($arg:tt)*) => {
+        $crate::vtable().log(::std::module_path!(), $crate::LogLevel::Info, &::std::format!($($arg)+));
     };
 }
 
@@ -206,18 +176,14 @@ macro_rules! info {
 ///
 /// ```
 /// # use bws_plugin_interface::debug;
-/// # fn example<T: std::fmt::Debug>(vtable: &'static bws_plugin_interface::vtable::VTable, e: T) {
-/// debug!(vtable, "debug info: {:?}", e);
+/// # fn example<T: std::fmt::Debug>(e: T) {
 /// debug!("debug info: {:?}", e);
 /// # }
 /// ```
 #[macro_export]
 macro_rules! debug {
-    ($vtable:path, $message:literal $($arg:tt)*) => {
-        $crate::__bws_log!($vtable, Debug, $message $($arg)*);
-    };
-    ($message:literal $($arg:tt)*) => {
-        $crate::__bws_log!($crate::global::get_vtable(), Debug, $message $($arg)*);
+    ($($arg:tt)*) => {
+        $crate::vtable().log(::std::module_path!(), $crate::LogLevel::Debug, &::std::format!($($arg)+));
     };
 }
 
@@ -227,17 +193,13 @@ macro_rules! debug {
 ///
 /// ```
 /// # use bws_plugin_interface::trace;
-/// # fn example<T: std::fmt::Debug>(vtable: &'static bws_plugin_interface::vtable::VTable, e: T) {
-/// trace!(vtable, "trace info: {:?}", e);
+/// # fn example<T: std::fmt::Debug>(e: T) {
 /// trace!("trace info: {:?}", e);
 /// # }
 /// ```
 #[macro_export]
 macro_rules! trace {
-    ($vtable:path, $message:literal $($arg:tt)*) => {
-        $crate::__bws_log!($vtable, Trace, $message $($arg)*);
-    };
-    ($message:literal $($arg:tt)*) => {
-        $crate::__bws_log!($crate::global::get_vtable(), Trace, $message $($arg)*);
+    ($($arg:tt)*) => {
+        $crate::vtable().log(::std::module_path!(), $crate::LogLevel::Trace, &::std::format!($($arg)+));
     };
 }
