@@ -24,6 +24,7 @@ pub struct BwsPlugin {
 }
 
 #[repr(C)]
+#[derive(Debug)]
 pub struct Api {
     pub name: SStr<'static>,
     pub version: SStr<'static>,
