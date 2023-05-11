@@ -1,2 +1,5 @@
 [workspace]
-members = ["bws", "bws_plugin_interface", "protocol"]
+members = ["bws", "protocol"]
+
+[profile.release]
+debug = 1

@@ -1,6 +1,3 @@
 /target
 Cargo.lock
-plugins/*
-!plugins/.gitkeep
-config/*
-!config/.gitkeep
+logs/

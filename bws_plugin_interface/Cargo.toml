@@ -1,8 +1,0 @@
-[package]
-name = "bws_plugin_interface"
-version = "0.3.0"
-edition = "2021"
-
-[dependencies]
-once_cell = { version = "1.17.0" }
-ironties = { path = "../../ironties/ironties" }
