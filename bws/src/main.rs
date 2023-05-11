@@ -4,6 +4,8 @@ mod linear_search;
 pub mod logging;
 pub mod server;
 
+use std::sync::Arc;
+
 use anyhow::{Context, Result};
 pub use linear_search::LinearSearch;
 use once_cell::sync::Lazy;
@@ -24,14 +26,18 @@ fn main() -> Result<()> {
         graceful_shutdown::shutdown();
     })?;
 
-    let runtime = Builder::new_multi_thread()
-        .enable_all()
-        .worker_threads(cli::OPT.net_workers)
-        .thread_name("bws-net-worker")
-        .build()
-        .unwrap();
+    let runtime = Arc::new(
+        Builder::new_multi_thread()
+            .enable_all()
+            .worker_threads(cli::OPT.net_workers)
+            .thread_name("bws-net-worker")
+            .build()
+            .unwrap(),
+    );
 
-    let rt_handle = runtime.handle().clone();
+    let rt = Arc::clone(&runtime);
+
+    info!("Start up...");
 
     std::thread::spawn(move || {
         struct MyServer {
@@ -48,7 +54,7 @@ fn main() -> Result<()> {
         let my_server = MyServer {
             serverbase_store: server::ServerBaseStore::new(),
         };
-        my_server.run(rt_handle, 25565).unwrap();
+        my_server.run(&rt, 25565).unwrap();
     });
 
     graceful_shutdown::wait_for_shutdown();
