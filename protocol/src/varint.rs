@@ -7,7 +7,8 @@ pub struct VarInt(pub i32);
 pub struct VarLong(pub i64);
 
 impl ToBytes for VarInt {
-    fn write_to<W: std::io::Write>(&self, write: &mut W) -> std::io::Result<()> {
+    fn write_to<W: std::io::Write>(&self, write: &mut W) -> std::io::Result<usize> {
+        let mut i = 0;
         let mut value = self.0;
         loop {
             // Take the 7 lower bits of the value
@@ -22,6 +23,7 @@ impl ToBytes for VarInt {
             }
 
             write.write_all(&[temp])?;
+            i += 1;
 
             // If there is no more data to write, exit the loop
             if value == 0 {
@@ -29,7 +31,7 @@ impl ToBytes for VarInt {
             }
         }
 
-        Ok(())
+        Ok(i)
     }
 }
 
@@ -73,7 +75,9 @@ impl FromBytes for VarInt {
 }
 
 impl ToBytes for VarLong {
-    fn write_to<W: std::io::Write>(&self, write: &mut W) -> std::io::Result<()> {
+    fn write_to<W: std::io::Write>(&self, write: &mut W) -> std::io::Result<usize> {
+        let mut i = 0;
+
         let mut value = self.0;
         loop {
             // Take the 7 lower bits of the value
@@ -88,6 +92,7 @@ impl ToBytes for VarLong {
             }
 
             write.write_all(&[temp])?;
+            i += 1;
 
             // If there is no more data to write, exit the loop
             if value == 0 {
@@ -95,7 +100,7 @@ impl ToBytes for VarLong {
             }
         }
 
-        Ok(())
+        Ok(i)
     }
 }
 
@@ -135,6 +140,18 @@ impl FromBytes for VarLong {
         }
 
         Ok(Self(result))
+    }
+}
+
+impl From<i32> for VarInt {
+    fn from(value: i32) -> Self {
+        Self(value)
+    }
+}
+
+impl From<VarInt> for i32 {
+    fn from(value: VarInt) -> i32 {
+        value.0
     }
 }
 

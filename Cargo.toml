@@ -1,2 +1,2 @@
 [workspace]
-members = ["bws", "protocol", "example"]
+members = ["bws", "protocol", "protocol-derive", "example"]
