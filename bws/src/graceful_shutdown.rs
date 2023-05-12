@@ -1,86 +1,88 @@
-use crate::cli;
-use once_cell::sync::OnceCell;
 use std::{
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Condvar, Mutex,
-    },
+    sync::{Arc, Condvar, Mutex},
     time::Duration,
 };
 use tracing::warn;
 
-pub static SHUTDOWN: OnceCell<()> = OnceCell::new();
-
-// Count of guards currently alive
-//
-// When the shutdown channel is fired, the program will attempt to wait until the counter reaches 0,
-// unless it takes too long
-static WAIT_FOR: (Mutex<u64>, Condvar) = (Mutex::new(0), Condvar::new());
-
-pub struct GracefulShutdownGuard {
-    _private: (),
+/// A graceful shutdown system. Cloning creates a new handle to the same system.
+#[derive(Debug, Clone)]
+pub struct ShutdownSystem {
+    initiate: Arc<(flume::Sender<()>, flume::Receiver<()>)>,
+    active_guards: Arc<(Mutex<u64>, Condvar)>,
 }
 
-impl GracefulShutdownGuard {
+/// Prevents a shutdown while in scope, unless forcuful shutdown timeout is reached
+pub struct GracefulShutdownGuard<'a> {
+    system: &'a ShutdownSystem,
+}
+
+impl ShutdownSystem {
+    /// Constructs a new [`ShutdownSystem`]
     pub fn new() -> Self {
-        // increase WAIT_FOR counter
-        *WAIT_FOR.0.lock().unwrap() += 1;
-
-        Self { _private: () }
+        Self {
+            initiate: Arc::new(flume::bounded(1)),
+            active_guards: Arc::new((Mutex::new(0), Condvar::new())),
+        }
     }
-}
+    /// Creates a guard that prevents shutdown while it's in scope, or until a timeout is reached
+    pub fn guard(&self) -> GracefulShutdownGuard {
+        // increase counter
+        *self.active_guards.0.lock().unwrap() += 1;
 
-impl Drop for GracefulShutdownGuard {
-    fn drop(&mut self) {
-        // decrease WAIT_FOR counter
-        let mut counter_lock = WAIT_FOR.0.lock().unwrap();
-        *counter_lock -= 1;
+        GracefulShutdownGuard { system: self }
+    }
+    /// Initiates a shutdown
+    pub fn shutdown(&self) {
+        // discarding result, since it doesn't matter if a shutdown has already been issued,
+        let _ = self.initiate.0.try_send(());
+    }
+    /// Blocks the thread until a shutdown is initiated
+    pub fn blocking_wait_for_shutdown(&self) {
+        let _ = self.initiate.1.recv();
+    }
+    /// Waits for the shutdown initiation asynchronously
+    pub async fn wait_for_shutdown(&self) {
+        let _ = self.initiate.1.recv_async().await;
+    }
+    /// Blocks the thread until there's no more active guards or the timeout is reached
+    ///
+    /// This is meant to be called after the shutdown is initiated, to give some time to clean up
+    /// and then terminate the program.
+    ///
+    /// `timeout` is in milliseconds.
+    pub fn blocking_wait_for_guards(&self, timeout: Option<u64>) {
+        let counter = self.active_guards.0.lock().unwrap();
+        if let Some(timeout) = timeout {
+            let (_counter, timed_out) = self
+                .active_guards
+                .1
+                .wait_timeout_while(counter, Duration::from_millis(timeout), |counter| {
+                    *counter > 0
+                })
+                .unwrap();
 
-        // notify the waiting thread if the counter has reached 0
-        if *counter_lock == 0 {
-            WAIT_FOR.1.notify_all();
+            if timed_out.timed_out() {
+                warn!("Graceful shutdown timed out. Shutting down forcefully.");
+            }
+        } else {
+            let _counter = self
+                .active_guards
+                .1
+                .wait_while(counter, |counter| *counter > 0)
+                .unwrap();
         }
     }
 }
 
-/// Creates a guard that prevents shutdown while it's in scope, until shutdown timer ends
-pub fn guard() -> GracefulShutdownGuard {
-    GracefulShutdownGuard::new()
-}
+impl<'a> Drop for GracefulShutdownGuard<'a> {
+    fn drop(&mut self) {
+        // decrease guards counter
+        let mut counter_lock = self.system.active_guards.0.lock().unwrap();
+        *counter_lock -= 1;
 
-/// Initiates a shutdown
-pub fn shutdown() {
-    // discarding result, since it doesn't matter if a shutdown has already been issued,
-    let _ = SHUTDOWN.set(());
-}
-
-/// Blocks the thread until a shutdown is initiated
-pub fn wait_for_shutdown() {
-    SHUTDOWN.wait();
-}
-
-/// Waits until all guards dropped or timeout
-pub fn wait_for_guards() {
-    static TIMED_OUT: AtomicBool = AtomicBool::new(false);
-
-    let timeout = cli::OPT.shutdown_timeout;
-
-    if timeout >= 0 {
-        let timed_out_ref = &TIMED_OUT;
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(timeout as u64));
-
-            timed_out_ref.store(true, Ordering::SeqCst);
-
-            warn!("Graceful shutdown timed out. Shutting down forcefully.");
-
-            WAIT_FOR.1.notify_all();
-        });
-    }
-
-    // block the thread until counter reaches 0 or timeout occurs
-    let mut counter = WAIT_FOR.0.lock().unwrap();
-    while *counter > 0 && !TIMED_OUT.load(Ordering::SeqCst) {
-        counter = WAIT_FOR.1.wait(counter).unwrap();
+        // notify anyone waiting if the counter has reached 0
+        if *counter_lock == 0 {
+            self.system.active_guards.1.notify_all();
+        }
     }
 }
