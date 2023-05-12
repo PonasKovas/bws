@@ -1,6 +1,2 @@
 [workspace]
 members = ["bws", "protocol", "example"]
-
-[profile.release]
-debug = 1
-

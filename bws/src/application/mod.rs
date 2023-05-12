@@ -10,7 +10,7 @@ mod logging;
 /// Convenience function for applications to run a single server
 ///
 /// Takes care of logging, a tokio runtime, handling ctrl-c, and shutdown
-pub fn run_app<S: ServerBase + 'static>(
+pub fn run_app<S: ServerBase + Send + 'static>(
     server: S,
     config: &Config,
 ) -> Result<(), Box<dyn std::error::Error>> {
