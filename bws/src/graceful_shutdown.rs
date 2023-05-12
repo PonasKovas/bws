@@ -1,13 +1,15 @@
+use once_cell::sync::OnceCell;
 use std::{
     sync::{Arc, Condvar, Mutex},
     time::Duration,
 };
+use tokio::sync::Notify;
 use tracing::warn;
 
 /// A graceful shutdown system. Cloning creates a new handle to the same system.
 #[derive(Debug, Clone)]
 pub struct ShutdownSystem {
-    initiate: Arc<(flume::Sender<()>, flume::Receiver<()>)>,
+    initiate: Arc<(OnceCell<()>, Notify)>,
     active_guards: Arc<(Mutex<u64>, Condvar)>,
 }
 
@@ -20,7 +22,7 @@ impl ShutdownSystem {
     /// Constructs a new [`ShutdownSystem`]
     pub fn new() -> Self {
         Self {
-            initiate: Arc::new(flume::bounded(1)),
+            initiate: Arc::new((OnceCell::new(), Notify::new())),
             active_guards: Arc::new((Mutex::new(0), Condvar::new())),
         }
     }
@@ -33,16 +35,18 @@ impl ShutdownSystem {
     }
     /// Initiates a shutdown
     pub fn shutdown(&self) {
-        // discarding result, since it doesn't matter if a shutdown has already been issued,
-        let _ = self.initiate.0.try_send(());
+        // discard because we don't care if shutdown already initiated
+        let _ = self.initiate.0.set(());
+        // Notify any async waiters
+        self.initiate.1.notify_waiters();
     }
     /// Blocks the thread until a shutdown is initiated
     pub fn blocking_wait_for_shutdown(&self) {
-        let _ = self.initiate.1.recv();
+        self.initiate.0.wait();
     }
     /// Waits for the shutdown initiation asynchronously
     pub async fn wait_for_shutdown(&self) {
-        let _ = self.initiate.1.recv_async().await;
+        self.initiate.1.notified().await;
     }
     /// Blocks the thread until there's no more active guards or the timeout is reached
     ///
