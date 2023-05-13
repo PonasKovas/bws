@@ -190,7 +190,7 @@ pub fn derive_from_bytes(input: TokenStream) -> TokenStream {
                         match_arms.push(quote! {
                             #next_discriminant => {
                                 Ok(Self::#variant_name{ #(
-                                    #field_names: protocol::Deserializable::from_reader(__input)?,
+                                    #field_names: FromBytes::read_from(read)?,
                                 )* })
                             }
                         });
@@ -199,15 +199,15 @@ pub fn derive_from_bytes(input: TokenStream) -> TokenStream {
                         let field_types = fields.unnamed.iter().map(|f| &f.ty);
 
                         match_arms.push(quote! {
-                             #next_discriminant => {
-                                 Ok(Self::#variant_name ( #(
-                                     {
-                                         let temp: #field_types = protocol::Deserializable::from_reader(__input)?;
-                                         temp
-                                     }
-                                 )* ))
-                             }
-                         });
+                            #next_discriminant => {
+                                Ok(Self::#variant_name ( #(
+                                    {
+                                        let temp: #field_types = FromBytes::read_from(read)?;
+                                        temp
+                                    }
+                                )* ))
+                            }
+                        });
                     }
                     Fields::Unit => {
                         match_arms.push(quote! {

@@ -8,9 +8,6 @@ impl ServerBase for MyServer {
     fn store(&self) -> &ServerBaseStore {
         &self.serverbase_store
     }
-    fn store_mut(&mut self) -> &mut ServerBaseStore {
-        &mut self.serverbase_store
-    }
 }
 
 fn main() {

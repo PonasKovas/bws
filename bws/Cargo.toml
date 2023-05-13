@@ -5,6 +5,7 @@ authors = ["Ponas <mykolas.peteraitis@gmail.com>"]
 edition = "2021"
 
 [dependencies]
+protocol = { path = "../protocol/" }
 once_cell = "1.17.0"
 tracing = "0.1.37"
 tokio = { version = "1", features = ["full"] }
@@ -12,6 +13,7 @@ tracing-forest =  { version = "0.1.5", features = ["chrono", "ansi"], optional =
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"], optional = true }
 ctrlc = { version = "3.2.5", optional = true }
 human-panic = { version = "1.1.4", optional = true }
+futures = "0.3.28"
 
 [features]
 application = ["ctrlc", "human-panic", "tracing-forest", "tracing-subscriber"]

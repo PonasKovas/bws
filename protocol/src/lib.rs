@@ -2,11 +2,11 @@ extern crate self as protocol;
 
 mod bstring;
 pub mod newtypes;
+pub mod packets;
 mod primitive_impls;
 mod string;
 mod varint;
 
-use newtypes::NextState;
 use std::io::{Read, Result, Write};
 
 pub use bstring::BString;
@@ -21,12 +21,4 @@ pub trait FromBytes {
 
 pub trait ToBytes {
     fn write_to<W: Write>(&self, write: &mut W) -> Result<usize>;
-}
-
-#[derive(FromBytes, ToBytes, Debug, Clone, PartialEq)]
-pub struct Handshake {
-    pub protocol_version: VarInt,
-    pub server_address: BString<255>,
-    pub server_port: u16,
-    pub next_state: NextState,
 }
