@@ -12,7 +12,6 @@ pub enum ServerBound {
     Status(SBStatus),
     Login,
     Play,
-    LegacyPing(LegacyPing),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -20,5 +19,4 @@ pub enum ClientBound {
     Status(CBStatus),
     Login,
     Play,
-    LegacyPingResponse(LegacyPingResponse),
 }

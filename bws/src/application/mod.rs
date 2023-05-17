@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tokio::runtime::Builder;
 use tracing::info;
 
-use crate::serverbase::{self, ServerBase};
+use crate::serverbase::ServerBase;
 
 mod logging;
 
@@ -40,7 +40,7 @@ pub fn run_app<S: ServerBase + Send + 'static>(
     std::thread::spawn(move || {
         let _rt = rt.enter();
 
-        serverbase::run(server, port).unwrap();
+        crate::run(server, port).unwrap();
     });
 
     shutdown_system.blocking_wait_for_shutdown();

@@ -1,12 +1,21 @@
+mod legacy_ping;
+mod store;
+
+use base64::Engine;
+use protocol::newtypes::NextState;
+use protocol::packets::handshake::Handshake;
+use protocol::packets::status::{PingResponse, StatusResponse};
+use protocol::packets::{
+    CBStatus, ClientBound, LegacyPing, LegacyPingResponse, SBHandshake, SBStatus, ServerBound,
+};
+use protocol::{FromBytes, ToBytes, VarInt};
+use serde_json::json;
+use std::io::Write;
 use std::net::SocketAddr;
 use std::ops::ControlFlow;
 use std::sync::Arc;
-use std::task::{Context, Poll};
-
-use crate::graceful_shutdown::ShutdownSystem;
-use protocol::packets::{ClientBound, LegacyPing, LegacyPingResponse, SBHandshake, ServerBound};
-use protocol::{FromBytes, ToBytes};
-use tokio::io::{AsyncBufReadExt, BufReader, ReadBuf};
+pub use store::ServerBaseStore;
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::mpsc::{self, Sender};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -14,20 +23,6 @@ use tokio::{
     runtime::Handle,
 };
 use tracing::{debug, error, info, instrument};
-
-/// Data storage required to operate a base server
-#[derive(Debug)]
-pub struct ServerBaseStore {
-    pub shutdown: ShutdownSystem,
-}
-
-impl ServerBaseStore {
-    pub fn new() -> Self {
-        Self {
-            shutdown: ShutdownSystem::new(),
-        }
-    }
-}
 
 /// Represents basic server capabilities, such as listening on a TCP port and handling connections, managing worlds
 pub trait ServerBase: Sized + Sync + Send + 'static {
@@ -44,28 +39,11 @@ pub trait ServerBase: Sized + Sync + Send + 'static {
     }
 }
 
-// TODO error type?
-pub fn run<S: ServerBase>(server: S, port: u16) -> Result<(), Box<dyn std::error::Error>> {
-    Handle::current().block_on(async {
-        let server = Arc::new(server);
-
-        let _shutdown_guard = server.store().shutdown.guard();
-
-        let listener = TcpListener::bind(("127.0.0.1", port)).await?;
-
-        tokio::select! {
-            _ = server.store().shutdown.wait_for_shutdown() => {},
-            _ = serve(server.clone(), listener) => {},
-        }
-
-        Ok(())
-    })
-}
-
-async fn serve<S: ServerBase>(
+/// Accepts connections and spawns tokio tasks for further handling
+pub(crate) async fn serve<S: ServerBase>(
     server: Arc<S>,
     listener: TcpListener,
-) -> Result<(), tokio::io::Error> {
+) -> std::io::Result<()> {
     loop {
         let (socket, addr) = listener.accept().await?;
         socket.set_nodelay(true)?;
@@ -79,20 +57,6 @@ async fn serve<S: ServerBase>(
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq)]
-enum State {
-    Handshake,
-    Status,
-    Login,
-    Play,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-enum ConnControl {
-    SendPacket(ClientBound),
-    Disconnect,
-}
-
 async fn handle_conn<S: ServerBase>(
     server: Arc<S>,
     mut socket: BufReader<TcpStream>,
@@ -100,140 +64,118 @@ async fn handle_conn<S: ServerBase>(
 ) -> Result<(), tokio::io::Error> {
     let _shutdown_guard = server.store().shutdown.guard();
 
-    let (output_sender, mut output_receiver) = mpsc::channel(10);
-
     info!("Connection!");
 
     let mut buf = Vec::new();
 
-    let mut state = State::Handshake;
-    let mut control = ControlFlow::Continue(());
-
-    // Need to handle special case of legacy ping which uses different protocols...
-    if handle_legacy_ping(server.as_ref(), &mut socket, &mut buf).await? {
+    if legacy_ping::handle(server.as_ref(), &mut socket, &mut buf).await? {
+        // Legacy ping detected and handled
         return Ok(());
     }
 
-    loop {
-        if control.is_break() {
-            break;
-        }
+    let handshake = tokio::select! {
+        packet = read_packet(&mut socket, &mut buf) => {
+            match packet? { SBHandshake::Handshake(p) => p, }
+        },
+        _ = server.store().shutdown.wait_for_shutdown() => { return Ok(()); },
+    };
 
-        tokio::select! {
-            packet = read_packet(&mut socket, &mut state, &mut buf, &mut control) => {
-                info!("received: {:?}", packet?);
-            },
-            Some(conn_control) = output_receiver.recv() => {
-                match conn_control {
-                    ConnControl::SendPacket(_packet) => {
-                        // send_packet(&mut socket, &mut buf, packet).await?;
-                    },
-                    ConnControl::Disconnect => {
-                        control = ControlFlow::Break(());
-                    },
-                }
-            },
+    match handshake.next_state {
+        NextState::Status => tokio::select! {
+            _ = handle_conn_status(&mut socket, &mut buf, &handshake) => {},
+            _ = server.store().shutdown.wait_for_shutdown() => { return Ok(()); },
+        },
+        NextState::Login => tokio::select! {
+            _ = handle_conn_login(&mut socket, &mut buf, &handshake) => {},
             _ = server.store().shutdown.wait_for_shutdown() => {
-                socket.write_all(b"Sorry gotta go!..\n").await?;
-                break;
+                // TODO send disconnect package
+                return Ok(());
             },
-        }
+        },
     }
 
     Ok(())
 }
 
-// Returns true if legacy ping detected and handled
-async fn handle_legacy_ping<S: ServerBase>(
-    server: &S,
-    socket: &mut BufReader<TcpStream>,
-    buf: &mut Vec<u8>,
-) -> std::io::Result<bool> {
-    match *socket.fill_buf().await? {
-        [0xFE] | [0xFE, 0x01] => {
-            // Legacy ping before 1.6
-            /////////////////////////
-
-            if let Some(response) = server.legacy_ping(LegacyPing::Simple) {
-                // Write response
-                let payload = format!(
-                    "{}§{}§{}",
-                    response.motd, response.online, response.max_players
-                );
-                buf.push(0xFF); // packet ID
-                buf.extend_from_slice(&(payload.chars().count() as u16).to_be_bytes()); // length in characters
-                buf.extend(payload.encode_utf16().flat_map(|c| c.to_be_bytes())); // payload
-
-                socket.write_all(buf).await?;
-            }
-            Ok(true)
-        }
-        [0xFE, 0x01, 0xFA, ..] => {
-            // Legacy ping 1.6
-            //////////////////
-
-            // consume first 27 bytes which are always the same
-            buf.resize(27, 0);
-            socket.read_exact(buf).await?;
-
-            let hostname_len = socket.read_u16().await? - 7;
-            let protocol = socket.read_u8().await?;
-
-            socket.read_u16().await?; // hostname length again...
-
-            buf.resize(hostname_len as usize, 0);
-            socket.read_exact(buf).await?;
-            let hostname = String::from_utf16_lossy(
-                &buf.chunks(2)
-                    .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
-                    .collect::<Vec<_>>(),
-            );
-
-            let port = socket.read_i32().await? as u16;
-
-            if let Some(response) = server.legacy_ping(LegacyPing::WithData {
-                protocol,
-                hostname,
-                port,
-            }) {
-                // Write response
-                buf.clear();
-                buf.push(0xFF); // packet ID
-                buf.extend_from_slice(&[0x00, 0x00]); // placeholder for length
-                buf.extend_from_slice(&[0x00, 0xA7, 0x00, 0x31, 0x00, 0x00]); // and some constant values
-
-                // payload
-                for s in [
-                    response.protocol,
-                    response.version,
-                    response.motd,
-                    response.online,
-                    response.max_players,
-                ] {
-                    buf.extend(s.encode_utf16().flat_map(|c| c.to_be_bytes()));
-                    buf.extend_from_slice(&[0x00, 0x00]); // separation
-                }
-                let len = (buf.len() - 5) / 2;
-                buf[1..3].copy_from_slice(&(len as u16).to_be_bytes()); // Length
-
-                buf.truncate(buf.len() - 2); // remove trailing 0x00 0x00
-
-                socket.write_all(buf).await?;
-            }
-
-            Ok(true)
-        }
-        _ => Ok(false),
+struct NoopWriter;
+impl Write for NoopWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
     }
 }
 
-#[instrument(skip(socket, buf, control))]
-async fn read_packet(
+async fn handle_conn_status(
     socket: &mut BufReader<TcpStream>,
-    state: &mut State,
     buf: &mut Vec<u8>,
-    control: &mut ControlFlow<(), ()>,
-) -> std::io::Result<ServerBound> {
+    handshake: &Handshake,
+) -> std::io::Result<()> {
+    loop {
+        match read_packet(socket, buf).await? {
+            SBStatus::StatusRequest => {
+                let favicon = format!(
+                    "data:image/png;base64,{}",
+                    base64::engine::general_purpose::STANDARD
+                        .encode(include_bytes!("/home/mykolas/Downloads/icon.png"))
+                );
+                let packet = CBStatus::StatusResponse(StatusResponse {
+                    json: json!({
+                        "version": {
+                            "name": "BWS",
+                            "protocol": handshake.protocol_version.0
+                        },
+                        "players": {
+                            "max": 2023,
+                            "online": 72,
+                            "sample": [
+                                {
+                                    "name": "thinkofdeath",
+                                    "id": "4566e69f-c907-48ee-8d71-d7ba5aa00d20"
+                                }
+                            ]
+                        },
+                        "description": {
+                            "text": "Better World Servers"
+                        },
+                        "favicon": favicon,
+                        "enforcesSecureChat": true
+                    }),
+                });
+
+                buf.clear();
+                VarInt(packet.write_to(&mut NoopWriter)? as i32).write_to(buf)?;
+                packet.write_to(buf)?;
+                socket.write_all(buf).await?;
+            }
+            SBStatus::PingRequest(r) => {
+                let packet = CBStatus::PingResponse(PingResponse { payload: r.payload });
+
+                buf.clear();
+                VarInt(packet.write_to(&mut NoopWriter)? as i32).write_to(buf)?;
+                packet.write_to(buf)?;
+                socket.write_all(buf).await?;
+
+                break Ok(()); // end connection
+            }
+        }
+    }
+}
+
+async fn handle_conn_login(
+    socket: &mut BufReader<TcpStream>,
+    buf: &mut Vec<u8>,
+    handshake: &Handshake,
+) -> std::io::Result<()> {
+    loop {}
+}
+
+#[instrument(skip(socket, buf))]
+async fn read_packet<P: FromBytes>(
+    socket: &mut BufReader<TcpStream>,
+    buf: &mut Vec<u8>,
+) -> std::io::Result<P> {
     buf.clear();
 
     let packet_length = read_packet_length(socket).await?;
@@ -241,18 +183,7 @@ async fn read_packet(
     buf.resize(packet_length as usize, 0x00);
     socket.read_exact(buf).await?;
 
-    match *state {
-        State::Handshake => {
-            let packet = SBHandshake::read_from(&mut &buf[..]);
-
-            info!("Received handshake packet: {:?}", packet);
-
-            todo!()
-        }
-        State::Status => todo!(),
-        State::Login => todo!(),
-        State::Play => todo!(),
-    }
+    P::read_from(&mut &buf[..])
 }
 
 /// Async read varint

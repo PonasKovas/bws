@@ -1,6 +1,7 @@
 extern crate self as protocol;
 
 mod bstring;
+mod json;
 pub mod newtypes;
 pub mod packets;
 mod primitive_impls;

@@ -6,3 +6,5 @@ edition = "2021"
 [dependencies]
 tracing = "0.1.37"
 protocol-derive = { path = "../protocol-derive/" }
+serde_json = "1.0.96"
+serde = "1.0.163"

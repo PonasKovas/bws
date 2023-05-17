@@ -1,4 +1,5 @@
-use crate::{BString, FromBytes, ToBytes};
+use crate::{FromBytes, ToBytes};
+use serde_json::Value as JsonValue;
 
 #[derive(FromBytes, ToBytes, Debug, Clone, PartialEq)]
 pub enum SBStatus {
@@ -14,15 +15,15 @@ pub enum CBStatus {
 
 #[derive(FromBytes, ToBytes, Debug, Clone, PartialEq)]
 pub struct PingRequest {
-    payload: i64,
+    pub payload: i64,
 }
 
 #[derive(FromBytes, ToBytes, Debug, Clone, PartialEq)]
 pub struct PingResponse {
-    payload: i64,
+    pub payload: i64,
 }
 
 #[derive(FromBytes, ToBytes, Debug, Clone, PartialEq)]
 pub struct StatusResponse {
-    json_response: BString<32767>,
+    pub json: JsonValue,
 }
