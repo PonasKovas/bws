@@ -8,3 +8,12 @@ tracing = "0.1.37"
 protocol-derive = { path = "../protocol-derive/" }
 serde_json = "1.0.96"
 serde = "1.0.163"
+base64 = "0.21.0"
+
+[dependencies.uuid]
+version = "1.3.2"
+features = [
+    "v3",
+    "fast-rng",
+    "serde",
+]

@@ -1,11 +1,13 @@
-mod legacy_ping;
+pub mod legacy_ping;
 mod store;
 
 use base64::Engine;
 use legacy_ping::{LegacyPing, LegacyPingResponse};
 use protocol::newtypes::NextState;
 use protocol::packets::handshake::Handshake;
-use protocol::packets::status::{PingResponse, StatusResponse};
+use protocol::packets::status::{
+    PingResponse, PlayerSample, StatusResponse, StatusResponseBuilder,
+};
 use protocol::packets::{CBStatus, SBHandshake, SBStatus};
 use protocol::{FromBytes, ToBytes, VarInt};
 use serde_json::json;
@@ -20,25 +22,33 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
 };
-use tracing::{error, info, instrument};
+use tracing::{error, info, instrument, trace};
 
 /// Represents basic server capabilities, such as listening on a TCP port and handling connections, managing worlds
 pub trait ServerBase: Sized + Sync + Send + 'static {
     fn store(&self) -> &ServerBaseStore;
 
+    /// Legacy ping (requested by clients older than 1.7)
+    ///
+    /// Return `Some` to send a response.
+    /// If you don't send a respond, the server will appear as offline in their server list,
+    /// but they may still attempt to connect.
+    ///
+    /// Note: see also [`ping`][Self::ping] for post-1.6 ping.
     fn legacy_ping(
         &self,
         _client_addr: &SocketAddr,
         _packet: LegacyPing,
     ) -> Option<LegacyPingResponse> {
-        Some(LegacyPingResponse {
-            motd: format!("BWS: Better World Servers"),
-            online: format!("-1"),
-            max_players: format!("1400"),
-            protocol: format!("127"),
-            version: format!("BWS"),
-        })
+        Some(LegacyPingResponse::new(77).online(1).motd("a".repeat(246)))
     }
+    /// Server list ping
+    ///
+    /// Return `Some` to send a response
+    /// If you don't respond, the server will appear as offline to the client in their server list,
+    /// but they may still try to connect if they want to.
+    ///
+    /// Note: see also [`legacy_ping`][Self::legacy_ping] for pre-1.7 ping.
     fn ping(
         &self,
         _client_addr: &SocketAddr,
@@ -46,48 +56,13 @@ pub trait ServerBase: Sized + Sync + Send + 'static {
         _address: &str,
         _port: u16,
     ) -> Option<StatusResponse> {
-        // let favicon = format!(
-        //     "data:image/png;base64,{}",
-        //     base64::engine::general_purpose::STANDARD
-        //         .encode(include_bytes!("/home/mykolas/Downloads/icon.png"))
-        // );
-        let packet = StatusResponse {
-            json: json!({
-                "version": {
-                    "name": "BWS",
-                    "protocol": protocol,
-                },
-                "players": {
-                    "max": 20,
-                    "online": -1,
-                    "sample": [
-                        {
-                            "name": "§k§lbetter world servers",
-                            "id": "00000000-0000-0000-0000-000000000000"
-                        }
-                    ]
-                },
-                "description": [
-                    {
-                        "text": "BWS: ",
-                        "color": "#ffffff",
-                        "bold": true,
-                    },
-                    {
-                        "text": "Better World Servers\n",
-                        "color": "#ddddff",
-                        "bold": false,
-                    },
-                    {
-                        "text": "THERE ARE WORMS UNDER YOUR SKIN",
-                        "color": "#333333",
-                        "font": "minecraft:alt",
-                    }
-                ],
-                "favicon": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAACXBIWXMAAAHYAAAB2AH6XKZyAAAAGXRFWHRTb2Z0d2FyZQB3d3cuaW5rc2NhcGUub3Jnm+48GgAAAmZJREFUeJzlmz9y1DAUxn9P4yPABVKFI6SBlgooUnCJrZIil6BgqLgDPTQMk4NAQ4fvEFOsnRjHIit98sre9zX2elZ/fpKenuYb27pr3tPZJ8yeYQbA/mpg4/v+93A//C92/6h8yboSy8/X1WK2s+7KWofwQ/k2OIYH43lwDA8YwTM8ZgTP8ADBM3y/AvzCT0LAHzzch4BP+IcV4BS+HwC/8DAOAYfwDyHgFB7GJ0GH8BjDJugTHjMaGf7dZ3jxlv7BEdXBz6/w40aaiPkQSJn58zccH75v/+y1uArnQiB52YflWWOygAKPTbNATszXlgD/bwgoG15tCRt5xA/ABfx+D1BTXW2JWSxI8GsYAMiGH50DVgR/Fan3Qzf/XMxiBSyxyhKzWKPBzwxAbAZjis1sioSNXLfEakvMYgUssdrKhwcKWGK1JcAD/R6QC7/ECkjdEwR4kCyxlewB4sk10xIbNVJbAjyQY4nNNFJTAjwkW2IrgwcUePhfCBwaW7UlwAM0jwqIu2pUFy/nn395tb9e3h5e11hivw6wxArALyqtX40EP9dYLI8PM11a4qSUeUWmtoS+6K/I1JbYl9PxAzKlvSKzhgEQle8HnAA8QCPBpwxCbp5fWOl+wDRtblxpr8jMnRm6u+P2eKwCbR/uB8QOTL++1RmE7g5+f5erse7j2f7olgOflTan5RPqWkBP+wEnDA9P+QEnDg8lLLENw0MpS2yj8FDCEtswPJSwxDYMD7EQcAIPJSyxDcPDNAScwUMpS2yj8FDCEtswPNT+amwFqvfV2EoUMGu9wgN/AmY7zFqP8Bi7v6FKOS8mRFE/AAAAAElFTkSuQmCC",
-                "enforcesSecureChat": true
-            }),
-        };
+        let packet = StatusResponseBuilder::new(format!("BWS"), protocol)
+            .players(
+                -1,
+                77,
+                [["6"; 10].as_slice(), ["2"; 10].as_slice(), ["4";10].as_slice(), ["0";5].as_slice()].into_iter().flatten().cycle().take(63).map(|color| PlayerSample::from_text(format!("§{color}§kbetter world servers. there are worms under your skin pull them out you have to pull them out right now do it they are eating you alive you will feel so much better when you pull them out they are crawling under your skin so slippery and disgusting they are eating your life away pull them out right now or it may be too late grab a knife and cut them out of your body it will hurt for a bit but you will feel so much better when you finish"))).collect::<Vec<_>>(),
+            )
+            .build();
 
         Some(packet)
     }
@@ -140,7 +115,7 @@ async fn handle_conn<S: ServerBase>(
             _ = server.store().shutdown.wait_for_shutdown() => { return Ok(()); },
         },
         NextState::Login => tokio::select! {
-            _ = handle_conn_login(&mut socket, &mut buf, &handshake) => {},
+            _ = handle_conn_login(server.as_ref(), &mut socket, &addr, &mut buf, &handshake) => {},
             _ = server.store().shutdown.wait_for_shutdown() => {
                 // TODO send disconnect package
                 return Ok(());
@@ -177,6 +152,14 @@ async fn handle_conn_status<S: ServerBase>(
                     &handshake.server_address,
                     handshake.server_port,
                 ) {
+                    trace!("Sending StatusResponse: {p:?}");
+
+                    // Status Response JSON payload can't be longer than 32767
+                    // in CHARACTERS (not bytes)
+                    if serde_json::to_string(&p.json).unwrap().len() > 32767 {
+                        error!("Sending invalid status response: too long.\n{:?}", p);
+                    }
+
                     let packet = CBStatus::StatusResponse(p);
 
                     buf.clear();
@@ -188,6 +171,7 @@ async fn handle_conn_status<S: ServerBase>(
                 }
             }
             SBStatus::PingRequest(r) => {
+                trace!("Sending PingResponse: {r:?}");
                 let packet = CBStatus::PingResponse(PingResponse { payload: r.payload });
 
                 buf.clear();
@@ -201,8 +185,10 @@ async fn handle_conn_status<S: ServerBase>(
     }
 }
 
-async fn handle_conn_login(
+async fn handle_conn_login<S: ServerBase>(
+    _server: &S,
     _socket: &mut BufReader<TcpStream>,
+    _addr: &SocketAddr,
     _buf: &mut Vec<u8>,
     _handshake: &Handshake,
 ) -> std::io::Result<()> {

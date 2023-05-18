@@ -6,7 +6,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
 };
-use tracing::instrument;
+use tracing::{error, info, instrument};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum LegacyPing {
@@ -20,17 +20,51 @@ pub enum LegacyPing {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct LegacyPingResponse {
-    pub motd: String,
-    pub online: String,
-    pub max_players: String,
+    motd: String,
+    online: String,
+    max_players: String,
     // The following fields are only available on 1.6 legacy ping:
-    pub protocol: String,
-    pub version: String,
+    protocol: String,
+    version: String,
+}
+
+impl LegacyPingResponse {
+    pub fn new(max_players: u32) -> Self {
+        Self {
+            motd: format!(""),
+            online: format!(""),
+            max_players: format!("{max_players}"),
+            protocol: format!(""),
+            version: format!(""),
+        }
+    }
+    pub fn motd(mut self, motd: String) -> Self {
+        self.motd = motd;
+
+        self
+    }
+    pub fn online(mut self, online: u32) -> Self {
+        self.online = format!("{online}");
+
+        self
+    }
+    /// Only 1.6 clients receive this data
+    pub fn protocol(mut self, protocol: i32) -> Self {
+        self.protocol = format!("{protocol}");
+
+        self
+    }
+    /// Only 1.6 clients receive this data
+    pub fn version(mut self, version: String) -> Self {
+        self.version = format!("{version}");
+
+        self
+    }
 }
 
 // Returns true if legacy ping detected and handled
 #[instrument(skip(server, socket, buf))]
-pub async fn handle<S: ServerBase>(
+pub(super) async fn handle<S: ServerBase>(
     server: &S,
     socket: &mut BufReader<TcpStream>,
     addr: &SocketAddr,
@@ -94,11 +128,11 @@ pub async fn handle<S: ServerBase>(
 
                 // payload
                 for s in [
-                    response.protocol,
-                    response.version,
-                    response.motd,
-                    response.online,
-                    response.max_players,
+                    &response.protocol,
+                    &response.version,
+                    &response.motd,
+                    &response.online,
+                    &response.max_players,
                 ] {
                     buf.extend(s.encode_utf16().flat_map(|c| c.to_be_bytes()));
                     buf.extend_from_slice(&[0x00, 0x00]); // separation
@@ -107,6 +141,11 @@ pub async fn handle<S: ServerBase>(
                 buf[1..3].copy_from_slice(&(len as u16).to_be_bytes()); // Length
 
                 buf.truncate(buf.len() - 2); // remove trailing 0x00 0x00
+
+                // Client says "communication error" if longer, for some reason...
+                if buf.len() > 515 {
+                    error!("Too long legacy ping 1.6 response: {response:?}")
+                }
 
                 socket.write_all(buf).await?;
             }
