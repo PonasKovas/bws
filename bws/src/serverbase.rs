@@ -2,12 +2,11 @@ mod legacy_ping;
 mod store;
 
 use base64::Engine;
+use legacy_ping::{LegacyPing, LegacyPingResponse};
 use protocol::newtypes::NextState;
 use protocol::packets::handshake::Handshake;
 use protocol::packets::status::{PingResponse, StatusResponse};
-use protocol::packets::{
-    CBStatus, ClientBound, LegacyPing, LegacyPingResponse, SBHandshake, SBStatus, ServerBound,
-};
+use protocol::packets::{CBStatus, ClientBound, SBHandshake, SBStatus, ServerBound};
 use protocol::{FromBytes, ToBytes, VarInt};
 use serde_json::json;
 use std::io::Write;
@@ -28,14 +27,70 @@ use tracing::{debug, error, info, instrument};
 pub trait ServerBase: Sized + Sync + Send + 'static {
     fn store(&self) -> &ServerBaseStore;
 
-    fn legacy_ping(&self, _packet: LegacyPing) -> Option<LegacyPingResponse> {
+    fn legacy_ping(
+        &self,
+        _client_addr: &SocketAddr,
+        _packet: LegacyPing,
+    ) -> Option<LegacyPingResponse> {
         Some(LegacyPingResponse {
-            motd: format!("A BWS server"),
-            online: format!("0"),
+            motd: format!("BWS: Better World Servers"),
+            online: format!("-1"),
             max_players: format!("1400"),
             protocol: format!("127"),
             version: format!("BWS"),
         })
+    }
+    fn ping(
+        &self,
+        client_addr: &SocketAddr,
+        protocol: i32,
+        _address: &str,
+        _port: u16,
+    ) -> Option<StatusResponse> {
+        let favicon = format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD
+                .encode(include_bytes!("/home/mykolas/Downloads/icon.png"))
+        );
+        let packet = StatusResponse {
+            json: json!({
+                "version": {
+                    "name": "BWS",
+                    "protocol": protocol,
+                },
+                "players": {
+                    "max": 20,
+                    "online": -1,
+                    "sample": [
+                        {
+                            "name": "§k§lbetter world servers",
+                            "id": "00000000-0000-0000-0000-000000000000"
+                        }
+                    ]
+                },
+                "description": [
+                    {
+                        "text": "BWS: ",
+                        "color": "#ffffff",
+                        "bold": true,
+                    },
+                    {
+                        "text": "Better World Servers\n",
+                        "color": "#ddddff",
+                        "bold": false,
+                    },
+                    {
+                        "text": "THERE ARE WORMS UNDER YOUR SKIN",
+                        "color": "#333333",
+                        "font": "minecraft:alt",
+                    }
+                ],
+                "favicon": favicon,
+                "enforcesSecureChat": true
+            }),
+        };
+
+        Some(packet)
     }
 }
 
@@ -60,7 +115,7 @@ pub(crate) async fn serve<S: ServerBase>(
 async fn handle_conn<S: ServerBase>(
     server: Arc<S>,
     mut socket: BufReader<TcpStream>,
-    _addr: SocketAddr,
+    addr: SocketAddr,
 ) -> Result<(), tokio::io::Error> {
     let _shutdown_guard = server.store().shutdown.guard();
 
@@ -68,7 +123,7 @@ async fn handle_conn<S: ServerBase>(
 
     let mut buf = Vec::new();
 
-    if legacy_ping::handle(server.as_ref(), &mut socket, &mut buf).await? {
+    if legacy_ping::handle(server.as_ref(), &mut socket, &addr, &mut buf).await? {
         // Legacy ping detected and handled
         return Ok(());
     }
@@ -82,7 +137,7 @@ async fn handle_conn<S: ServerBase>(
 
     match handshake.next_state {
         NextState::Status => tokio::select! {
-            _ = handle_conn_status(&mut socket, &mut buf, &handshake) => {},
+            _ = handle_conn_status(server.as_ref(), &mut socket, &addr, &mut buf, &handshake) => {},
             _ = server.store().shutdown.wait_for_shutdown() => { return Ok(()); },
         },
         NextState::Login => tokio::select! {
@@ -107,47 +162,31 @@ impl Write for NoopWriter {
     }
 }
 
-async fn handle_conn_status(
+async fn handle_conn_status<S: ServerBase>(
+    server: &S,
     socket: &mut BufReader<TcpStream>,
+    addr: &SocketAddr,
     buf: &mut Vec<u8>,
     handshake: &Handshake,
 ) -> std::io::Result<()> {
     loop {
         match read_packet(socket, buf).await? {
             SBStatus::StatusRequest => {
-                let favicon = format!(
-                    "data:image/png;base64,{}",
-                    base64::engine::general_purpose::STANDARD
-                        .encode(include_bytes!("/home/mykolas/Downloads/icon.png"))
-                );
-                let packet = CBStatus::StatusResponse(StatusResponse {
-                    json: json!({
-                        "version": {
-                            "name": "BWS",
-                            "protocol": handshake.protocol_version.0
-                        },
-                        "players": {
-                            "max": 2023,
-                            "online": 72,
-                            "sample": [
-                                {
-                                    "name": "thinkofdeath",
-                                    "id": "4566e69f-c907-48ee-8d71-d7ba5aa00d20"
-                                }
-                            ]
-                        },
-                        "description": {
-                            "text": "Better World Servers"
-                        },
-                        "favicon": favicon,
-                        "enforcesSecureChat": true
-                    }),
-                });
+                if let Some(p) = server.ping(
+                    addr,
+                    handshake.protocol_version.0,
+                    &handshake.server_address,
+                    handshake.server_port,
+                ) {
+                    let packet = CBStatus::StatusResponse(p);
 
-                buf.clear();
-                VarInt(packet.write_to(&mut NoopWriter)? as i32).write_to(buf)?;
-                packet.write_to(buf)?;
-                socket.write_all(buf).await?;
+                    buf.clear();
+                    VarInt(packet.write_to(&mut NoopWriter)? as i32).write_to(buf)?;
+                    packet.write_to(buf)?;
+                    socket.write_all(buf).await?;
+                } else {
+                    break Ok(()); // end connection
+                }
             }
             SBStatus::PingRequest(r) => {
                 let packet = CBStatus::PingResponse(PingResponse { payload: r.payload });

@@ -1,5 +1,6 @@
+use std::net::SocketAddr;
+
 use crate::serverbase::ServerBase;
-use protocol::packets::LegacyPing;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -7,11 +8,32 @@ use tokio::{
 };
 use tracing::instrument;
 
+#[derive(Debug, PartialEq, Clone)]
+pub enum LegacyPing {
+    Simple,
+    WithData {
+        protocol: u8,
+        hostname: String,
+        port: u16,
+    },
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct LegacyPingResponse {
+    pub motd: String,
+    pub online: String,
+    pub max_players: String,
+    // The following fields are only available on 1.6 legacy ping:
+    pub protocol: String,
+    pub version: String,
+}
+
 // Returns true if legacy ping detected and handled
 #[instrument(skip(server, socket, buf))]
 pub async fn handle<S: ServerBase>(
     server: &S,
     socket: &mut BufReader<TcpStream>,
+    addr: &SocketAddr,
     buf: &mut Vec<u8>,
 ) -> std::io::Result<bool> {
     match *socket.fill_buf().await? {
@@ -19,7 +41,7 @@ pub async fn handle<S: ServerBase>(
             // Legacy ping before 1.6
             /////////////////////////
 
-            if let Some(response) = server.legacy_ping(LegacyPing::Simple) {
+            if let Some(response) = server.legacy_ping(addr, LegacyPing::Simple) {
                 // Write response
                 let payload = format!(
                     "{}§{}§{}",
@@ -56,11 +78,14 @@ pub async fn handle<S: ServerBase>(
 
             let port = socket.read_i32().await? as u16;
 
-            if let Some(response) = server.legacy_ping(LegacyPing::WithData {
-                protocol,
-                hostname,
-                port,
-            }) {
+            if let Some(response) = server.legacy_ping(
+                addr,
+                LegacyPing::WithData {
+                    protocol,
+                    hostname,
+                    port,
+                },
+            ) {
                 // Write response
                 buf.clear();
                 buf.push(0xFF); // packet ID

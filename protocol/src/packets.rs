@@ -1,9 +1,7 @@
 pub mod handshake;
-mod legacy_ping;
 pub mod status;
 
 pub use handshake::SBHandshake;
-pub use legacy_ping::{LegacyPing, LegacyPingResponse};
 pub use status::{CBStatus, SBStatus};
 
 #[derive(Debug, PartialEq, Clone)]
