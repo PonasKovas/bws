@@ -6,22 +6,21 @@ use legacy_ping::{LegacyPing, LegacyPingResponse};
 use protocol::newtypes::NextState;
 use protocol::packets::handshake::Handshake;
 use protocol::packets::status::{PingResponse, StatusResponse};
-use protocol::packets::{CBStatus, ClientBound, SBHandshake, SBStatus, ServerBound};
+use protocol::packets::{CBStatus, SBHandshake, SBStatus};
 use protocol::{FromBytes, ToBytes, VarInt};
 use serde_json::json;
 use std::io::Write;
 use std::net::SocketAddr;
-use std::ops::ControlFlow;
+
 use std::sync::Arc;
 pub use store::ServerBaseStore;
-use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::sync::mpsc::{self, Sender};
+use tokio::io::BufReader;
+
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
-    runtime::Handle,
 };
-use tracing::{debug, error, info, instrument};
+use tracing::{error, info, instrument};
 
 /// Represents basic server capabilities, such as listening on a TCP port and handling connections, managing worlds
 pub trait ServerBase: Sized + Sync + Send + 'static {
@@ -42,16 +41,16 @@ pub trait ServerBase: Sized + Sync + Send + 'static {
     }
     fn ping(
         &self,
-        client_addr: &SocketAddr,
+        _client_addr: &SocketAddr,
         protocol: i32,
         _address: &str,
         _port: u16,
     ) -> Option<StatusResponse> {
-        let favicon = format!(
-            "data:image/png;base64,{}",
-            base64::engine::general_purpose::STANDARD
-                .encode(include_bytes!("/home/mykolas/Downloads/icon.png"))
-        );
+        // let favicon = format!(
+        //     "data:image/png;base64,{}",
+        //     base64::engine::general_purpose::STANDARD
+        //         .encode(include_bytes!("/home/mykolas/Downloads/icon.png"))
+        // );
         let packet = StatusResponse {
             json: json!({
                 "version": {
@@ -85,7 +84,7 @@ pub trait ServerBase: Sized + Sync + Send + 'static {
                         "font": "minecraft:alt",
                     }
                 ],
-                "favicon": favicon,
+                "favicon": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAACXBIWXMAAAHYAAAB2AH6XKZyAAAAGXRFWHRTb2Z0d2FyZQB3d3cuaW5rc2NhcGUub3Jnm+48GgAAAmZJREFUeJzlmz9y1DAUxn9P4yPABVKFI6SBlgooUnCJrZIil6BgqLgDPTQMk4NAQ4fvEFOsnRjHIit98sre9zX2elZ/fpKenuYb27pr3tPZJ8yeYQbA/mpg4/v+93A//C92/6h8yboSy8/X1WK2s+7KWofwQ/k2OIYH43lwDA8YwTM8ZgTP8ADBM3y/AvzCT0LAHzzch4BP+IcV4BS+HwC/8DAOAYfwDyHgFB7GJ0GH8BjDJugTHjMaGf7dZ3jxlv7BEdXBz6/w40aaiPkQSJn58zccH75v/+y1uArnQiB52YflWWOygAKPTbNATszXlgD/bwgoG15tCRt5xA/ABfx+D1BTXW2JWSxI8GsYAMiGH50DVgR/Fan3Qzf/XMxiBSyxyhKzWKPBzwxAbAZjis1sioSNXLfEakvMYgUssdrKhwcKWGK1JcAD/R6QC7/ECkjdEwR4kCyxlewB4sk10xIbNVJbAjyQY4nNNFJTAjwkW2IrgwcUePhfCBwaW7UlwAM0jwqIu2pUFy/nn395tb9e3h5e11hivw6wxArALyqtX40EP9dYLI8PM11a4qSUeUWmtoS+6K/I1JbYl9PxAzKlvSKzhgEQle8HnAA8QCPBpwxCbp5fWOl+wDRtblxpr8jMnRm6u+P2eKwCbR/uB8QOTL++1RmE7g5+f5erse7j2f7olgOflTan5RPqWkBP+wEnDA9P+QEnDg8lLLENw0MpS2yj8FDCEtswPJSwxDYMD7EQcAIPJSyxDcPDNAScwUMpS2yj8FDCEtswPNT+amwFqvfV2EoUMGu9wgN/AmY7zFqP8Bi7v6FKOS8mRFE/AAAAAElFTkSuQmCC",
                 "enforcesSecureChat": true
             }),
         };
@@ -203,9 +202,9 @@ async fn handle_conn_status<S: ServerBase>(
 }
 
 async fn handle_conn_login(
-    socket: &mut BufReader<TcpStream>,
-    buf: &mut Vec<u8>,
-    handshake: &Handshake,
+    _socket: &mut BufReader<TcpStream>,
+    _buf: &mut Vec<u8>,
+    _handshake: &Handshake,
 ) -> std::io::Result<()> {
     loop {}
 }
