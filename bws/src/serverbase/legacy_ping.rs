@@ -18,22 +18,23 @@ pub enum LegacyPing {
     },
 }
 
+/// Keep in mind that a valid response has a length limit of 256 characters
 #[derive(Debug, PartialEq, Clone)]
 pub struct LegacyPingResponse {
     motd: String,
     online: String,
     max_players: String,
-    // The following fields are only available on 1.6 legacy ping:
+    // The following fields are only available on 1.4-1.6 legacy ping:
     protocol: String,
     version: String,
 }
 
 impl LegacyPingResponse {
-    pub fn new(max_players: u32) -> Self {
+    pub fn new() -> Self {
         Self {
             motd: format!(""),
             online: format!(""),
-            max_players: format!("{max_players}"),
+            max_players: format!("0"),
             protocol: format!(""),
             version: format!(""),
         }
@@ -43,8 +44,19 @@ impl LegacyPingResponse {
 
         self
     }
+    /// panics if `online` bigger than [`i32::MAX`] (`2_147_483_647`)
     pub fn online(mut self, online: u32) -> Self {
+        assert!(online <= i32::MAX as u32);
+
         self.online = format!("{online}");
+
+        self
+    }
+    /// panics if `max` bigger than [`i32::MAX`] (`2_147_483_647`)
+    pub fn max(mut self, max: u32) -> Self {
+        assert!(max <= i32::MAX as u32);
+
+        self.max_players = format!("{max}");
 
         self
     }
@@ -71,8 +83,8 @@ pub(super) async fn handle<S: ServerBase>(
     buf: &mut Vec<u8>,
 ) -> std::io::Result<bool> {
     match *socket.fill_buf().await? {
-        [0xFE] | [0xFE, 0x01] => {
-            // Legacy ping before 1.6
+        [0xFE] => {
+            // Legacy ping before 1.4
             /////////////////////////
 
             if let Some(response) = server.legacy_ping(addr, LegacyPing::Simple) {
@@ -81,12 +93,33 @@ pub(super) async fn handle<S: ServerBase>(
                     "{}§{}§{}",
                     response.motd, response.online, response.max_players
                 );
+
+                let len = payload.chars().count();
+
+                if len > 256 {
+                    error!(
+                        "Sending bad legacy ping response: too long:\n{:?}",
+                        response
+                    );
+                }
+
                 buf.push(0xFF); // packet ID
-                buf.extend_from_slice(&(payload.chars().count() as u16).to_be_bytes()); // length in characters
+                buf.extend_from_slice(&(len as u16).to_be_bytes()); // length in characters
                 buf.extend(payload.encode_utf16().flat_map(|c| c.to_be_bytes())); // payload
 
                 socket.write_all(buf).await?;
             }
+            Ok(true)
+        }
+        [0xFE, 0x01] => {
+            // Legacy ping 1.4-1.5
+            //////////////////////
+
+            if let Some(response) = server.legacy_ping(addr, LegacyPing::Simple) {
+                // Write response
+                send_14_16_response(socket, buf, &response).await?;
+            }
+
             Ok(true)
         }
         [0xFE, 0x01, 0xFA, ..] => {
@@ -121,37 +154,51 @@ pub(super) async fn handle<S: ServerBase>(
                 },
             ) {
                 // Write response
-                buf.clear();
-                buf.push(0xFF); // packet ID
-                buf.extend_from_slice(&[0x00, 0x00]); // placeholder for length
-                buf.extend_from_slice(&[0x00, 0xA7, 0x00, 0x31, 0x00, 0x00]); // and some constant values
-
-                // payload
-                for s in [
-                    &response.protocol,
-                    &response.version,
-                    &response.motd,
-                    &response.online,
-                    &response.max_players,
-                ] {
-                    buf.extend(s.encode_utf16().flat_map(|c| c.to_be_bytes()));
-                    buf.extend_from_slice(&[0x00, 0x00]); // separation
-                }
-                let len = (buf.len() - 5) / 2;
-                buf[1..3].copy_from_slice(&(len as u16).to_be_bytes()); // Length
-
-                buf.truncate(buf.len() - 2); // remove trailing 0x00 0x00
-
-                // Client says "communication error" if longer, for some reason...
-                if buf.len() > 515 {
-                    error!("Too long legacy ping 1.6 response: {response:?}")
-                }
-
-                socket.write_all(buf).await?;
+                send_14_16_response(socket, buf, &response).await?;
             }
 
             Ok(true)
         }
         _ => Ok(false),
     }
+}
+
+// 1.4-1.6 response format
+async fn send_14_16_response(
+    socket: &mut BufReader<TcpStream>,
+    buf: &mut Vec<u8>,
+    response: &LegacyPingResponse,
+) -> std::io::Result<()> {
+    buf.clear();
+    buf.push(0xFF); // packet ID
+    buf.extend_from_slice(&[0x00, 0x00]); // placeholder for length
+    buf.extend_from_slice(&[0x00, 0xA7, 0x00, 0x31, 0x00, 0x00]); // and some constant values
+
+    // payload
+    for s in [
+        &response.protocol,
+        &response.version,
+        &response.motd,
+        &response.online,
+        &response.max_players,
+    ] {
+        buf.extend(s.encode_utf16().flat_map(|c| c.to_be_bytes()));
+        buf.extend_from_slice(&[0x00, 0x00]); // separation
+    }
+    buf.truncate(buf.len() - 2); // remove trailing 0x00 0x00
+
+    let chars = (buf.len() - 3) / 2;
+
+    if chars > 256 {
+        error!(
+            "Sending bad legacy ping response: too long:\n{:?}",
+            response
+        );
+    }
+
+    buf[1..3].copy_from_slice(&(chars as u16).to_be_bytes()); // Length
+
+    socket.write_all(buf).await?;
+
+    Ok(())
 }

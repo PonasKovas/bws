@@ -61,6 +61,7 @@ impl StatusResponseBuilder {
 
         self
     }
+    // todo chat object newtype
     pub fn description_raw(mut self, description: JsonValue) -> Self {
         self.json["description"] = description;
 

@@ -8,7 +8,9 @@ use protocol::packets::handshake::Handshake;
 use protocol::packets::status::{
     PingResponse, PlayerSample, StatusResponse, StatusResponseBuilder,
 };
-use protocol::packets::{CBStatus, SBHandshake, SBStatus};
+use protocol::packets::{
+    CBLogin, CBStatus, ClientBound, SBHandshake, SBLogin, SBStatus, ServerBound,
+};
 use protocol::{FromBytes, ToBytes, VarInt};
 use serde_json::json;
 use std::io::Write;
@@ -40,7 +42,7 @@ pub trait ServerBase: Sized + Sync + Send + 'static {
         _client_addr: &SocketAddr,
         _packet: LegacyPing,
     ) -> Option<LegacyPingResponse> {
-        Some(LegacyPingResponse::new(77).online(1).motd("a".repeat(246)))
+        Some(LegacyPingResponse::new().online(0).max(2_147_483_647))
     }
     /// Server list ping
     ///
@@ -59,7 +61,7 @@ pub trait ServerBase: Sized + Sync + Send + 'static {
         let packet = StatusResponseBuilder::new(format!("BWS"), protocol)
             .players(
                 -1,
-                77,
+                2_147_483_647,
                 [["6"; 10].as_slice(), ["2"; 10].as_slice(), ["4";10].as_slice(), ["0";5].as_slice()].into_iter().flatten().cycle().take(63).map(|color| PlayerSample::from_text(format!("§{color}§kbetter world servers. there are worms under your skin pull them out you have to pull them out right now do it they are eating you alive you will feel so much better when you pull them out they are crawling under your skin so slippery and disgusting they are eating your life away pull them out right now or it may be too late grab a knife and cut them out of your body it will hurt for a bit but you will feel so much better when you finish"))).collect::<Vec<_>>(),
             )
             .build();
@@ -126,16 +128,6 @@ async fn handle_conn<S: ServerBase>(
     Ok(())
 }
 
-struct NoopWriter;
-impl Write for NoopWriter {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        Ok(buf.len())
-    }
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
 async fn handle_conn_status<S: ServerBase>(
     server: &S,
     socket: &mut BufReader<TcpStream>,
@@ -162,10 +154,7 @@ async fn handle_conn_status<S: ServerBase>(
 
                     let packet = CBStatus::StatusResponse(p);
 
-                    buf.clear();
-                    VarInt(packet.write_to(&mut NoopWriter)? as i32).write_to(buf)?;
-                    packet.write_to(buf)?;
-                    socket.write_all(buf).await?;
+                    write_packet(socket, buf, &packet).await?;
                 } else {
                     break Ok(()); // end connection
                 }
@@ -174,10 +163,7 @@ async fn handle_conn_status<S: ServerBase>(
                 trace!("Sending PingResponse: {r:?}");
                 let packet = CBStatus::PingResponse(PingResponse { payload: r.payload });
 
-                buf.clear();
-                VarInt(packet.write_to(&mut NoopWriter)? as i32).write_to(buf)?;
-                packet.write_to(buf)?;
-                socket.write_all(buf).await?;
+                write_packet(socket, buf, &packet).await?;
 
                 break Ok(()); // end connection
             }
@@ -187,16 +173,63 @@ async fn handle_conn_status<S: ServerBase>(
 
 async fn handle_conn_login<S: ServerBase>(
     _server: &S,
-    _socket: &mut BufReader<TcpStream>,
+    socket: &mut BufReader<TcpStream>,
     _addr: &SocketAddr,
-    _buf: &mut Vec<u8>,
+    buf: &mut Vec<u8>,
     _handshake: &Handshake,
 ) -> std::io::Result<()> {
-    loop {}
+    let start = if let SBLogin::LoginStart(p) = read_packet(socket, buf).await? {
+        p
+    } else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "Client not following format",
+        ));
+    };
+
+    let reason = format!("§4§l{}§r§c is banned.", start.name.to_inner());
+
+    write_packet(
+        socket,
+        buf,
+        &CBLogin::Disconnect(protocol::packets::login::Disconnect {
+            reason: json!(reason),
+        }),
+    )
+    .await?;
+
+    Ok(())
+}
+
+#[instrument(skip(socket, buf, packet))]
+async fn write_packet<P: ToBytes + Into<ClientBound>>(
+    socket: &mut BufReader<TcpStream>,
+    buf: &mut Vec<u8>,
+    packet: &P,
+) -> std::io::Result<()> {
+    struct NoopWriter;
+    impl Write for NoopWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    buf.clear();
+
+    let len = packet.write_to(&mut NoopWriter)?;
+    VarInt(len as i32).write_to(buf)?;
+    packet.write_to(buf)?;
+
+    socket.write_all(buf).await?;
+
+    Ok(())
 }
 
 #[instrument(skip(socket, buf))]
-async fn read_packet<P: FromBytes>(
+async fn read_packet<P: FromBytes + Into<ServerBound>>(
     socket: &mut BufReader<TcpStream>,
     buf: &mut Vec<u8>,
 ) -> std::io::Result<P> {

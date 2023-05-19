@@ -1,12 +1,16 @@
 extern crate self as protocol;
 
+mod r#box;
 mod bstring;
 mod json;
 pub mod newtypes;
+mod option;
 pub mod packets;
 mod primitive_impls;
 mod string;
+mod uuid;
 mod varint;
+mod vec;
 
 use std::io::{Read, Result, Write};
 
