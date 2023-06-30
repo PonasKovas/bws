@@ -6,3 +6,5 @@ edition = "2021"
 
 [dependencies]
 bws = { path = "../bws/" }
+tokio = { version = "1", features = ["full"] }
+tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }

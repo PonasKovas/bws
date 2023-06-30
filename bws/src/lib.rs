@@ -1,30 +1,89 @@
-#[cfg(feature = "application")]
-pub mod application;
+use futures::Future;
+use graceful_exit::GracefulExit;
+use networking::{Conn, ConnCtx};
+use slab::Slab;
+use std::{collections::HashMap, sync::Arc};
+use tokio::{
+    io::BufReader,
+    net::TcpListener,
+    select,
+    sync::{broadcast, mpsc::unbounded_channel, RwLock},
+};
+use tracing::error;
 
-pub mod graceful_shutdown;
-mod linear_search;
-pub mod serverbase;
+pub use networking::legacy_ping::{LegacyPingPayload, LegacyPingResponse};
 
-use std::sync::Arc;
+mod networking;
 
-pub use linear_search::LinearSearch;
-use serverbase::serve;
-use serverbase::ServerBase;
-use tokio::{net::TcpListener, runtime::Handle};
+pub struct Server {
+    connections: RwLock<Slab<Conn>>,
+    graceful_exit: GracefulExit,
+    pub global_events: GlobalEvents,
+}
 
-pub fn run<S: ServerBase>(server: S, port: u16) -> std::io::Result<()> {
-    Handle::current().block_on(async {
-        let server = Arc::new(server);
+#[derive(Default)]
+pub struct GlobalEvents {
+    pub legacy_ping: Vec<
+        fn(
+            server: Arc<Server>,
+            id: usize,
+            payload: &LegacyPingPayload,
+            response: &mut Option<LegacyPingResponse>,
+        ),
+    >,
+}
 
-        let _shutdown_guard = server.store().shutdown.guard();
-
-        let listener = TcpListener::bind(("127.0.0.1", port)).await?;
-
-        tokio::select! {
-            _ = server.store().shutdown.wait_for_shutdown() => {},
-            _ = serve(server.clone(), listener) => {},
+impl Server {
+    pub fn new() -> Self {
+        Self {
+            connections: RwLock::new(Slab::new()),
+            graceful_exit: GracefulExit::new(),
+            global_events: Default::default(),
         }
+    }
+    pub async fn run(self, tcp_listener: TcpListener) -> Result<(), Box<dyn std::error::Error>> {
+        let server = Arc::new(self);
 
-        Ok(())
-    })
+        // todo create initial worlds and start ticking them here probably
+
+        loop {
+            let (socket, addr) = select! {
+                s = tcp_listener.accept() => s,
+                _ = server.graceful_exit.wait_for_exit() => {
+                    return Ok(());
+                },
+            }?;
+
+            socket.set_nodelay(true)?;
+
+            let (input_writer, input_reader) = broadcast::channel(16);
+            let (output_writer, output_reader) = unbounded_channel();
+
+            let id = server.connections.write().await.insert(Conn {
+                addr: addr.clone(),
+                input: input_reader,
+                output: output_writer,
+            });
+
+            let server = server.clone();
+            tokio::spawn(async move {
+                // handle connection
+                if let Err(e) = networking::handle_new_conn(
+                    server,
+                    ConnCtx {
+                        id,
+                        stream: BufReader::new(socket),
+                        addr,
+                        input: input_writer,
+                        output: output_reader,
+                        buf: Vec::new(),
+                    },
+                )
+                .await
+                {
+                    error!("Stream error: {e:?}");
+                }
+            });
+        }
+    }
 }

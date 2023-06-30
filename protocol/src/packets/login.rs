@@ -1,5 +1,5 @@
 use crate::{BString, FromBytes, ToBytes, VarInt};
-use serde_json::{json, Value as JsonValue};
+use serde_json::Value as JsonValue;
 use uuid::Uuid;
 
 #[derive(FromBytes, ToBytes, Debug, Clone, PartialEq)]

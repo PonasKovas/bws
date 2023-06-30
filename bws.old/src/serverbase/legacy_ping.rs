@@ -8,6 +8,8 @@ use tokio::{
 };
 use tracing::{error, info, instrument};
 
+use super::StreamCtx;
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum LegacyPing {
     Simple,
@@ -75,19 +77,17 @@ impl LegacyPingResponse {
 }
 
 // Returns true if legacy ping detected and handled
-#[instrument(skip(server, socket, buf))]
+#[instrument(skip(server, ctx))]
 pub(super) async fn handle<S: ServerBase>(
     server: &S,
-    socket: &mut BufReader<TcpStream>,
-    addr: &SocketAddr,
-    buf: &mut Vec<u8>,
+    ctx: &mut StreamCtx,
 ) -> std::io::Result<bool> {
-    match *socket.fill_buf().await? {
+    match *ctx.socket.fill_buf().await? {
         [0xFE] => {
             // Legacy ping before 1.4
             /////////////////////////
 
-            if let Some(response) = server.legacy_ping(addr, LegacyPing::Simple) {
+            if let Some(response) = server.legacy_ping(&ctx.addr, LegacyPing::Simple) {
                 // Write response
                 let payload = format!(
                     "{}§{}§{}",
@@ -103,11 +103,12 @@ pub(super) async fn handle<S: ServerBase>(
                     );
                 }
 
-                buf.push(0xFF); // packet ID
-                buf.extend_from_slice(&(len as u16).to_be_bytes()); // length in characters
-                buf.extend(payload.encode_utf16().flat_map(|c| c.to_be_bytes())); // payload
+                ctx.buf.push(0xFF); // packet ID
+                ctx.buf.extend_from_slice(&(len as u16).to_be_bytes()); // length in characters
+                ctx.buf
+                    .extend(payload.encode_utf16().flat_map(|c| c.to_be_bytes())); // payload
 
-                socket.write_all(buf).await?;
+                ctx.socket.write_all(&ctx.buf).await?;
             }
             Ok(true)
         }
@@ -115,9 +116,9 @@ pub(super) async fn handle<S: ServerBase>(
             // Legacy ping 1.4-1.5
             //////////////////////
 
-            if let Some(response) = server.legacy_ping(addr, LegacyPing::Simple) {
+            if let Some(response) = server.legacy_ping(&ctx.addr, LegacyPing::Simple) {
                 // Write response
-                send_14_16_response(socket, buf, &response).await?;
+                send_14_16_response(ctx, &response).await?;
             }
 
             Ok(true)
@@ -127,26 +128,27 @@ pub(super) async fn handle<S: ServerBase>(
             //////////////////
 
             // consume first 27 bytes which are always the same
-            buf.resize(27, 0);
-            socket.read_exact(buf).await?;
+            ctx.buf.resize(27, 0);
+            ctx.socket.read_exact(&mut ctx.buf).await?;
 
-            let hostname_len = socket.read_u16().await? - 7;
-            let protocol = socket.read_u8().await?;
+            let hostname_len = ctx.socket.read_u16().await? - 7;
+            let protocol = ctx.socket.read_u8().await?;
 
-            socket.read_u16().await?; // hostname length again...
+            ctx.socket.read_u16().await?; // hostname length again...
 
-            buf.resize(hostname_len as usize, 0);
-            socket.read_exact(buf).await?;
+            ctx.buf.resize(hostname_len as usize, 0);
+            ctx.socket.read_exact(&mut ctx.buf).await?;
             let hostname = String::from_utf16_lossy(
-                &buf.chunks(2)
+                &ctx.buf
+                    .chunks(2)
                     .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
                     .collect::<Vec<_>>(),
             );
 
-            let port = socket.read_i32().await? as u16;
+            let port = ctx.socket.read_i32().await? as u16;
 
             if let Some(response) = server.legacy_ping(
-                addr,
+                &ctx.addr,
                 LegacyPing::WithData {
                     protocol,
                     hostname,
@@ -154,7 +156,7 @@ pub(super) async fn handle<S: ServerBase>(
                 },
             ) {
                 // Write response
-                send_14_16_response(socket, buf, &response).await?;
+                send_14_16_response(ctx, &response).await?;
             }
 
             Ok(true)
@@ -165,14 +167,14 @@ pub(super) async fn handle<S: ServerBase>(
 
 // 1.4-1.6 response format
 async fn send_14_16_response(
-    socket: &mut BufReader<TcpStream>,
-    buf: &mut Vec<u8>,
+    ctx: &mut StreamCtx,
     response: &LegacyPingResponse,
 ) -> std::io::Result<()> {
-    buf.clear();
-    buf.push(0xFF); // packet ID
-    buf.extend_from_slice(&[0x00, 0x00]); // placeholder for length
-    buf.extend_from_slice(&[0x00, 0xA7, 0x00, 0x31, 0x00, 0x00]); // and some constant values
+    ctx.buf.clear();
+    ctx.buf.push(0xFF); // packet ID
+    ctx.buf.extend_from_slice(&[0x00, 0x00]); // placeholder for length
+    ctx.buf
+        .extend_from_slice(&[0x00, 0xA7, 0x00, 0x31, 0x00, 0x00]); // and some constant values
 
     // payload
     for s in [
@@ -182,12 +184,13 @@ async fn send_14_16_response(
         &response.online,
         &response.max_players,
     ] {
-        buf.extend(s.encode_utf16().flat_map(|c| c.to_be_bytes()));
-        buf.extend_from_slice(&[0x00, 0x00]); // separation
+        ctx.buf
+            .extend(s.encode_utf16().flat_map(|c| c.to_be_bytes()));
+        ctx.buf.extend_from_slice(&[0x00, 0x00]); // separation
     }
-    buf.truncate(buf.len() - 2); // remove trailing 0x00 0x00
+    ctx.buf.truncate(ctx.buf.len() - 2); // remove trailing 0x00 0x00
 
-    let chars = (buf.len() - 3) / 2;
+    let chars = (ctx.buf.len() - 3) / 2;
 
     if chars > 256 {
         error!(
@@ -196,9 +199,9 @@ async fn send_14_16_response(
         );
     }
 
-    buf[1..3].copy_from_slice(&(chars as u16).to_be_bytes()); // Length
+    ctx.buf[1..3].copy_from_slice(&(chars as u16).to_be_bytes()); // Length
 
-    socket.write_all(buf).await?;
+    ctx.socket.write_all(&ctx.buf).await?;
 
     Ok(())
 }

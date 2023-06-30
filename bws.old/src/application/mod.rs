@@ -14,8 +14,7 @@ pub fn run_app<S: ServerBase + Send + 'static>(
     server: S,
     config: &Config,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    human_panic::setup_panic!();
-
+    println!("test");
     logging::init();
 
     let shutdown_system = server.store().shutdown.clone();

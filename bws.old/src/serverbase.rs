@@ -5,14 +5,16 @@ use base64::Engine;
 use legacy_ping::{LegacyPing, LegacyPingResponse};
 use protocol::newtypes::NextState;
 use protocol::packets::handshake::Handshake;
+use protocol::packets::login::Disconnect;
 use protocol::packets::status::{
     PingResponse, PlayerSample, StatusResponse, StatusResponseBuilder,
 };
 use protocol::packets::{
     CBLogin, CBStatus, ClientBound, SBHandshake, SBLogin, SBStatus, ServerBound,
 };
-use protocol::{FromBytes, ToBytes, VarInt};
+use protocol::{BString, FromBytes, ToBytes, VarInt};
 use serde_json::json;
+use sha1::Sha1;
 use std::io::Write;
 use std::net::SocketAddr;
 
@@ -81,7 +83,15 @@ pub(crate) async fn serve<S: ServerBase>(
 
         let server = server.clone();
         tokio::spawn(async move {
-            if let Err(e) = handle_conn(server, BufReader::new(socket), addr).await {
+            let ctx = StreamCtx {
+                socket: BufReader::new(socket),
+                addr,
+                buf: Vec::new(),
+                cipher: None,
+                compression_threshold: None,
+            };
+
+            if let Err(e) = handle_conn(server, ctx).await {
                 error!("{}", e);
             }
         });
@@ -90,22 +100,19 @@ pub(crate) async fn serve<S: ServerBase>(
 
 async fn handle_conn<S: ServerBase>(
     server: Arc<S>,
-    mut socket: BufReader<TcpStream>,
-    addr: SocketAddr,
+    mut ctx: StreamCtx,
 ) -> Result<(), tokio::io::Error> {
     let _shutdown_guard = server.store().shutdown.guard();
 
     info!("Connection!");
 
-    let mut buf = Vec::new();
-
-    if legacy_ping::handle(server.as_ref(), &mut socket, &addr, &mut buf).await? {
+    if legacy_ping::handle(server.as_ref(), &mut ctx).await? {
         // Legacy ping detected and handled
         return Ok(());
     }
 
     let handshake = tokio::select! {
-        packet = read_packet(&mut socket, &mut buf) => {
+        packet = ctx.read_packet() => {
             match packet? { SBHandshake::Handshake(p) => p, }
         },
         _ = server.store().shutdown.wait_for_shutdown() => { return Ok(()); },
@@ -113,11 +120,11 @@ async fn handle_conn<S: ServerBase>(
 
     match handshake.next_state {
         NextState::Status => tokio::select! {
-            _ = handle_conn_status(server.as_ref(), &mut socket, &addr, &mut buf, &handshake) => {},
+            _ = handle_conn_status(server.as_ref(), &mut ctx, &handshake) => {},
             _ = server.store().shutdown.wait_for_shutdown() => { return Ok(()); },
         },
         NextState::Login => tokio::select! {
-            _ = handle_conn_login(server.as_ref(), &mut socket, &addr, &mut buf, &handshake) => {},
+            _ = handle_conn_login(server.as_ref(), &mut ctx, &handshake) => {},
             _ = server.store().shutdown.wait_for_shutdown() => {
                 // TODO send disconnect package
                 return Ok(());
@@ -130,16 +137,14 @@ async fn handle_conn<S: ServerBase>(
 
 async fn handle_conn_status<S: ServerBase>(
     server: &S,
-    socket: &mut BufReader<TcpStream>,
-    addr: &SocketAddr,
-    buf: &mut Vec<u8>,
+    ctx: &mut StreamCtx,
     handshake: &Handshake,
 ) -> std::io::Result<()> {
     loop {
-        match read_packet(socket, buf).await? {
+        match ctx.read_packet().await? {
             SBStatus::StatusRequest => {
                 if let Some(p) = server.ping(
-                    addr,
+                    &ctx.addr,
                     handshake.protocol_version.0,
                     &handshake.server_address,
                     handshake.server_port,
@@ -154,7 +159,7 @@ async fn handle_conn_status<S: ServerBase>(
 
                     let packet = CBStatus::StatusResponse(p);
 
-                    write_packet(socket, buf, &packet).await?;
+                    ctx.write_packet(&packet).await?;
                 } else {
                     break Ok(()); // end connection
                 }
@@ -163,7 +168,7 @@ async fn handle_conn_status<S: ServerBase>(
                 trace!("Sending PingResponse: {r:?}");
                 let packet = CBStatus::PingResponse(PingResponse { payload: r.payload });
 
-                write_packet(socket, buf, &packet).await?;
+                ctx.write_packet(&packet).await?;
 
                 break Ok(()); // end connection
             }
@@ -172,13 +177,11 @@ async fn handle_conn_status<S: ServerBase>(
 }
 
 async fn handle_conn_login<S: ServerBase>(
-    _server: &S,
-    socket: &mut BufReader<TcpStream>,
-    _addr: &SocketAddr,
-    buf: &mut Vec<u8>,
+    server: &S,
+    ctx: &mut StreamCtx,
     _handshake: &Handshake,
 ) -> std::io::Result<()> {
-    let start = if let SBLogin::LoginStart(p) = read_packet(socket, buf).await? {
+    let start = if let SBLogin::LoginStart(p) = ctx.read_packet().await? {
         p
     } else {
         return Err(std::io::Error::new(
@@ -187,60 +190,147 @@ async fn handle_conn_login<S: ServerBase>(
         ));
     };
 
-    let reason = format!("§4§l{}§r§c is banned.", start.name.to_inner());
+    use aes::cipher::AsyncStreamCipher;
+    use aes::cipher::{generic_array::GenericArray, KeyIvInit};
+    use rand::Rng;
+    use rsa::pkcs8::EncodePublicKey;
 
-    write_packet(
-        socket,
-        buf,
-        &CBLogin::Disconnect(protocol::packets::login::Disconnect {
-            reason: json!(reason),
-        }),
-    )
+    let mut token = [0u8; 32];
+    rand::thread_rng().fill(&mut token[..]);
+
+    let public_key = server
+        .store()
+        .rsa_keypair
+        .to_public_key()
+        .to_public_key_der()
+        .unwrap()
+        .into_vec();
+
+    ctx.write_packet(&CBLogin::EncryptionRequest(
+        protocol::packets::login::EncryptionRequest {
+            server_id: BString::new("".to_string()).unwrap(),
+            public_key: public_key.clone(),
+            verify_token: token.to_vec(),
+        },
+    ))
     .await?;
 
-    Ok(())
-}
+    let encryption_response = if let SBLogin::EncryptionResponse(p) = ctx.read_packet().await? {
+        p
+    } else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "Client not following format",
+        ));
+    };
 
-#[instrument(skip(socket, buf, packet))]
-async fn write_packet<P: ToBytes + Into<ClientBound>>(
-    socket: &mut BufReader<TcpStream>,
-    buf: &mut Vec<u8>,
-    packet: &P,
-) -> std::io::Result<()> {
-    struct NoopWriter;
-    impl Write for NoopWriter {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            Ok(buf.len())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
+    if &server
+        .store()
+        .rsa_keypair
+        .decrypt(rsa::Pkcs1v15Encrypt, &encryption_response.verify_token)
+        .expect("error decrypting verify token")
+        != &token
+    {
+        error!("Verify token incorrect");
+        ctx.write_packet(&CBLogin::Disconnect(Disconnect {
+            reason: json!("Incorrect verify token"),
+        }))
+        .await?;
+        return Ok(());
     }
 
-    buf.clear();
+    let shared_secret = server
+        .store()
+        .rsa_keypair
+        .decrypt(rsa::Pkcs1v15Encrypt, &encryption_response.shared_secret)
+        .expect("error decrypting shared secret");
 
-    let len = packet.write_to(&mut NoopWriter)?;
-    VarInt(len as i32).write_to(buf)?;
-    packet.write_to(buf)?;
+    let encrypt = cfb8::Encryptor::<aes::Aes128>::new(
+        GenericArray::from_slice(&shared_secret),
+        GenericArray::from_slice(&shared_secret),
+    );
+    let decrypt = cfb8::Decryptor::<aes::Aes128>::new(
+        GenericArray::from_slice(&shared_secret),
+        GenericArray::from_slice(&shared_secret),
+    );
 
-    socket.write_all(buf).await?;
+    ctx.cipher = Some((encrypt, decrypt));
+
+    use sha1::Digest;
+
+    // Calculate server id hash
+    let mut hasher = sha1::Sha1::new();
+    hasher.update(&shared_secret);
+    hasher.update(&public_key);
+    let mut hash = hasher.finalize();
+
+    let negative = hash[0] & 0b1000_0000_u8 != 0;
+    if negative {
+        // Perform two's complement
+        let mut carry = true;
+        for i in (0..hash.len()).rev() {
+            hash[i] = !hash[i];
+            if carry {
+                carry = hash[i] == 0xff;
+                hash[i] = hash[i].overflowing_add(1).0;
+            }
+        }
+    }
+    let url = format!("https://sessionserver.mojang.com/session/minecraft/hasJoined?username={}&serverId={}{hash:x}&ip={}", start.name.to_inner(), if negative { "-" } else { "" }, ctx.addr.ip());
+
+    let body = reqwest::get(&url).await.unwrap().text().await.unwrap();
+
+    info!("res: {body:?}");
 
     Ok(())
 }
 
-#[instrument(skip(socket, buf))]
-async fn read_packet<P: FromBytes + Into<ServerBound>>(
-    socket: &mut BufReader<TcpStream>,
-    buf: &mut Vec<u8>,
-) -> std::io::Result<P> {
-    buf.clear();
+struct StreamCtx {
+    socket: BufReader<TcpStream>,
+    addr: SocketAddr,
+    buf: Vec<u8>,
+    cipher: Option<(cfb8::Encryptor<aes::Aes128>, cfb8::Decryptor<aes::Aes128>)>,
+    compression_threshold: Option<usize>,
+}
 
-    let packet_length = read_packet_length(socket).await?;
+impl StreamCtx {
+    #[instrument(skip(self, packet))]
+    async fn write_packet<P: ToBytes + Into<ClientBound>>(
+        &mut self,
+        packet: &P,
+    ) -> std::io::Result<()> {
+        struct NoopWriter;
+        impl Write for NoopWriter {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
 
-    buf.resize(packet_length as usize, 0x00);
-    socket.read_exact(buf).await?;
+        self.buf.clear();
 
-    P::read_from(&mut &buf[..])
+        let len = packet.write_to(&mut NoopWriter)?;
+        VarInt(len as i32).write_to(&mut self.buf)?;
+        packet.write_to(&mut self.buf)?;
+
+        self.socket.write_all(&self.buf).await?;
+
+        Ok(())
+    }
+
+    #[instrument(skip(self))]
+    async fn read_packet<P: FromBytes + Into<ServerBound>>(&mut self) -> std::io::Result<P> {
+        self.buf.clear();
+
+        let packet_length = read_packet_length(&mut self.socket).await?;
+
+        self.buf.resize(packet_length as usize, 0x00);
+        self.socket.read_exact(&mut self.buf).await?;
+
+        P::read_from(&mut &self.buf[..])
+    }
 }
 
 /// Async read varint

@@ -19,6 +19,14 @@ impl<const MAX: usize> BString<MAX> {
     pub fn to_inner(self) -> String {
         self.0
     }
+    // panics if resulting string too long
+    pub fn mutate<F: FnOnce(&mut String)>(&mut self, f: F) {
+        f(&mut self.0);
+
+        if self.0.len() > MAX {
+            panic!("BString too long");
+        }
+    }
 }
 
 impl<const MAX: usize> Deref for BString<MAX> {
