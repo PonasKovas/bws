@@ -23,7 +23,7 @@ cfb8 = "0.8.1"
 sha1 = "0.10.5"
 serde = { version = "1.0.163", features = ["derive"] }
 reqwest = "0.11.18"
-bevy_ecs = "0.10.1"
+bevy_ecs = "0.11.0"
 slab = "0.4.8"
 
 [dependencies.uuid]
